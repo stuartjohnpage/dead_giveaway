@@ -23,6 +23,10 @@ defmodule DeadGiveaway.Room do
   # A round can start with as few as this many players (the rest are bots).
   @min_players 1
 
+  # The bots race as a single shared opponent on the scoreboard: any bot crossing
+  # first credits this one tally (DESIGN §7 — what the sim reports as a "wash").
+  @bot_name "Bot"
+
   # --- Client API ---
 
   def start_link(opts) do
@@ -68,6 +72,9 @@ defmodule DeadGiveaway.Room do
 
   @doc "PubSub topic a client subscribes to for a room's snapshot stream."
   def topic(id), do: "room:#{id}"
+
+  @doc "Display name of the shared bot opponent on the scoreboard."
+  def bot_name, do: @bot_name
 
   # --- Server callbacks ---
 
@@ -230,7 +237,7 @@ defmodule DeadGiveaway.Room do
     outcome = state.world_mod.outcome(state.world)
     # Award first so the broadcast carries the up-to-date session scoreboard.
     state = award(state, outcome)
-    broadcast(state.id, {:round_over, outcome, state.scores})
+    broadcast(state.id, {:round_over, outcome, scoreboard(state)})
     reset_round(state)
   end
 
@@ -240,7 +247,20 @@ defmodule DeadGiveaway.Room do
     update_in(state.scores[player], &((&1 || 0) + 1))
   end
 
+  # A bot crossing first (the sim's `:wash`) credits the shared Bot tally — bots
+  # are one opponent on the board. Not persisted (no player stat behind it).
+  defp award(state, :wash), do: update_in(state.scores[@bot_name], &((&1 || 0) + 1))
+
   defp award(state, _outcome), do: state
+
+  # The standings shown between rounds: every current player next to their win
+  # count (0 if they've yet to finish first), plus the shared Bot tally. Built
+  # from the live roster so the board reads like the lobby list, not just winners.
+  defp scoreboard(state) do
+    for name <- [@bot_name | Map.values(state.players)], into: %{} do
+      {name, Map.get(state.scores, name, 0)}
+    end
+  end
 
   # Drop back to the lobby: re-seed and tear down the world. The next round
   # won't start until a player hits Go (§8).

@@ -83,8 +83,11 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 
 - **First character to cross the finish line ends the round** — player **or** bot.
   - Human first → that human **wins (+1)**.
-  - **Bot first → wash**, no winner, round resets. (Bots reaching the line are the
-    natural shot-clock / anti-stalemate — no timer needed, no scroll.)
+  - **Bot first → the shared "Bot" opponent scores (+1)** and the round resets. No
+    human wins, and nothing is persisted to player stats — but the Bot sits on the
+    session scoreboard like any player, so the crowd beating you is visible rather
+    than a silent "wash". (Bots reaching the line are still the natural shot-clock /
+    anti-stalemate — no timer needed, no scroll.)
 - Getting shot (or shooting yourself) = **out for the round**, spectate; the round
   continues until someone crosses.
 

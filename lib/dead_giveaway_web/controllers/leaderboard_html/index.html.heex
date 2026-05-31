@@ -1,23 +1,30 @@
 <div class="mx-auto max-w-md p-4">
   <h1 class="text-xl font-semibold mb-3">Leaderboard</h1>
+  
   <p class="text-sm opacity-70 mb-4">
     Cumulative wins for registered players (§8 — wins only score).
   </p>
-
+  
   <table class="w-full text-left">
     <thead>
       <tr class="border-b border-base-300">
         <th class="py-1">#</th>
+        
         <th class="py-1">Player</th>
+        
         <th class="py-1 text-right">Wins</th>
       </tr>
     </thead>
+    
     <tbody>
       <tr :for={{player, rank} <- Enum.with_index(@players, 1)} class="border-b border-base-200">
         <td class="py-1">{rank}</td>
+        
         <td class="py-1">{player.name}</td>
+        
         <td class="py-1 text-right">{player.wins}</td>
       </tr>
+      
       <tr :if={@players == []}>
         <td colspan="3" class="py-2 opacity-60">No registered players yet.</td>
       </tr>

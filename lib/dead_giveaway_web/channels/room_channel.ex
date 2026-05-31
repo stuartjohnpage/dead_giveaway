@@ -119,5 +119,6 @@ defmodule DeadGiveawayWeb.RoomChannel do
   defp encode_fire(:no_shot), do: %{fired: false}
 
   defp encode_outcome({:winner, player}), do: %{winner: player}
-  defp encode_outcome(:wash), do: %{winner: nil}
+  # A bot crossed first — the shared Bot opponent takes the round (no more "wash").
+  defp encode_outcome(:wash), do: %{winner: Room.bot_name()}
 end

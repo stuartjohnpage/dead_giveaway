@@ -86,7 +86,7 @@ export async function boot() {
     const rows = scores
       ? Object.entries(scores)
           .sort((a, b) => b[1] - a[1])
-          .map(([n, w]) => `${n} — ${w}`)
+          .map(([n, w]) => (n === myName ? `${n} (you) — ${w}` : `${n} — ${w}`))
       : roster.map((n) => (n === myName ? `${n} (you)` : n));
     for (const text of rows) {
       const li = document.createElement("li");
@@ -145,7 +145,8 @@ export async function boot() {
     myCross.visible = true; // fresh round → fresh bullet (DESIGN §5)
   });
   channel.on("round_over", (p) => {
-    banner = p.winner ? `🏁 ${p.winner} wins!` : "Wash — a bot crossed first";
+    // The winner is always set now — a player name, or "Bot" when a bot crossed first.
+    banner = p.winner ? `🏁 ${p.winner} wins!` : "Round over";
     scores = p.scores || {};
     showLobby();
   });

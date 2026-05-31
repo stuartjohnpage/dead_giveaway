@@ -200,8 +200,30 @@ defmodule DeadGiveaway.RoomTest do
 
       assert_receive {:round_over, {:winner, "alice"}, scores}, 500
       assert scores["alice"] == 1
+      # The scoreboard lists every player (0 if they've not finished first) plus
+      # the shared Bot tally — it reads like the lobby roster, not just winners.
+      assert scores["bob"] == 0
+      assert scores["Bot"] == 0
       assert Room.score(room, "alice") == 1
       assert Room.score(room, "bob") == 0
+    end
+
+    test "a bot crossing first credits the shared Bot tally (no wash)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("botwin-1"))
+
+      {:ok, room} =
+        Room.start_link(id: "botwin-1", seed: 1, bots: 1, finish_x: 3 * World.walk_speed())
+
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # alice never moves, so the only thing that can cross is the lone bot.
+      Enum.each(1..200, fn _ -> Room.tick(room) end)
+
+      assert_receive {:round_over, :wash, scores}, 500
+      assert scores["Bot"] == 1
+      assert scores["alice"] == 0
+      assert Room.score(room, "Bot") == 1
     end
   end
 
