@@ -14,7 +14,9 @@ defmodule DeathRace.Room do
   the lobby, where another Go starts the next round (§8).
   """
 
-  use GenServer
+  # `:transient` so an empty room that stops itself (`:expire`, a `:normal` exit)
+  # is NOT restarted by its supervisor; a genuine crash still is.
+  use GenServer, restart: :transient
 
   alias DeathRace.World
 
@@ -83,6 +85,11 @@ defmodule DeathRace.Room do
       # DeathRace.Accounts). Off by default so the sim has no DB dependency.
       stats_mod: Keyword.get(opts, :stats),
       tick_ms: tick_ms,
+      # Shut an empty room down after this many ms idle so abandoned lobbies (and
+      # their codes) don't pile up. `nil` (the default) disables expiry — handy
+      # for unit tests that don't want a room vanishing under them.
+      empty_after_ms: Keyword.get(opts, :empty_after_ms),
+      expire_ref: nil,
       players: %{},
       # Monotonic so a freed slot is never handed out again — reusing a slot key
       # after a `leave` would silently overwrite a still-present player.
@@ -103,14 +110,20 @@ defmodule DeathRace.Room do
     name = player_name(player, slot, state.players)
 
     # Joining only places you in the lobby — a round starts when someone hits Go.
-    state = %{state | next_slot: slot + 1} |> put_in([:players, slot], name)
+    # A join means the room is no longer empty, so cancel any pending expiry.
+    state =
+      %{state | next_slot: slot + 1}
+      |> put_in([:players, slot], name)
+      |> cancel_expiry()
+
     broadcast_lobby(state)
     {:reply, {:ok, slot, name}, state}
   end
 
   def handle_call({:leave, player}, _from, state) do
     players = state.players |> Enum.reject(fn {_slot, name} -> name == player end) |> Map.new()
-    state = %{state | players: players}
+    # If that was the last player, start the countdown to shut the room down.
+    state = %{state | players: players} |> maybe_schedule_expiry()
     broadcast_lobby(state)
     {:reply, :ok, state}
   end
@@ -159,6 +172,15 @@ defmodule DeathRace.Room do
     schedule_tick(state.tick_ms)
     {:noreply, state}
   end
+
+  # The empty-room countdown elapsed. Stop only if still empty — a player may
+  # have rejoined and cancelled the timer just as it fired (the message can
+  # already be in the mailbox), in which case we stand down.
+  def handle_info(:expire, %{players: players} = state) when map_size(players) == 0 do
+    {:stop, :normal, state}
+  end
+
+  def handle_info(:expire, state), do: {:noreply, %{state | expire_ref: nil}}
 
   # --- Internals ---
 
@@ -232,6 +254,26 @@ defmodule DeathRace.Room do
   defp update_world(state, fun), do: %{state | world: fun.(state.world)}
 
   defp schedule_tick(tick_ms), do: Process.send_after(self(), :tick, tick_ms)
+
+  # Arm the shutdown timer when the room empties (no-op if expiry is disabled or
+  # the room still has players). Always clears any prior timer first so leaves
+  # can't stack up multiple pending expiries.
+  defp maybe_schedule_expiry(%{empty_after_ms: nil} = state), do: state
+
+  defp maybe_schedule_expiry(%{players: players} = state) when map_size(players) > 0,
+    do: state
+
+  defp maybe_schedule_expiry(state) do
+    state = cancel_expiry(state)
+    %{state | expire_ref: Process.send_after(self(), :expire, state.empty_after_ms)}
+  end
+
+  defp cancel_expiry(%{expire_ref: nil} = state), do: state
+
+  defp cancel_expiry(%{expire_ref: ref} = state) do
+    Process.cancel_timer(ref)
+    %{state | expire_ref: nil}
+  end
 
   defp broadcast(id, message) do
     Phoenix.PubSub.broadcast(DeathRace.PubSub, topic(id), message)

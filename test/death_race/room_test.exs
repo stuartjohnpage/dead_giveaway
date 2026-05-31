@@ -65,6 +65,40 @@ defmodule DeathRace.RoomTest do
     end
   end
 
+  describe "empty-lobby expiry" do
+    test "an empty room shuts itself down after the grace period" do
+      {:ok, room} = Room.start_link(id: "expire-1", empty_after_ms: 10)
+      Room.join(room, "alice")
+      ref = Process.monitor(room)
+
+      :ok = Room.leave(room, "alice")
+
+      # The last player left, so the room expires on its own (a normal exit).
+      assert_receive {:DOWN, ^ref, :process, ^room, :normal}, 500
+    end
+
+    test "a player rejoining before the grace period cancels the shutdown" do
+      {:ok, room} = Room.start_link(id: "expire-2", empty_after_ms: 50)
+      Room.join(room, "alice")
+      :ok = Room.leave(room, "alice")
+
+      # Rejoin well within the window — the pending shutdown must be cancelled.
+      {:ok, _, "bob"} = Room.join(room, "bob")
+      ref = Process.monitor(room)
+      refute_receive {:DOWN, ^ref, :process, ^room, _}, 120
+    end
+
+    test "a room with expiry disabled (the default) never auto-expires when emptied" do
+      {:ok, room} = Room.start_link(id: "expire-3")
+      Room.join(room, "alice")
+      ref = Process.monitor(room)
+
+      :ok = Room.leave(room, "alice")
+
+      refute_receive {:DOWN, ^ref, :process, ^room, _}, 50
+    end
+  end
+
   describe "a mid-round joiner" do
     test "spectates without crashing the room when they send input" do
       {:ok, room} = Room.start_link(id: "midjoin-1", seed: 1, bots: 0)

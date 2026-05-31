@@ -14,7 +14,15 @@ defmodule DeathRaceWeb.RoomChannel do
 
   # Production room shape; overridable via `config :death_race, :room, ...`
   # (tests use a tiny tick and no bots for determinism).
-  @default_room_opts [tick_ms: 50, bots: 24, finish_x: 500.0, stats: DeathRace.Accounts]
+  @default_room_opts [
+    tick_ms: 50,
+    bots: 24,
+    finish_x: 500.0,
+    stats: DeathRace.Accounts,
+    # Abandoned lobbies (and their codes) shut down a minute after the last
+    # player leaves; a reconnect within the window keeps the room alive.
+    empty_after_ms: 60_000
+  ]
 
   @impl true
   def join("room:" <> id, payload, socket) do
