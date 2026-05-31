@@ -17,18 +17,36 @@ defmodule DeathRaceWeb.RoomChannel do
   @default_room_opts [tick_ms: 50, bots: 24, finish_x: 500.0, stats: DeathRace.Accounts]
 
   @impl true
-  def join("room:" <> id, _payload, socket) do
-    {:ok, room} = Rooms.find_or_start(id, room_opts())
+  def join("room:" <> id, payload, socket) do
+    case resolve_room(id, payload) do
+      {:ok, room} ->
+        # Subscribe before joining so we receive our own join's lobby roster.
+        Phoenix.PubSub.subscribe(DeathRace.PubSub, Room.topic(id))
 
-    # Subscribe before joining so we receive our own join's lobby roster.
-    Phoenix.PubSub.subscribe(DeathRace.PubSub, Room.topic(id))
+        # Players are auto-named "Player N" for now; the room returns the canonical
+        # name, which is this player's identity for all subsequent input/fire.
+        {:ok, _slot, name} = Room.join(room)
 
-    # Players are auto-named "Player N" for now; the room returns the canonical
-    # name, which is this player's identity for all subsequent input/fire.
-    {:ok, _slot, name} = Room.join(room)
+        {:ok, %{name: name}, assign(socket, room: room, name: name)}
 
-    {:ok, %{name: name}, assign(socket, room: room, name: name)}
+      :error ->
+        # The join-by-code path (host=false) hit a code with no live room behind
+        # it — a typo or a lobby that already shut down. The client surfaces this.
+        {:error, %{reason: "not_found"}}
+    end
   end
+
+  # A join-by-code (host=false) must land on a room that already exists; the host
+  # (host=true) starts it. With no flag at all we stay lenient and find-or-start,
+  # which keeps direct URL navigation and the channel tests working.
+  defp resolve_room(id, %{"host" => false}) do
+    case Rooms.whereis(id) do
+      nil -> :error
+      pid -> {:ok, pid}
+    end
+  end
+
+  defp resolve_room(id, _payload), do: Rooms.find_or_start(id, room_opts())
 
   @impl true
   def terminate(_reason, socket) do

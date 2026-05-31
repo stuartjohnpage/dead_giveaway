@@ -4,16 +4,35 @@ defmodule DeathRaceWeb.RoomChannelTest do
   alias DeathRace.Rooms
   alias DeathRaceWeb.{RoomChannel, UserSocket}
 
-  defp join_room(id) do
+  defp join_room(id, payload \\ %{}) do
     {:ok, reply, socket} =
       socket(UserSocket, nil, %{})
-      |> subscribe_and_join(RoomChannel, "room:" <> id, %{})
+      |> subscribe_and_join(RoomChannel, "room:" <> id, payload)
 
     {reply, socket}
   end
 
   test "a player can join a room channel" do
     assert {_reply, %Phoenix.Socket{}} = join_room("chan-a")
+  end
+
+  test "the host (host=true) starts the room on join" do
+    assert {_reply, %Phoenix.Socket{}} = join_room("chan-host", %{"host" => true})
+    assert Rooms.whereis("chan-host")
+  end
+
+  test "joining by code (host=false) a lobby that isn't live is rejected" do
+    error =
+      socket(UserSocket, nil, %{})
+      |> subscribe_and_join(RoomChannel, "room:chan-missing", %{"host" => false})
+
+    assert {:error, %{reason: "not_found"}} = error
+    refute Rooms.whereis("chan-missing")
+  end
+
+  test "joining by code (host=false) succeeds once the lobby is live" do
+    join_room("chan-live", %{"host" => true})
+    assert {_reply, %Phoenix.Socket{}} = join_room("chan-live", %{"host" => false})
   end
 
   test "joiners get distinct auto-assigned identities" do

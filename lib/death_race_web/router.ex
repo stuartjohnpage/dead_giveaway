@@ -18,6 +18,10 @@ defmodule DeathRaceWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    # `/play/new` mints a fresh lobby code (the host); `/join` takes a typed code.
+    # Both resolve to `/play/:room`, so they're declared before the catch-all.
+    get "/play/new", GameController, :new
+    post "/join", GameController, :join
     get "/play/:room", GameController, :show
     get "/leaderboard", LeaderboardController, :index
   end

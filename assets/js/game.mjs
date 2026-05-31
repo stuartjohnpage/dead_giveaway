@@ -14,6 +14,9 @@ export async function boot() {
   if (!mount) return;
 
   const room = mount.dataset.room;
+  // The host (from /play/new) starts the room; a join-by-code requires it to
+  // already exist (the server replies "not_found" otherwise).
+  const isHost = mount.dataset.host === "true";
 
   const app = new Application();
   // The canvas tracks the window, so the game owns the whole viewport.
@@ -23,9 +26,19 @@ export async function boot() {
   // Figures and the crosshair are drawn with Graphics and baked into textures
   // up front — synchronously, with no async asset decode that could drop the
   // first frame (the old SVG load rendered for some players but not others).
-  const runnerTex = app.renderer.generateTexture(
-    new Graphics().circle(0, 0, 7).fill(0xdfe7ff),
+  //
+  // Placeholder cosmetic pool (DESIGN §4): a handful of tinted figures standing
+  // in for real sprite art. Assignment is by a hash of the entity id (below) —
+  // stable across clients and deliberately *independent* of the human/bot
+  // mapping, so the sprite never hints at who is human. Swap these generated
+  // textures for loaded sprite images when art is ready; nothing else changes.
+  const runnerTexs = [0xdfe7ff, 0xf6c177, 0x9ece6a, 0x7aa2f7, 0xbb9af7, 0xf7768e].map(
+    (color) => app.renderer.generateTexture(new Graphics().circle(0, 0, 7).fill(color)),
   );
+  // Cheap integer hash so id→sprite looks scattered rather than a row-by-row
+  // cycle, while staying deterministic (same id → same sprite for every client).
+  const texFor = (id) => runnerTexs[(Math.imul(id ^ 0x9e3779b9, 0x85ebca6b) >>> 0) % runnerTexs.length];
+
   const crossTex = app.renderer.generateTexture(
     new Graphics()
       .circle(0, 0, 11)
@@ -52,9 +65,14 @@ export async function boot() {
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
   const lobby = document.getElementById("lobby");
   const lobbyBanner = document.getElementById("lobby-banner");
+  const lobbyCode = document.getElementById("lobby-code");
   const lobbyList = document.getElementById("lobby-list");
   const lobbyHint = document.getElementById("lobby-hint");
+  const lobbyBack = document.getElementById("lobby-back");
   const goButton = document.getElementById("go");
+
+  // Show the shareable code so the host can pass it to friends.
+  if (lobbyCode) lobbyCode.textContent = `Lobby ${room}`;
 
   let myName = "";
   let banner = "Lobby — waiting to start";
@@ -93,7 +111,7 @@ export async function boot() {
   // --- Socket / channel ---
   const socket = new Socket("/socket", {});
   socket.connect();
-  const channel = socket.channel("room:" + room, {});
+  const channel = socket.channel("room:" + room, { host: isHost });
   channel
     .join()
     .receive("ok", (resp) => {
@@ -101,7 +119,14 @@ export async function boot() {
       renderLobby();
     })
     .receive("error", (r) => {
-      banner = `join failed: ${JSON.stringify(r)}`;
+      // The common case is a join-by-code for a lobby that isn't live — point
+      // the player back home rather than leaving them on a dead Go button.
+      const notFound = r && r.reason === "not_found";
+      banner = notFound ? `Lobby ${room} not found` : `join failed: ${JSON.stringify(r)}`;
+      if (lobbyCode) lobbyCode.textContent = "";
+      if (goButton) goButton.style.display = "none";
+      if (lobbyHint) lobbyHint.textContent = notFound ? "It may have already ended." : "";
+      if (lobbyBack) lobbyBack.hidden = false;
       renderLobby();
     });
 
@@ -141,7 +166,7 @@ export async function boot() {
       const { sx, sy } = worldToScreen(e.x, e.row * ROW_SPACING, view);
       let s = sprites.get(e.id);
       if (!s) {
-        const sprite = new Sprite(runnerTex);
+        const sprite = new Sprite(texFor(e.id));
         sprite.anchor.set(0.5);
         sprite.x = sx;
         sprite.y = sy;

@@ -1,6 +1,13 @@
 <%!-- The Pixi canvas (assets/js/game.mjs, booted from app.js) fills this and owns
-      the whole viewport — no page chrome during play. --%>
-<div id="game" data-room={@room} class="fixed inset-0 overflow-hidden bg-[#0b1020]"></div>
+      the whole viewport — no page chrome during play. `data-host` tells the client
+      whether to start this lobby (the host) or require it to already exist. --%>
+<div
+  id="game"
+  data-room={@room}
+  data-host={to_string(@host)}
+  class="fixed inset-0 overflow-hidden bg-[#0b1020]"
+>
+</div>
 
 <%!-- Lobby / between-rounds screen. Shown by default and on round_over; game.mjs
       hides it once a round is live. Lists who has joined (or the standings after
@@ -11,6 +18,8 @@
 >
   <div class="w-full max-w-sm rounded-2xl bg-[#10162e] p-8 text-center shadow-2xl ring-1 ring-white/10">
     <h2 id="lobby-banner" class="text-2xl font-bold text-white">Death Race</h2>
+    <%!-- The shareable lobby code, so the host can read it off and pass it on. --%>
+    <p id="lobby-code" class="mt-1 text-xs uppercase tracking-[0.3em] text-slate-500"></p>
     <ul id="lobby-list" class="my-6 space-y-1 text-sm text-slate-300"></ul>
     <button
       id="go"
@@ -19,5 +28,14 @@
       Go
     </button>
     <p id="lobby-hint" class="mt-3 h-4 text-xs text-slate-400"></p>
+    <%!-- Revealed by game.mjs when a join-by-code finds no live lobby. --%>
+    <a
+      id="lobby-back"
+      href="/"
+      hidden
+      class="mt-4 inline-block text-sm text-slate-400 transition hover:text-slate-200"
+    >
+      &larr; Back to home
+    </a>
   </div>
 </div>
