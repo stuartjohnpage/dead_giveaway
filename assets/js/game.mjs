@@ -194,11 +194,11 @@ export async function boot() {
 
   window.addEventListener("keydown", (ev) => {
     if (ev.key === "Shift" && !running) (running = true), sendVerb();
-    else if ((ev.code === "Space" || ev.key === "ArrowRight") && !walking) (walking = true), sendVerb();
+    else if (ev.code === "Space" && !walking) (walking = true), sendVerb();
   });
   window.addEventListener("keyup", (ev) => {
     if (ev.key === "Shift") (running = false), sendVerb();
-    else if (ev.code === "Space" || ev.key === "ArrowRight") (walking = false), sendVerb();
+    else if (ev.code === "Space") (walking = false), sendVerb();
   });
 
   // --- Mouse aim + the one bullet (§5) ---
