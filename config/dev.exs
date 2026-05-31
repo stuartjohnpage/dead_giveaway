@@ -1,11 +1,11 @@
 import Config
 
 # Configure your database
-config :death_race, DeathRace.Repo,
+config :dead_giveaway, DeadGiveaway.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "death_race_dev",
+  database: "dead_giveaway_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
@@ -16,7 +16,7 @@ config :death_race, DeathRace.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :death_race, DeathRaceWeb.Endpoint,
+config :dead_giveaway, DeadGiveawayWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   http: [ip: {127, 0, 0, 1}],
@@ -25,8 +25,8 @@ config :death_race, DeathRaceWeb.Endpoint,
   debug_errors: true,
   secret_key_base: "psVN7ha0Z4B6zOBxWdagB16GRHawOAmam1Mf5pET113RXcemUGqJqGtZCr0D8Xow",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:death_race, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:death_race, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:dead_giveaway, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:dead_giveaway, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -53,7 +53,7 @@ config :death_race, DeathRaceWeb.Endpoint,
 # different ports.
 
 # Reload browser tabs when matching files change.
-config :death_race, DeathRaceWeb.Endpoint,
+config :dead_giveaway, DeadGiveawayWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
@@ -62,13 +62,13 @@ config :death_race, DeathRaceWeb.Endpoint,
       # Gettext translations
       ~r"priv/gettext/.*\.po$",
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/death_race_web/router\.ex$",
-      ~r"lib/death_race_web/(controllers|live|components)/.*\.(ex|heex)$"
+      ~r"lib/dead_giveaway_web/router\.ex$",
+      ~r"lib/dead_giveaway_web/(controllers|live|components)/.*\.(ex|heex)$"
     ]
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :death_race, dev_routes: true
+config :dead_giveaway, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

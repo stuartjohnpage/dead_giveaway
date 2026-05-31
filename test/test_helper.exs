@@ -1,2 +1,2 @@
 ExUnit.start()
-Ecto.Adapters.SQL.Sandbox.mode(DeathRace.Repo, :manual)
+Ecto.Adapters.SQL.Sandbox.mode(DeadGiveaway.Repo, :manual)

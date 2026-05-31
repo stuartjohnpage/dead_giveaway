@@ -1,4 +1,4 @@
-defmodule DeathRaceWeb.ChannelCase do
+defmodule DeadGiveawayWeb.ChannelCase do
   @moduledoc """
   Test case for channels — sets up `Phoenix.ChannelTest` against the app endpoint.
   Channels here don't touch the database, so no Ecto sandbox is needed.
@@ -9,9 +9,9 @@ defmodule DeathRaceWeb.ChannelCase do
   using do
     quote do
       import Phoenix.ChannelTest
-      import DeathRaceWeb.ChannelCase
+      import DeadGiveawayWeb.ChannelCase
 
-      @endpoint DeathRaceWeb.Endpoint
+      @endpoint DeadGiveawayWeb.Endpoint
     end
   end
 end

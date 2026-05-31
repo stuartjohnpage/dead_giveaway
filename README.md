@@ -1,4 +1,4 @@
-# DeathRace
+# DeadGiveaway
 
 To start your Phoenix server:
 

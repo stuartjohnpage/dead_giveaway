@@ -1,4 +1,4 @@
-// Death Race browser client (DESIGN §9): connects the websocket, joins a room,
+// Dead Giveaway browser client (DESIGN §9): connects the websocket, joins a room,
 // and renders the authoritative snapshots with Pixi. Pure math lives in
 // coords.mjs (unit-tested); this module is the Pixi + socket + input glue.
 
@@ -7,7 +7,7 @@ import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 
 const PAD = 24;
-const ROW_SPACING = 10; // must match DeathRace.World @row_spacing
+const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
 
 export async function boot() {
   const mount = document.getElementById("game");

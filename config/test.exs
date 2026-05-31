@@ -5,27 +5,27 @@ import Config
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
-config :death_race, DeathRace.Repo,
+config :dead_giveaway, DeadGiveaway.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
-  database: "death_race_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "dead_giveaway_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :death_race, DeathRaceWeb.Endpoint,
+config :dead_giveaway, DeadGiveawayWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "+Xm1Ghixf1+PIpjcXeJkd2SZoSf1T3DyX0oHkrawnHgvzg8xlf/iG9StjCX271wE",
   server: false
 
 # Deterministic rooms for channel tests: a fast tick and no bots, so snapshots
 # contain only the joined humans.
-config :death_race, :room, tick_ms: 20, bots: 0, stats: nil
+config :dead_giveaway, :room, tick_ms: 20, bots: 0, stats: nil
 
 # In test we don't send emails
-config :death_race, DeathRace.Mailer, adapter: Swoosh.Adapters.Test
+config :dead_giveaway, DeadGiveaway.Mailer, adapter: Swoosh.Adapters.Test
 
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false

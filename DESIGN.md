@@ -1,4 +1,4 @@
-# Death Race — Design Spec (v1.0)
+# Dead Giveaway — Design Spec (v1.0)
 
 A browser-based multiplayer hidden-identity game with an Elixir backend, inspired by
 the "Death Race" mode from *Hidden in Plain Sight*. Hide among AI characters in a

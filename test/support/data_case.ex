@@ -1,4 +1,4 @@
-defmodule DeathRace.DataCase do
+defmodule DeadGiveaway.DataCase do
   @moduledoc """
   This module defines the setup for tests requiring
   access to the application's data layer.
@@ -10,7 +10,7 @@ defmodule DeathRace.DataCase do
   we enable the SQL sandbox, so changes done to the database
   are reverted at the end of every test. If you are using
   PostgreSQL, you can even run database tests asynchronously
-  by setting `use DeathRace.DataCase, async: true`, although
+  by setting `use DeadGiveaway.DataCase, async: true`, although
   this option is not recommended for other databases.
   """
 
@@ -18,17 +18,17 @@ defmodule DeathRace.DataCase do
 
   using do
     quote do
-      alias DeathRace.Repo
+      alias DeadGiveaway.Repo
 
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
-      import DeathRace.DataCase
+      import DeadGiveaway.DataCase
     end
   end
 
   setup tags do
-    DeathRace.DataCase.setup_sandbox(tags)
+    DeadGiveaway.DataCase.setup_sandbox(tags)
     :ok
   end
 
@@ -36,7 +36,7 @@ defmodule DeathRace.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(DeathRace.Repo, shared: not tags[:async])
+    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(DeadGiveaway.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
   end
 

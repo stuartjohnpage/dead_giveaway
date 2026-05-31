@@ -7,8 +7,8 @@
 # General application configuration
 import Config
 
-config :death_race,
-  ecto_repos: [DeathRace.Repo],
+config :dead_giveaway,
+  ecto_repos: [DeadGiveaway.Repo],
   generators: [timestamp_type: :utc_datetime]
 
 # We don't use LiveView colocated JS hooks (the game loop is Channels, not
@@ -16,14 +16,14 @@ config :death_race,
 config :phoenix_live_view, :colocated_js, disable_symlink_warning: true
 
 # Configure the endpoint
-config :death_race, DeathRaceWeb.Endpoint,
+config :dead_giveaway, DeadGiveawayWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: DeathRaceWeb.ErrorHTML, json: DeathRaceWeb.ErrorJSON],
+    formats: [html: DeadGiveawayWeb.ErrorHTML, json: DeadGiveawayWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: DeathRace.PubSub,
+  pubsub_server: DeadGiveaway.PubSub,
   live_view: [signing_salt: "GN9M9my7"]
 
 # Configure the mailer
@@ -33,12 +33,12 @@ config :death_race, DeathRaceWeb.Endpoint,
 #
 # For production it's recommended to configure a different adapter
 # at the `config/runtime.exs`.
-config :death_race, DeathRace.Mailer, adapter: Swoosh.Adapters.Local
+config :dead_giveaway, DeadGiveaway.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
-  death_race: [
+  dead_giveaway: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
@@ -54,7 +54,7 @@ config :esbuild,
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "4.1.12",
-  death_race: [
+  dead_giveaway: [
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css

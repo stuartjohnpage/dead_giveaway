@@ -1,0 +1,89 @@
+<Layouts.flash_group flash={@flash} />
+
+<div class="relative min-h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
+  <%!-- Soft racing-stripe glow behind the card. --%>
+  <div
+    aria-hidden="true"
+    class="pointer-events-none absolute inset-0 opacity-60 [background:radial-gradient(60rem_40rem_at_50%_-10%,#1e2a55_0%,transparent_60%)]"
+  >
+  </div>
+
+  <main class="relative z-10 mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 py-16">
+    <div class="mb-10 text-center">
+      <h1 class="bg-gradient-to-b from-white to-slate-400 bg-clip-text text-5xl font-black tracking-tight text-transparent">
+        DEAD GIVEAWAY
+      </h1>
+      <p class="mt-3 text-sm leading-6 text-slate-400">
+        Hide among the crowd.
+      </p>
+    </div>
+
+    <div class="w-full space-y-5 rounded-2xl bg-[#10162e] p-7 shadow-2xl ring-1 ring-white/10">
+      <%!-- Create: mints a fresh shareable code and drops you in as host. --%>
+      <a
+        href={~p"/play/new"}
+        class="block w-full rounded-xl bg-emerald-500 px-4 py-3 text-center font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400 active:scale-[0.98]"
+      >
+        Create a lobby
+      </a>
+
+      <div class="flex items-center gap-3 text-xs uppercase tracking-widest text-slate-500">
+        <span class="h-px flex-1 bg-white/10"></span>
+        or join one <span class="h-px flex-1 bg-white/10"></span>
+      </div>
+
+      <%!-- Join: type a code a host shared with you. --%>
+      <.form for={to_form(%{})} action={~p"/join"} method="post" class="flex gap-2">
+        <input
+          type="text"
+          id="code"
+          name="code"
+          placeholder="Lobby code"
+          autocomplete="off"
+          autocapitalize="characters"
+          maxlength="4"
+          class="w-full rounded-xl bg-[#0b1020] px-4 py-3 text-center text-lg font-semibold uppercase tracking-[0.3em] text-white placeholder:tracking-normal placeholder:text-slate-500 ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+        />
+        <button
+          type="submit"
+          class="shrink-0 rounded-xl bg-white/10 px-5 py-3 font-semibold text-white transition hover:bg-white/20 active:scale-[0.98]"
+        >
+          Join
+        </button>
+      </.form>
+    </div>
+
+    <%!-- Controls (match assets/js/game.mjs key bindings + DESIGN §3, §5). --%>
+    <div class="mt-10 w-full">
+      <h2 class="mb-4 text-center text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+        Controls
+      </h2>
+      <ul class="space-y-3 text-sm text-slate-300">
+        <li class="flex items-center gap-3">
+          <span class="flex shrink-0 gap-1">
+            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+              Space
+            </kbd>
+          </span>
+          <span>Hold to walk right</span>
+        </li>
+        <li class="flex items-center gap-3">
+          <span class="flex shrink-0 gap-1">
+            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+              Shift
+            </kbd>
+          </span>
+          <span>Hold to <span class="text-rose-300">run</span></span>
+        </li>
+        <li class="flex items-center gap-3">
+          <span class="flex shrink-0 gap-1">
+            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+              Mouse
+            </kbd>
+          </span>
+          <span>Aim your crosshair, click to fire your one bullet</span>
+        </li>
+      </ul>
+    </div>
+  </main>
+</div>

@@ -1,9 +1,9 @@
-defmodule DeathRace.MixProject do
+defmodule DeadGiveaway.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :death_race,
+      app: :dead_giveaway,
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -20,7 +20,7 @@ defmodule DeathRace.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {DeathRace.Application, []},
+      mod: {DeadGiveaway.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -83,10 +83,10 @@ defmodule DeathRace.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind death_race", "esbuild death_race"],
+      "assets.build": ["compile", "tailwind dead_giveaway", "esbuild dead_giveaway"],
       "assets.deploy": [
-        "tailwind death_race --minify",
-        "esbuild death_race --minify",
+        "tailwind dead_giveaway --minify",
+        "esbuild dead_giveaway --minify",
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]

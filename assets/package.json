@@ -1,8 +1,8 @@
 {
-  "name": "death_race_assets",
+  "name": "dead_giveaway_assets",
   "version": "0.0.0",
   "private": true,
-  "description": "Frontend dependencies for the Death Race client (bundled by esbuild).",
+  "description": "Frontend dependencies for the Dead Giveaway client (bundled by esbuild).",
   "dependencies": {
     "pixi.js": "^8.6.0"
   }

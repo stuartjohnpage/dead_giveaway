@@ -22,7 +22,7 @@ import "phoenix_html"
 // Establish Phoenix Socket and LiveView configuration.
 // import {Socket} from "phoenix"
 // import {LiveSocket} from "phoenix_live_view"
-// import {hooks as colocatedHooks} from "phoenix-colocated/death_race"
+// import {hooks as colocatedHooks} from "phoenix-colocated/dead_giveaway"
 // import topbar from "../vendor/topbar"
 
 // const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
@@ -89,7 +89,7 @@ document.querySelectorAll("[role=alert][data-flash]").forEach((el) => {
   })
 })
 
-// Boot the Death Race client on the game page (identified by the #game element).
+// Boot the Dead Giveaway client on the game page (identified by the #game element).
 import { boot } from "./game.mjs"
 if (document.getElementById("game")) {
   boot()
