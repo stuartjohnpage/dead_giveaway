@@ -5,7 +5,8 @@ defmodule DeadGiveawayWeb.RoomChannel do
   On join the channel finds-or-starts the room, joins the player into the lobby,
   and subscribes to the room's broadcasts. Inbound messages (`input`, `fire`,
   `go`) are routed into the authoritative `Room`; outbound the channel forwards
-  the room's `lobby` / `round_start` / `snapshot` / `round_over` broadcasts.
+  the room's `lobby` / `round_start` / `snapshot` / `shot` / `round_over`
+  broadcasts.
   """
 
   use Phoenix.Channel
@@ -96,6 +97,13 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   def handle_info({:snapshot, snapshot}, socket) do
     push(socket, "snapshot", snapshot)
+    {:noreply, socket}
+  end
+
+  # An anonymous gunshot — someone in the room fired. Every client plays the
+  # SFX; the message deliberately carries no shooter or outcome (DESIGN §5).
+  def handle_info(:shot, socket) do
+    push(socket, "shot", %{})
     {:noreply, socket}
   end
 

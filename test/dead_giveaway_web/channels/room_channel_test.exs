@@ -86,6 +86,10 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     # The reply confirms the shot was spent — never whether it hit human or bot.
     assert_reply ref, :ok, reply
     assert reply == %{fired: true}
+
+    # The shot is broadcast to the room, so every connected client — including
+    # the shooter — gets a "shot" push to play the SFX (it carries nothing else).
+    assert_push "shot", %{}
   end
 
   test "an input message is accepted and acknowledged" do

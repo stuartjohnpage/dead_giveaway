@@ -227,6 +227,36 @@ defmodule DeadGiveaway.RoomTest do
     end
   end
 
+  describe "firing" do
+    test "a spent bullet broadcasts an anonymous shot to the room" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("shot-1"))
+
+      {:ok, room} = Room.start_link(id: "shot-1", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      assert Room.fire(room, "alice", {0.0, 0.0}) == :fired
+      # Everyone in the room hears the crack — but it carries no shooter,
+      # position, or outcome (DESIGN §5).
+      assert_receive :shot, 500
+    end
+
+    test "an empty trigger-pull (bullet already spent) stays silent" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("shot-2"))
+
+      {:ok, room} = Room.start_link(id: "shot-2", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      assert Room.fire(room, "alice", {0.0, 0.0}) == :fired
+      assert_receive :shot, 500
+
+      # alice is out of bullets — a second pull does nothing and makes no sound.
+      assert Room.fire(room, "alice", {0.0, 0.0}) == :no_shot
+      refute_receive :shot, 200
+    end
+  end
+
   describe "the between-rounds lobby" do
     setup do
       {:ok, room} =

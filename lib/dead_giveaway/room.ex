@@ -160,8 +160,14 @@ defmodule DeadGiveaway.Room do
     # The world resolves *which body* dies (it ghosts in the next snapshot), but
     # we never surface whether it was human or bot — to the shooter or anyone
     # else. A shot is a pure gamble (DESIGN §5).
-    reply = if match?({:killed, _}, event), do: :fired, else: :no_shot
-    {:reply, reply, %{state | world: world}}
+    spent? = match?({:killed, _}, event)
+
+    # A spent bullet cracks out a shot everyone in the room hears, but the
+    # broadcast stays anonymous — no shooter, position, or outcome — so firing
+    # still tells no one anything (DESIGN §5).
+    if spent?, do: broadcast(state.id, :shot)
+
+    {:reply, if(spent?, do: :fired, else: :no_shot), %{state | world: world}}
   end
 
   def handle_call(:tick, _from, state) do

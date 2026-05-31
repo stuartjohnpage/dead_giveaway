@@ -62,16 +62,37 @@ export async function boot() {
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
 
+  // --- Audio volume settings (persisted client-side) ---
+  // Each channel is a 0–100 percentage; master scales the lot. SFX is the only
+  // channel today — music is issue #3. Effective gain is master × channel.
+  const VOL_KEY = "dg:volume";
+  const defaultVol = { master: 100, sfx: 70 };
+  const loadVol = () => {
+    try {
+      return { ...defaultVol, ...JSON.parse(localStorage.getItem(VOL_KEY) || "{}") };
+    } catch {
+      return { ...defaultVol }; // private mode / corrupt value → fall back to defaults
+    }
+  };
+  const volume = loadVol();
+  const saveVol = () => {
+    try {
+      localStorage.setItem(VOL_KEY, JSON.stringify(volume));
+    } catch {
+      /* storage unavailable (private mode) — settings just won't persist */
+    }
+  };
+  const sfxGain = () => (volume.master / 100) * (volume.sfx / 100);
+
   // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
   // Pixabay Content License, credited in priv/static/assets/sounds/CREDITS.md.
   const shotSfx = new Audio("/assets/sounds/gunshot.mp3");
   shotSfx.preload = "auto";
-  shotSfx.volume = 0.7;
   const playShot = () => {
-    // cloneNode lets overlapping shots both play (future-proofs for when the
-    // server broadcasts peer fire events; today only your own shot triggers it).
+    // cloneNode lets overlapping shots both play — the server broadcasts every
+    // peer's fire, so several can land on the same tick.
     const s = shotSfx.cloneNode();
-    s.volume = shotSfx.volume;
+    s.volume = sfxGain();
     s.play().catch(() => {}); // browsers reject autoplay until first gesture — the click *is* the gesture, so this should always succeed here
   };
 
@@ -123,6 +144,25 @@ export async function boot() {
     lobbyHint.textContent = "starting…";
   });
 
+  // --- Volume sliders (in the lobby card) ---
+  // Reflect the stored level, then write changes straight back to `volume` and
+  // localStorage so the next shot is at the new gain — no reload needed.
+  const bindSlider = (key) => {
+    const input = document.getElementById(`vol-${key}`);
+    const valOut = document.getElementById(`vol-${key}-val`);
+    if (!input) return;
+    const show = () => valOut && (valOut.textContent = `${volume[key]}%`);
+    input.value = String(volume[key]);
+    show();
+    input.addEventListener("input", () => {
+      volume[key] = Number(input.value);
+      show();
+      saveVol();
+    });
+  };
+  bindSlider("master");
+  bindSlider("sfx");
+
   // --- Socket / channel ---
   const socket = new Socket("/socket", {});
   socket.connect();
@@ -154,6 +194,8 @@ export async function boot() {
     hideLobby();
     updateWorld(snap);
   });
+  // Any player's shot — including your own — arrives here, so everyone hears it (§5).
+  channel.on("shot", () => playShot());
   channel.on("round_start", () => {
     hideLobby();
     scores = null;
@@ -227,7 +269,8 @@ export async function boot() {
     if (!myCross.visible) return; // already fired — defenceless
     const { wx, wy } = screenToWorld(mouse.x, mouse.y, view);
     // Firing reveals nothing about what you hit — only that you're now unarmed (§5).
-    playShot();
+    // The SFX plays when the server broadcasts the shot back (the "shot" handler
+    // above), so you hear the same crack as everyone else rather than a local one.
     channel.push("fire", { x: wx, y: wy });
     myCross.visible = false; // your crosshair vanishes once you've fired (§5)
   });
