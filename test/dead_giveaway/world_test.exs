@@ -22,6 +22,13 @@ defmodule DeadGiveaway.WorldTest do
         refute Map.has_key?(entity, :player)
       end
     end
+
+    test "an empty world (no humans, no bots) has no entities, not phantom rows" do
+      # Guards the `0..(total - 1)` range: with total == 0 that is `0..-1`, which
+      # would otherwise spawn entities on rows 0 and -1.
+      world = World.new(seed: 1, humans: [], bots: 0)
+      assert World.snapshot(world).entities == []
+    end
   end
 
   describe "movement" do

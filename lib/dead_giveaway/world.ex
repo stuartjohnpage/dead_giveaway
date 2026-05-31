@@ -54,12 +54,17 @@ defmodule DeadGiveaway.World do
     total = length(humans) + bot_count
     rng = :rand.seed_s(:exsss, {seed, seed, seed})
 
+    # One row per character. Guard the empty case explicitly: `0..(total - 1)`
+    # with total == 0 is the decreasing range `0..-1` (i.e. `[0, -1]`), which
+    # would spawn phantom rows — so a world with no characters has no rows.
+    rows = if total == 0, do: [], else: Enum.to_list(0..(total - 1))
+
     # Randomly choose which rows the humans occupy so identity isn't positional.
-    {human_rows, rng} = take_random(Enum.to_list(0..(total - 1)), length(humans), rng)
+    {human_rows, rng} = take_random(rows, length(humans), rng)
     human_row_to_player = Enum.zip(human_rows, humans) |> Map.new()
 
     entities =
-      for row <- 0..(total - 1), into: %{} do
+      for row <- rows, into: %{} do
         player = Map.get(human_row_to_player, row)
         {row, new_entity(row, player)}
       end

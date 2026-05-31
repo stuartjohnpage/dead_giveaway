@@ -62,7 +62,22 @@ export async function boot() {
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
 
+  // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
+  // Pixabay Content License, credited in priv/static/assets/sounds/CREDITS.md.
+  const shotSfx = new Audio("/assets/sounds/gunshot.mp3");
+  shotSfx.preload = "auto";
+  shotSfx.volume = 0.7;
+  const playShot = () => {
+    // cloneNode lets overlapping shots both play (future-proofs for when the
+    // server broadcasts peer fire events; today only your own shot triggers it).
+    const s = shotSfx.cloneNode();
+    s.volume = shotSfx.volume;
+    s.play().catch(() => {}); // browsers reject autoplay until first gesture — the click *is* the gesture, so this should always succeed here
+  };
+
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
+  // These all ship together in game_html/show.html.heex, so we resolve them
+  // once and trust they're present rather than nil-guarding every use.
   const lobby = document.getElementById("lobby");
   const lobbyBanner = document.getElementById("lobby-banner");
   const lobbyCode = document.getElementById("lobby-code");
@@ -72,7 +87,7 @@ export async function boot() {
   const goButton = document.getElementById("go");
 
   // Show the shareable code so the host can pass it to friends.
-  if (lobbyCode) lobbyCode.textContent = `Lobby ${room}`;
+  lobbyCode.textContent = `Lobby ${room}`;
 
   let myName = "";
   let banner = "Lobby — waiting to start";
@@ -81,7 +96,7 @@ export async function boot() {
 
   const renderLobby = () => {
     lobbyBanner.textContent = banner;
-    if (goButton) goButton.textContent = scores ? "Play again" : "Go";
+    goButton.textContent = scores ? "Play again" : "Go";
     lobbyList.innerHTML = "";
     const rows = scores
       ? Object.entries(scores)
@@ -96,13 +111,13 @@ export async function boot() {
   };
   const showLobby = () => {
     renderLobby();
-    if (goButton) goButton.disabled = false;
-    if (lobbyHint) lobbyHint.textContent = "";
-    if (lobby) lobby.style.display = "flex";
+    goButton.disabled = false;
+    lobbyHint.textContent = "";
+    lobby.style.display = "flex";
   };
-  const hideLobby = () => lobby && (lobby.style.display = "none");
+  const hideLobby = () => (lobby.style.display = "none");
 
-  goButton?.addEventListener("click", () => {
+  goButton.addEventListener("click", () => {
     channel.push("go", {});
     goButton.disabled = true;
     lobbyHint.textContent = "starting…";
@@ -123,10 +138,10 @@ export async function boot() {
       // the player back home rather than leaving them on a dead Go button.
       const notFound = r && r.reason === "not_found";
       banner = notFound ? `Lobby ${room} not found` : `join failed: ${JSON.stringify(r)}`;
-      if (lobbyCode) lobbyCode.textContent = "";
-      if (goButton) goButton.style.display = "none";
-      if (lobbyHint) lobbyHint.textContent = notFound ? "It may have already ended." : "";
-      if (lobbyBack) lobbyBack.hidden = false;
+      lobbyCode.textContent = "";
+      goButton.style.display = "none";
+      lobbyHint.textContent = notFound ? "It may have already ended." : "";
+      lobbyBack.hidden = false;
       renderLobby();
     });
 
@@ -212,6 +227,7 @@ export async function boot() {
     if (!myCross.visible) return; // already fired — defenceless
     const { wx, wy } = screenToWorld(mouse.x, mouse.y, view);
     // Firing reveals nothing about what you hit — only that you're now unarmed (§5).
+    playShot();
     channel.push("fire", { x: wx, y: wy });
     myCross.visible = false; // your crosshair vanishes once you've fired (§5)
   });

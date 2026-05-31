@@ -1,0 +1,14 @@
+# Normalize line endings: text files are stored with LF in the repo and checked
+# out with LF on every platform, so the codebase stays consistent on Windows too
+# (keeps Credo's line-ending consistency check happy).
+* text=auto eol=lf
+
+# Binary assets must never be line-ending-normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp3 binary
+*.woff binary
+*.woff2 binary

@@ -6,8 +6,8 @@ defmodule DeadGiveaway.Accounts do
 
   import Ecto.Query
 
-  alias DeadGiveaway.Repo
   alias DeadGiveaway.Accounts.Player
+  alias DeadGiveaway.Repo
 
   @doc "Register a player by (unique) name. Returns `{:ok, player}` or `{:error, changeset}`."
   def register_player(name) do
