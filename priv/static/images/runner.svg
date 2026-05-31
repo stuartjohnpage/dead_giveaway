@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <!-- Dev placeholder: a neutral top-down figure. IDENTICAL for every
+       character (DESIGN §4) — must never hint at human vs bot. -->
+  <ellipse cx="20" cy="23" rx="12" ry="9" fill="#6b7280"/>
+  <circle cx="20" cy="17" r="7.5" fill="#9ca3af" stroke="#374151" stroke-width="1.5"/>
+</svg>
