@@ -5,6 +5,8 @@
 import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, TilingSprite } from "pixi.js";
 import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
+import { loadVolume, sfxGain } from "./volume.mjs";
+import { createMusicLoop, MUSIC_GAIN } from "./music.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -124,37 +126,34 @@ export async function boot() {
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
 
-  // --- Audio volume settings (persisted client-side) ---
-  // Each channel is a 0–100 percentage; master scales the lot. SFX is the only
-  // channel today — music is issue #3. Effective gain is master × channel.
-  const VOL_KEY = "dg:volume";
-  const defaultVol = { master: 100, sfx: 70 };
-  const loadVol = () => {
-    try {
-      return { ...defaultVol, ...JSON.parse(localStorage.getItem(VOL_KEY) || "{}") };
-    } catch {
-      return { ...defaultVol }; // private mode / corrupt value → fall back to defaults
-    }
+  // Audio volume is configured on the home page and persisted in localStorage
+  // (volume.mjs); we read the stored level at boot and apply it to the SFX gain.
+  const volume = loadVolume();
+
+  // Lobby background music — the same loop as the menu. It plays while the lobby is up
+  // and is suspended during a live round, so the forthcoming game-music loop has a clean
+  // slot (issue #3). suspend/resume preserves the playhead, so lobby↔round is seamless.
+  const lobbyMusic = createMusicLoop("/sounds/music/neon_loop.mp3");
+  const lobbyMusicGain = () => (volume.master / 100) * MUSIC_GAIN;
+  let inRound = false;
+  // Autoplay policy: start on the first interaction. If that gesture lands mid-round
+  // (e.g. the Go click), suspend straight away so we don't play over the round.
+  const startLobbyMusic = async () => {
+    await lobbyMusic.start(lobbyMusicGain());
+    if (inRound) lobbyMusic.suspend();
   };
-  const volume = loadVol();
-  const saveVol = () => {
-    try {
-      localStorage.setItem(VOL_KEY, JSON.stringify(volume));
-    } catch {
-      /* storage unavailable (private mode) — settings just won't persist */
-    }
-  };
-  const sfxGain = () => (volume.master / 100) * (volume.sfx / 100);
+  window.addEventListener("pointerdown", startLobbyMusic, { once: true });
+  window.addEventListener("keydown", startLobbyMusic, { once: true });
 
   // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
-  // Pixabay Content License, credited in priv/static/assets/sounds/CREDITS.md.
-  const shotSfx = new Audio("/assets/sounds/gunshot.mp3");
+  // Pixabay Content License, credited in priv/static/sounds/CREDITS.md.
+  const shotSfx = new Audio("/sounds/gunshot.mp3");
   shotSfx.preload = "auto";
   const playShot = () => {
     // cloneNode lets overlapping shots both play — the server broadcasts every
     // peer's fire, so several can land on the same tick.
     const s = shotSfx.cloneNode();
-    s.volume = sfxGain();
+    s.volume = sfxGain(volume);
     s.play().catch(() => {}); // browsers reject autoplay until first gesture — the click *is* the gesture, so this should always succeed here
   };
 
@@ -170,10 +169,10 @@ export async function boot() {
   const goButton = document.getElementById("go");
 
   // Show the shareable code so the host can pass it to friends.
-  lobbyCode.textContent = `Lobby ${room}`;
+  lobbyCode.textContent = `Code: ${room}`;
 
   let myName = "";
-  let banner = "Lobby — waiting to start";
+  let banner = "Lobby";
   let roster = [];
   let scores = null; // set after a round; shown until the next round starts
 
@@ -197,33 +196,20 @@ export async function boot() {
     goButton.disabled = false;
     lobbyHint.textContent = "";
     lobby.style.display = "flex";
+    inRound = false;
+    lobbyMusic.resume(); // no-op until the music has actually started
   };
-  const hideLobby = () => (lobby.style.display = "none");
+  const hideLobby = () => {
+    lobby.style.display = "none";
+    inRound = true;
+    lobbyMusic.suspend();
+  };
 
   goButton.addEventListener("click", () => {
     channel.push("go", {});
     goButton.disabled = true;
     lobbyHint.textContent = "starting…";
   });
-
-  // --- Volume sliders (in the lobby card) ---
-  // Reflect the stored level, then write changes straight back to `volume` and
-  // localStorage so the next shot is at the new gain — no reload needed.
-  const bindSlider = (key) => {
-    const input = document.getElementById(`vol-${key}`);
-    const valOut = document.getElementById(`vol-${key}-val`);
-    if (!input) return;
-    const show = () => valOut && (valOut.textContent = `${volume[key]}%`);
-    input.value = String(volume[key]);
-    show();
-    input.addEventListener("input", () => {
-      volume[key] = Number(input.value);
-      show();
-      saveVol();
-    });
-  };
-  bindSlider("master");
-  bindSlider("sfx");
 
   // --- Socket / channel ---
   const socket = new Socket("/socket", {});
@@ -249,7 +235,7 @@ export async function boot() {
 
   channel.on("lobby", (p) => {
     roster = p.players || [];
-    if (!scores) banner = "Lobby — waiting to start";
+    if (!scores) banner = "Lobby";
     renderLobby();
   });
   channel.on("snapshot", (snap) => {

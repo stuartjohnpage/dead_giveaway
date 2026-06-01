@@ -94,3 +94,30 @@ import { boot } from "./game.mjs"
 if (document.getElementById("game")) {
   boot()
 }
+
+// Home page: bind the volume sliders (the game reads the persisted level at boot, so
+// changing it here carries into play) and loop the menu's background music.
+import { bindVolumeSliders, sfxGain } from "./volume.mjs"
+import { createMusicLoop, MUSIC_GAIN } from "./music.mjs"
+if (document.getElementById("vol-master")) {
+  const music = createMusicLoop("/sounds/music/neon_loop.mp3")
+  const musicVol = (v) => (v.master / 100) * MUSIC_GAIN // master scales the music; no dedicated channel yet
+  // Master slider updates the music gain live while it plays.
+  const volume = bindVolumeSliders((v) => music.setGain(musicVol(v)))
+
+  // Preview the firing SFX at the chosen level so the user hears what they've set. On
+  // "change" (slider release), not "input", so it's one shot per adjustment rather than
+  // a machine-gun while dragging.
+  const sfxPreview = new Audio("/sounds/gunshot.mp3")
+  sfxPreview.preload = "auto"
+  document.getElementById("vol-sfx")?.addEventListener("change", () => {
+    sfxPreview.currentTime = 0
+    sfxPreview.volume = sfxGain(volume) // master × sfx — matches in-game gain
+    sfxPreview.play().catch(() => {})
+  })
+
+  // Autoplay policy: kick the loop off on the first interaction.
+  const startMusic = () => music.start(musicVol(volume))
+  window.addEventListener("pointerdown", startMusic, { once: true })
+  window.addEventListener("keydown", startMusic, { once: true })
+}

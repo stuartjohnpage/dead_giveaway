@@ -33,26 +33,6 @@
     </button>
     <p id="lobby-hint" class="mt-3 h-4 text-xs text-slate-400"></p>
 
-    <%!-- Audio volume. game.mjs loads/saves these to localStorage and applies the
-          gain to the gunshot SFX (master scales every channel). --%>
-    <div id="settings" class="mt-6 space-y-3 text-left">
-      <label class="flex items-center gap-3 text-xs text-slate-400">
-        <span class="w-12 shrink-0">Master</span>
-        <input
-          id="vol-master"
-          type="range"
-          min="0"
-          max="100"
-          class="w-full accent-emerald-500"
-        />
-        <span id="vol-master-val" class="w-8 text-right tabular-nums text-slate-500"></span>
-      </label>
-      <label class="flex items-center gap-3 text-xs text-slate-400">
-        <span class="w-12 shrink-0">SFX</span>
-        <input id="vol-sfx" type="range" min="0" max="100" class="w-full accent-emerald-500" />
-        <span id="vol-sfx-val" class="w-8 text-right tabular-nums text-slate-500"></span>
-      </label>
-    </div>
     <%!-- Revealed by game.mjs when a join-by-code finds no live lobby. --%>
     <a
       id="lobby-back"
