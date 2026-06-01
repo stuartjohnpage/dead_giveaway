@@ -126,26 +126,34 @@ export async function boot() {
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
 
-  // Audio volume is configured on the home page and persisted in localStorage
+  // Audio volume is configured on the home page and kept in sessionStorage
   // (volume.mjs); we read the stored level at boot and apply it to the SFX gain.
   const volume = loadVolume();
 
-  // Lobby background music — the same loop as the menu. It plays while the lobby is up
-  // and is suspended during a live round, so the forthcoming game-music loop has a clean
-  // slot (issue #3). suspend/resume preserves the playhead, so lobby↔round is seamless.
+  // Two background loops: the menu/lobby track and the escalating in-game track. Each
+  // (re)starts from the top when its view opens (showLobby/hideLobby) and is stopped
+  // when we leave — so the lobby music restarts on every lobby entrance, and the round
+  // always opens on the game loop's intro. Both honour the master sound switch.
   const lobbyMusic = createMusicLoop("/sounds/music/neon_loop.mp3");
-  const lobbyMusicGain = () => (volume.enabled ? (volume.master / 100) * MUSIC_GAIN : 0);
-  let inRound = false;
-  // Autoplay policy: start on the first interaction. Skip entirely if sound is disabled
-  // on the home page. If the gesture lands mid-round (e.g. the Go click), suspend
-  // straight away so we don't play over the round.
-  const startLobbyMusic = async () => {
-    if (!volume.enabled) return;
-    await lobbyMusic.start(lobbyMusicGain());
-    if (inRound) lobbyMusic.suspend();
+  const gameMusic = createMusicLoop("/sounds/music/game/demo.mp3");
+  const musicGain = () => (volume.enabled ? (volume.master / 100) * MUSIC_GAIN : 0);
+  let inRound = null; // null until the first show/hide so that first edge always fires
+  // Swap to the lobby loop (stop game music, start lobby music from the top).
+  const playLobbyMusic = () => {
+    gameMusic.stop();
+    if (volume.enabled) lobbyMusic.start(musicGain());
   };
-  window.addEventListener("pointerdown", startLobbyMusic, { once: true });
-  window.addEventListener("keydown", startLobbyMusic, { once: true });
+  // Swap to the in-game loop (stop lobby music, start game music from the top).
+  const playRoundMusic = () => {
+    lobbyMusic.stop();
+    if (volume.enabled) gameMusic.start(musicGain());
+  };
+  // Autoplay policy re-arms on every page load, so the loop queued by the initial
+  // showLobby() can't actually sound until the first user gesture — (re)start the
+  // matching loop then. No-op when sound is off.
+  const primeMusic = () => (inRound ? playRoundMusic() : playLobbyMusic());
+  window.addEventListener("pointerdown", primeMusic, { once: true });
+  window.addEventListener("keydown", primeMusic, { once: true });
 
   // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
   // Pixabay Content License, credited in priv/static/sounds/CREDITS.md.
@@ -198,13 +206,20 @@ export async function boot() {
     goButton.disabled = false;
     lobbyHint.textContent = "";
     lobby.style.display = "flex";
-    inRound = false;
-    lobbyMusic.resume(); // no-op until the music has actually started
+    // Swap tracks only on the round→lobby edge. showLobby/hideLobby are called
+    // redundantly (hideLobby fires on every snapshot, many times a second); without this
+    // guard we'd restart the loop from the top every tick — a machine-gun stutter.
+    if (inRound !== false) {
+      inRound = false;
+      playLobbyMusic(); // restart the lobby loop from the top on lobby entrance
+    }
   };
   const hideLobby = () => {
     lobby.style.display = "none";
-    inRound = true;
-    lobbyMusic.suspend();
+    if (inRound !== true) {
+      inRound = true;
+      playRoundMusic(); // round opens on the in-game loop's intro
+    }
   };
 
   goButton.addEventListener("click", () => {

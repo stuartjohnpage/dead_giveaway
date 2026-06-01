@@ -67,7 +67,9 @@
           <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
             Shift
           </kbd>
-          <span class="text-xs text-slate-300">Hold to <span class="text-rose-300">run</span></span>
+          <span class="text-xs text-slate-300">
+            Hold to <span class="text-rose-300">run</span>
+          </span>
         </div>
 
         <div class="flex flex-col items-center gap-2">
@@ -81,9 +83,9 @@
       <p class="mt-5 text-center text-xs text-slate-500">One shot only.</p>
     </div>
 
-    <%!-- Sound. app.js (volume.mjs) loads/saves these to localStorage; the game reads
-          the stored level at boot and applies it to the gunshot SFX (master scales
-          every channel). --%>
+    <%!-- Sound. app.js (volume.mjs) loads/saves these to sessionStorage (session-scoped,
+          so a fresh visit starts off); the game reads the stored level at boot and
+          applies it to the gunshot SFX (master scales every channel). --%>
     <div class="mt-8 w-full rounded-2xl bg-[#10162e] p-6 shadow-2xl ring-1 ring-white/10">
       <h2 class="mb-4 text-center text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
         Sound
@@ -93,10 +95,10 @@
             and mutes audio; the choice persists with the rest of the volume settings. --%>
       <div class="mb-5 flex items-center justify-center gap-6 text-sm text-slate-300">
         <label class="flex items-center gap-2">
-          <input type="radio" name="sound" value="on" class="accent-emerald-500" checked /> On
+          <input type="radio" name="sound" value="on" class="accent-emerald-500" /> On
         </label>
         <label class="flex items-center gap-2">
-          <input type="radio" name="sound" value="off" class="accent-emerald-500" /> Off
+          <input type="radio" name="sound" value="off" class="accent-emerald-500" checked /> Off
         </label>
       </div>
 

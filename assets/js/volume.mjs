@@ -1,16 +1,21 @@
-// Client-side audio volume settings, persisted in localStorage and shared between
-// the home page (where they're configured) and the game (where the SFX gain is
-// applied). `enabled` is the master on/off switch; each channel is a 0–100 percentage
-// and master scales the lot. SFX is the only channel today — music is issue #3.
-// Effective gain is enabled × master × channel.
+// Client-side audio volume settings, scoped to the browsing session and shared between
+// the home page (where they're configured) and the game (where the gain is applied).
+// `enabled` is the master on/off switch and gates both music and SFX; each channel is
+// a 0–100 percentage and master scales the lot. Effective gain is enabled × master ×
+// channel. Sound starts OFF: nothing plays until the player switches it on, which is
+// itself a user gesture — so audio never fights the browser's autoplay block.
+//
+// Storage is sessionStorage, not localStorage: the choice is remembered as the player
+// moves menu→game and across reloads in the same tab, but a fresh visit (new tab) always
+// starts from the defaults (sound off). So music is never on by surprise on arrival.
 
 const VOL_KEY = "dg:volume";
 const SLIDER_KEYS = ["master", "sfx"];
-const DEFAULTS = { enabled: true, master: 100, sfx: 70 };
+const DEFAULTS = { enabled: false, master: 100, sfx: 70 };
 
 export function loadVolume() {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(VOL_KEY) || "{}") };
+    return { ...DEFAULTS, ...JSON.parse(sessionStorage.getItem(VOL_KEY) || "{}") };
   } catch {
     return { ...DEFAULTS }; // private mode / corrupt value → fall back to defaults
   }
@@ -18,7 +23,7 @@ export function loadVolume() {
 
 export function saveVolume(volume) {
   try {
-    localStorage.setItem(VOL_KEY, JSON.stringify(volume));
+    sessionStorage.setItem(VOL_KEY, JSON.stringify(volume));
   } catch {
     /* storage unavailable (private mode) — settings just won't persist */
   }
@@ -28,7 +33,7 @@ export const sfxGain = (volume) =>
   volume.enabled ? (volume.master / 100) * (volume.sfx / 100) : 0;
 
 // Wire the `vol-<key>` range inputs (and their `vol-<key>-val` readouts) to a volume
-// object, writing changes straight back to localStorage. Inputs that aren't on the
+// object, writing changes straight back to sessionStorage. Inputs that aren't on the
 // page are skipped, so this is safe to call wherever the controls might live. The
 // optional `onChange(volume)` fires after every adjustment — e.g. to scale music that
 // is already playing while the slider moves.

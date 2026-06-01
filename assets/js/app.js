@@ -104,15 +104,11 @@ if (document.getElementById("vol-master")) {
   const music = createMusicLoop("/sounds/music/neon_loop.mp3")
   // enabled × master scales the music (no dedicated music channel yet).
   const musicVol = (v) => (v.enabled ? (v.master / 100) * MUSIC_GAIN : 0)
-  // Apply the current state to the loop: start it (a toggle/slider is a user gesture, so
-  // autoplay is allowed), resume + re-gain, or suspend when sound is off.
-  const applyMusic = (v) => {
-    if (!v.enabled) return music.suspend()
-    if (!music.live) music.start(musicVol(v))
-    else (music.resume(), music.setGain(musicVol(v)))
-  }
-  bindVolumeSliders(applyMusic, volume) // sliders re-gain the music live
-  bindSoundToggle(applyMusic, volume) // On/Off starts/suspends it and shows/hides the sliders
+  // The On/Off switch starts or stops the loop (flipping it is a user gesture, so
+  // autoplay is allowed); the sliders only re-gain the already-playing loop — they must
+  // not restart it from the top on every drag.
+  bindSoundToggle((v) => (v.enabled ? music.start(musicVol(v)) : music.stop()), volume)
+  bindVolumeSliders((v) => music.setGain(musicVol(v)), volume)
 
   // Preview the firing SFX at the chosen level so the user hears what they've set. On
   // "change" (slider release), not "input", so it's one shot per adjustment rather than
@@ -125,8 +121,10 @@ if (document.getElementById("vol-master")) {
     sfxPreview.play().catch(() => {})
   })
 
-  // Autoplay policy: also kick the loop off on the first interaction (if sound is on).
-  const startMusic = () => volume.enabled && music.start(musicVol(volume))
+  // If sound was left On from a previous visit, autoplay policy still needs a gesture
+  // before the loop can sound — kick it off on the first interaction. (A fresh visit
+  // starts Off, so this is a no-op until the player flips the switch above.)
+  const startMusic = () => volume.enabled && !music.live && music.start(musicVol(volume))
   window.addEventListener("pointerdown", startMusic, { once: true })
   window.addEventListener("keydown", startMusic, { once: true })
 }
