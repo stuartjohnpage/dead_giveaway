@@ -134,11 +134,13 @@ export async function boot() {
   // and is suspended during a live round, so the forthcoming game-music loop has a clean
   // slot (issue #3). suspend/resume preserves the playhead, so lobby↔round is seamless.
   const lobbyMusic = createMusicLoop("/sounds/music/neon_loop.mp3");
-  const lobbyMusicGain = () => (volume.master / 100) * MUSIC_GAIN;
+  const lobbyMusicGain = () => (volume.enabled ? (volume.master / 100) * MUSIC_GAIN : 0);
   let inRound = false;
-  // Autoplay policy: start on the first interaction. If that gesture lands mid-round
-  // (e.g. the Go click), suspend straight away so we don't play over the round.
+  // Autoplay policy: start on the first interaction. Skip entirely if sound is disabled
+  // on the home page. If the gesture lands mid-round (e.g. the Go click), suspend
+  // straight away so we don't play over the round.
   const startLobbyMusic = async () => {
+    if (!volume.enabled) return;
     await lobbyMusic.start(lobbyMusicGain());
     if (inRound) lobbyMusic.suspend();
   };

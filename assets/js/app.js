@@ -97,17 +97,26 @@ if (document.getElementById("game")) {
 
 // Home page: bind the volume sliders (the game reads the persisted level at boot, so
 // changing it here carries into play) and loop the menu's background music.
-import { bindVolumeSliders, sfxGain } from "./volume.mjs"
+import { bindVolumeSliders, bindSoundToggle, loadVolume, sfxGain } from "./volume.mjs"
 import { createMusicLoop, MUSIC_GAIN } from "./music.mjs"
 if (document.getElementById("vol-master")) {
+  const volume = loadVolume()
   const music = createMusicLoop("/sounds/music/neon_loop.mp3")
-  const musicVol = (v) => (v.master / 100) * MUSIC_GAIN // master scales the music; no dedicated channel yet
-  // Master slider updates the music gain live while it plays.
-  const volume = bindVolumeSliders((v) => music.setGain(musicVol(v)))
+  // enabled × master scales the music (no dedicated music channel yet).
+  const musicVol = (v) => (v.enabled ? (v.master / 100) * MUSIC_GAIN : 0)
+  // Apply the current state to the loop: start it (a toggle/slider is a user gesture, so
+  // autoplay is allowed), resume + re-gain, or suspend when sound is off.
+  const applyMusic = (v) => {
+    if (!v.enabled) return music.suspend()
+    if (!music.live) music.start(musicVol(v))
+    else (music.resume(), music.setGain(musicVol(v)))
+  }
+  bindVolumeSliders(applyMusic, volume) // sliders re-gain the music live
+  bindSoundToggle(applyMusic, volume) // On/Off starts/suspends it and shows/hides the sliders
 
   // Preview the firing SFX at the chosen level so the user hears what they've set. On
   // "change" (slider release), not "input", so it's one shot per adjustment rather than
-  // a machine-gun while dragging.
+  // a machine-gun while dragging. (sfxGain is 0 when sound is off.)
   const sfxPreview = new Audio("/sounds/gunshot.mp3")
   sfxPreview.preload = "auto"
   document.getElementById("vol-sfx")?.addEventListener("change", () => {
@@ -116,8 +125,8 @@ if (document.getElementById("vol-master")) {
     sfxPreview.play().catch(() => {})
   })
 
-  // Autoplay policy: kick the loop off on the first interaction.
-  const startMusic = () => music.start(musicVol(volume))
+  // Autoplay policy: also kick the loop off on the first interaction (if sound is on).
+  const startMusic = () => volume.enabled && music.start(musicVol(volume))
   window.addEventListener("pointerdown", startMusic, { once: true })
   window.addEventListener("keydown", startMusic, { once: true })
 }
