@@ -47,6 +47,13 @@ defmodule DeadGiveaway.Room do
   @doc "Leave the room, freeing the player's slot so they stop counting toward rounds."
   def leave(room, player), do: GenServer.call(room, {:leave, player})
 
+  @doc """
+  Tear the room down entirely (the host backing out of the lobby). Tells every
+  connected client the lobby has `:closed` so they can drop back home, then stops
+  the room — freeing its code immediately rather than waiting for the empty timer.
+  """
+  def close(room), do: GenServer.call(room, :close)
+
   @doc "Start a round from the lobby with everyone currently joined (the Go button)."
   def go(room), do: GenServer.call(room, :go)
 
@@ -133,6 +140,13 @@ defmodule DeadGiveaway.Room do
     state = %{state | players: players} |> maybe_schedule_expiry()
     broadcast_lobby(state)
     {:reply, :ok, state}
+  end
+
+  def handle_call(:close, _from, state) do
+    # Notify the room (the closing host included) before we go, so every client
+    # navigates home rather than sitting on a lobby whose process is gone.
+    broadcast(state.id, :closed)
+    {:stop, :normal, :ok, state}
   end
 
   def handle_call(:go, _from, %{world: nil} = state) do

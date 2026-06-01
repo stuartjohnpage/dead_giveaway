@@ -36,7 +36,9 @@ defmodule DeadGiveawayWeb.RoomChannel do
         # name, which is this player's identity for all subsequent input/fire.
         {:ok, _slot, name} = Room.join(room)
 
-        {:ok, %{name: name}, assign(socket, room: room, name: name)}
+        # Remember whether this client is the host (host=true) — only the host can
+        # close the lobby out from under everyone when they back out.
+        {:ok, %{name: name}, assign(socket, room: room, name: name, host: payload["host"] == true)}
 
       :error ->
         # The join-by-code path (host=false) hit a code with no live room behind
@@ -61,8 +63,14 @@ defmodule DeadGiveawayWeb.RoomChannel do
   def terminate(_reason, socket) do
     # Free the slot on disconnect so a departed player stops counting toward the
     # round and isn't re-spawned (otherwise they linger as an inert ghost body).
+    # A host who just closed the lobby leaves a stopped room behind, so the call
+    # can hit a dead pid — swallow that exit, the room is already gone.
     with %{room: room, name: name} <- socket.assigns do
-      Room.leave(room, name)
+      try do
+        Room.leave(room, name)
+      catch
+        :exit, _ -> :ok
+      end
     end
 
     :ok
@@ -84,6 +92,14 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, :ok, socket}
   end
 
+  # Backing out of the lobby. The host tears the whole room down (everyone is sent
+  # `closed`); a guest just frees their own slot and heads home on their own.
+  def handle_in("leave", _payload, socket) do
+    %{room: room, name: name, host: host} = socket.assigns
+    if host, do: Room.close(room), else: Room.leave(room, name)
+    {:reply, :ok, socket}
+  end
+
   @impl true
   def handle_info({:lobby, roster}, socket) do
     push(socket, "lobby", roster)
@@ -92,6 +108,12 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   def handle_info(:round_start, socket) do
     push(socket, "round_start", %{})
+    {:noreply, socket}
+  end
+
+  # The host closed the lobby — tell this client so it can drop back to home.
+  def handle_info(:closed, socket) do
+    push(socket, "closed", %{})
     {:noreply, socket}
   end
 

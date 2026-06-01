@@ -100,6 +100,38 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_reply ref, :ok
   end
 
+  test "a guest's leave message frees their slot without closing the room" do
+    join_room("chan-guest-leave", %{"host" => true})
+    {_reply, socket} = join_room("chan-guest-leave", %{"host" => false})
+
+    room = Rooms.whereis("chan-guest-leave")
+    assert map_size(:sys.get_state(room).players) == 2
+
+    ref = push(socket, "leave", %{})
+    assert_reply ref, :ok
+
+    # The room is still live for the remaining (host) player.
+    assert Rooms.whereis("chan-guest-leave")
+    assert map_size(:sys.get_state(room).players) == 1
+  end
+
+  test "the host's leave message closes the lobby for everyone" do
+    {_reply, host} = join_room("chan-host-close", %{"host" => true})
+    join_room("chan-host-close", %{"host" => false})
+
+    room = Rooms.whereis("chan-host-close")
+    ref_down = Process.monitor(room)
+
+    ref = push(host, "leave", %{})
+    assert_reply ref, :ok
+
+    # Every client (the closing host included) is told the lobby is gone...
+    assert_push "closed", %{}
+    # ...and the room process is actually torn down, freeing its code.
+    assert_receive {:DOWN, ^ref_down, :process, ^room, _}
+    refute Rooms.whereis("chan-host-close")
+  end
+
   test "leaving the channel frees the player's slot in the room" do
     join_room("chan-leave")
     {_reply, socket} = join_room("chan-leave")

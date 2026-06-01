@@ -176,7 +176,16 @@ export async function boot() {
   const lobbyList = document.getElementById("lobby-list");
   const lobbyHint = document.getElementById("lobby-hint");
   const lobbyBack = document.getElementById("lobby-back");
+  const lobbyLeave = document.getElementById("lobby-leave");
   const goButton = document.getElementById("go");
+
+  // Backing out is destructive for the host (it closes the lobby for everyone),
+  // so the label says so; a guest only leaves their own seat.
+  lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
+  lobbyLeave.addEventListener("click", () => {
+    channel.push("leave", {});
+    window.location.href = "/";
+  });
 
   // Show the shareable code so the host can pass it to friends.
   lobbyCode.textContent = `Code: ${room}`;
@@ -193,7 +202,7 @@ export async function boot() {
     const rows = scores
       ? Object.entries(scores)
           .sort((a, b) => b[1] - a[1])
-          .map(([n, w]) => (n === myName ? `${n} (you) — ${w}` : `${n} — ${w}`))
+          .map(([n, w]) => (n === myName ? `${n} (you): ${w}` : `${n}: ${w}`))
       : roster.map((n) => (n === myName ? `${n} (you)` : n));
     for (const text of rows) {
       const li = document.createElement("li");
@@ -245,6 +254,7 @@ export async function boot() {
       banner = notFound ? `Lobby ${room} not found` : `join failed: ${JSON.stringify(r)}`;
       lobbyCode.textContent = "";
       goButton.style.display = "none";
+      lobbyLeave.style.display = "none"; // no live lobby to leave — use the home link
       lobbyHint.textContent = notFound ? "It may have already ended." : "";
       lobbyBack.hidden = false;
       renderLobby();
@@ -254,6 +264,10 @@ export async function boot() {
     roster = p.players || [];
     if (!scores) banner = "Lobby";
     renderLobby();
+  });
+  // The host closed the lobby — everyone still in it gets dropped back home.
+  channel.on("closed", () => {
+    window.location.href = "/";
   });
   channel.on("snapshot", (snap) => {
     hideLobby();
