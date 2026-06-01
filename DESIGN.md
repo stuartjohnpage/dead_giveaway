@@ -39,9 +39,12 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 ## 4. The crowd (bots)
 
 - Headcount scales with players (~6 bots per human, cap ~100). MVP target ~30.
-- Characters are scattered at fixed vertical rows; **identical sprite for MVP**
-  (a small random cosmetic pool may come later — purely decorative, never correlated
-  with who is human).
+- Characters are scattered at fixed vertical rows and draw from a **shared pool of ~12
+  cosmetic sprite variants** (each with idle / walk / run animations). The variant is
+  assigned **randomly per character at spawn, server-side, and is NEVER correlated with
+  who is human** — it is pure decoration so the crowd reads as a crowd, not a row of
+  clones. The same variant can be a human in one round and a bot in the next; cosmetics
+  leak no identity. Per-theme art lives in `priv/static/images/themes/<theme>/`.
 - Each bot independently **moves or stops in alternating phases**, the duration of each
   phase re-rolled per cycle on its own timing — so the crowd is desynced (no "waves") with
   no mid-phase jitter. A moving bot moves at **exactly the human walk speed**, so pace
@@ -139,7 +142,6 @@ These were considered and **cut** — do not add back without a deliberate decis
 ## Open / deferred (post-MVP)
 
 - `botNoise` dial (fake flinches, odd pauses) to add false positives.
-- Random cosmetic sprite pool (decorative only).
 - A few "eager" bots that lunge for the finish to give a winning dash some cover.
 - Delta-compressed snapshots if bandwidth ever becomes a concern.
 - Decoupling the sim tick from the broadcast tick for scale.

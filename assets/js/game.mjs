@@ -2,12 +2,38 @@
 // and renders the authoritative snapshots with Pixi. Pure math lives in
 // coords.mjs (unit-tested); this module is the Pixi + socket + input glue.
 
-import { Application, Graphics, Sprite } from "pixi.js";
+import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, TilingSprite } from "pixi.js";
 import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
+
+// The theme art is authored at a fixed 1280×720 (the backgrounds' native size). We
+// render the whole scene at that "design resolution" and letterbox-scale it to the
+// window, so sprites keep their pixel proportions and arena_bg lines up 1:1.
+const DESIGN_W = 1280;
+const DESIGN_H = 720;
+// The floor band sits inside arena_bg's top/bottom neon rails (its "walls").
+const FLOOR_TOP = 64;
+const FLOOR_H = DESIGN_H - 2 * FLOOR_TOP;
+
+// Theme asset pack — see priv/static/images/themes/<THEME>/README.md. Swapping the
+// whole look = changing this key. Cosmetic variants are NOT tied to the human/bot
+// mapping (DESIGN §4, §9).
+const THEME = "neon";
+const themePath = (file) => `/images/themes/${THEME}/${file}`;
+const VARIANTS = 12;
+const SPRITE_SCALE = 1.5; // 32px art → 48px on the field
+// Lanes are confined to the floor band, inset by the sprite's half-height so the
+// top/bottom runners sit inside the neon rails rather than straddling them.
+const LANE_PAD_Y = FLOOR_TOP + SPRITE_SCALE * 16;
+// Per-state animation cadence (frames/tick); see the theme README.
+const ANIM_SPEED = { idle: 0.05, walk: 0.15, run: 0.28, dropped: 0 };
+// The snapshot's verb (plus the alive flag) is all we need to pick an animation —
+// the server already ships it (world.ex), so animation needs no protocol change.
+const stateFor = (e) =>
+  !e.alive ? "dropped" : e.verb === "run" ? "run" : e.verb === "walk" ? "walk" : "idle";
 
 export async function boot() {
   const mount = document.getElementById("game");
@@ -19,25 +45,53 @@ export async function boot() {
   const isHost = mount.dataset.host === "true";
 
   const app = new Application();
-  // The canvas tracks the window, so the game owns the whole viewport.
-  await app.init({ resizeTo: window, background: "#0b1020", antialias: true });
+  // The canvas tracks the window; the world container (below) is letterbox-scaled to
+  // fit it. antialias off + nearest-neighbour scaling keeps the pixel art crisp.
+  await app.init({ resizeTo: window, background: "#0b1020", antialias: false });
   mount.appendChild(app.canvas);
 
-  // Figures and the crosshair are drawn with Graphics and baked into textures
-  // up front — synchronously, with no async asset decode that could drop the
-  // first frame (the old SVG load rendered for some players but not others).
-  //
-  // Placeholder cosmetic pool (DESIGN §4): a handful of tinted figures standing
-  // in for real sprite art. Assignment is by a hash of the entity id (below) —
-  // stable across clients and deliberately *independent* of the human/bot
-  // mapping, so the sprite never hints at who is human. Swap these generated
-  // textures for loaded sprite images when art is ready; nothing else changes.
-  const runnerTexs = [0xdfe7ff, 0xf6c177, 0x9ece6a, 0x7aa2f7, 0xbb9af7, 0xf7768e].map(
-    (color) => app.renderer.generateTexture(new Graphics().circle(0, 0, 7).fill(color)),
+  // Load the theme's sprite atlas (12 cosmetic variants × idle/walk/run/dropped) and
+  // the backdrop art up front. boot() runs while the lobby overlay is showing and a
+  // round only starts on the Go button, so this decode never races the first frame —
+  // unlike the old async SVG load, which rendered for some players but not others.
+  const sheet = await Assets.load(themePath("agents.json"));
+  for (const tex of Object.values(sheet.textures)) tex.source.scaleMode = "nearest";
+  const [arenaTex, finishTex, floorTex] = await Promise.all(
+    ["arena_bg.png", "finish_line.png", "floor_tile.png"].map((f) => Assets.load(themePath(f))),
   );
-  // Cheap integer hash so id→sprite looks scattered rather than a row-by-row
-  // cycle, while staying deterministic (same id → same sprite for every client).
-  const texFor = (id) => runnerTexs[(Math.imul(id ^ 0x9e3779b9, 0x85ebca6b) >>> 0) % runnerTexs.length];
+  for (const t of [arenaTex, finishTex, floorTex]) t.source.scaleMode = "nearest";
+
+  // World-space scene graph, all under one container we scale to fit the window.
+  // Layers back→front: arena backdrop, tiled floor band, finish line, runners.
+  const world = new Container();
+  app.stage.addChild(world);
+
+  const arena = new Sprite(arenaTex);
+  arena.width = DESIGN_W;
+  arena.height = DESIGN_H;
+  world.addChild(arena);
+
+  const floor = new TilingSprite({ texture: floorTex, width: DESIGN_W, height: FLOOR_H });
+  floor.y = FLOOR_TOP;
+  world.addChild(floor);
+
+  // worldW always equals finish_x, so the finish maps to the right margin regardless
+  // of the configured value — its screen position is fixed.
+  const finish = new Sprite(finishTex);
+  finish.anchor.set(0.5, 0);
+  finish.x = DESIGN_W - PAD;
+  finish.y = FLOOR_TOP;
+  finish.height = FLOOR_H;
+  world.addChild(finish);
+
+  const entityLayer = new Container();
+  world.addChild(entityLayer);
+
+  // Cheap integer hash so id→variant looks scattered rather than a row-by-row cycle,
+  // while staying deterministic (same id → same look for every client) and
+  // independent of the human/bot mapping, so the sprite never hints at who is human.
+  const variantFor = (id) =>
+    String((Math.imul(id ^ 0x9e3779b9, 0x85ebca6b) >>> 0) % VARIANTS).padStart(2, "0");
 
   const crossTex = app.renderer.generateTexture(
     new Graphics()
@@ -50,14 +104,22 @@ export async function boot() {
       .stroke({ width: 2, color: 0xff5577 }),
   );
 
-  const sprites = new Map(); // entity id -> { sprite, tx, ty }
-  const view = { worldW: 1000, worldH: 50, screenW: app.screen.width, screenH: app.screen.height, pad: PAD };
-  const syncScreen = () => {
-    view.screenW = app.screen.width;
-    view.screenH = app.screen.height;
-  };
-  window.addEventListener("resize", syncScreen);
+  const sprites = new Map(); // entity id -> { sprite, tx, ty, state, variant }
+  // The view is the fixed design resolution; the letterbox scale maps it to the
+  // window, so coords.mjs always works in 1280×720 regardless of canvas size.
+  const view = { worldW: 1000, worldH: 50, screenW: DESIGN_W, screenH: DESIGN_H, padX: PAD, padY: LANE_PAD_Y };
 
+  // Letterbox: scale the world to fit the window and centre it within the canvas.
+  const layout = () => {
+    const s = Math.min(app.screen.width / DESIGN_W, app.screen.height / DESIGN_H);
+    world.scale.set(s);
+    world.x = (app.screen.width - DESIGN_W * s) / 2;
+    world.y = (app.screen.height - DESIGN_H * s) / 2;
+  };
+  layout();
+  window.addEventListener("resize", layout);
+
+  // Crosshair lives in screen space so it tracks the raw mouse with no transform.
   const myCross = new Sprite(crossTex);
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
@@ -214,7 +276,6 @@ export async function boot() {
   function updateWorld(snap) {
     const ents = snap.entities || [];
     const rows = Math.max(1, ents.length - 1);
-    syncScreen();
     view.worldW = snap.finish_x || 1000;
     view.worldH = Math.max(1, rows * ROW_SPACING);
 
@@ -222,23 +283,37 @@ export async function boot() {
     for (const e of ents) {
       seen.add(e.id);
       const { sx, sy } = worldToScreen(e.x, e.row * ROW_SPACING, view);
+      const state = stateFor(e);
       let s = sprites.get(e.id);
       if (!s) {
-        const sprite = new Sprite(texFor(e.id));
+        const variant = variantFor(e.id);
+        const sprite = new AnimatedSprite(sheet.animations[`v${variant}_${state}`]);
         sprite.anchor.set(0.5);
+        sprite.scale.set(SPRITE_SCALE);
+        sprite.animationSpeed = ANIM_SPEED[state];
         sprite.x = sx;
         sprite.y = sy;
-        app.stage.addChild(sprite);
-        s = { sprite, tx: sx, ty: sy };
+        sprite.play();
+        entityLayer.addChild(sprite);
+        s = { sprite, tx: sx, ty: sy, state, variant };
         sprites.set(e.id, s);
+      }
+      // Swap the animation only when the state actually changes (verb or death), so
+      // we don't restart the loop every snapshot.
+      if (state !== s.state) {
+        s.state = state;
+        s.sprite.textures = sheet.animations[`v${s.variant}_${state}`];
+        s.sprite.animationSpeed = ANIM_SPEED[state];
+        s.sprite.play();
       }
       s.tx = sx;
       s.ty = sy;
-      s.sprite.alpha = e.alive ? 1 : 0.2; // dead = ghosted, still shown
+      s.sprite.alpha = e.alive ? 1 : 0.55; // dropped frame already reads as down; a touch of fade on top
     }
     for (const [id, s] of sprites) {
       if (!seen.has(id)) {
-        app.stage.removeChild(s.sprite);
+        entityLayer.removeChild(s.sprite);
+        s.sprite.destroy();
         sprites.delete(id);
       }
     }
@@ -267,7 +342,10 @@ export async function boot() {
   });
   app.canvas.addEventListener("click", () => {
     if (!myCross.visible) return; // already fired — defenceless
-    const { wx, wy } = screenToWorld(mouse.x, mouse.y, view);
+    // Undo the letterbox transform: canvas pixels → design space → world.
+    const dx = (mouse.x - world.x) / world.scale.x;
+    const dy = (mouse.y - world.y) / world.scale.y;
+    const { wx, wy } = screenToWorld(dx, dy, view);
     // Firing reveals nothing about what you hit — only that you're now unarmed (§5).
     // The SFX plays when the server broadcasts the shot back (the "shot" handler
     // above), so you hear the same crack as everyone else rather than a local one.

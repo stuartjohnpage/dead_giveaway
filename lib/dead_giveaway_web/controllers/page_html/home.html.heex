@@ -1,5 +1,5 @@
 <Layouts.flash_group flash={@flash} />
-<div class="relative min-h-dvh overflow-hidden bg-[#0b1020] text-slate-100">
+<div class="relative min-h-dvh overflow-hidden bg-[#0b1020] bg-[url(/images/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat text-slate-100">
   <%!-- Soft racing-stripe glow behind the card. --%>
   <div
     aria-hidden="true"
@@ -48,40 +48,37 @@
         </button>
       </.form>
     </div>
-    <%!-- Controls (match assets/js/game.mjs key bindings + DESIGN §3, §5). --%>
-    <div class="mt-10 w-full">
-      <h2 class="mb-4 text-center text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+    <%!-- Controls (match assets/js/game.mjs key bindings + DESIGN §3, §5). Carded and
+          laid out horizontally so they read clearly over the menu art. --%>
+    <div class="mt-8 w-full rounded-2xl bg-[#10162e] p-6 shadow-2xl ring-1 ring-white/10">
+      <h2 class="mb-5 text-center text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
         Controls
       </h2>
 
-      <ul class="space-y-3 text-sm text-slate-300">
-        <li class="flex items-center gap-3">
-          <span class="flex shrink-0 gap-1">
-            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
-              Space
-            </kbd>
-          </span>
-          <span>Hold to walk right</span>
-        </li>
+      <div class="grid grid-cols-3 gap-3 text-center">
+        <div class="flex flex-col items-center gap-2">
+          <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+            Space
+          </kbd>
+          <span class="text-xs text-slate-300">Hold to walk</span>
+        </div>
 
-        <li class="flex items-center gap-3">
-          <span class="flex shrink-0 gap-1">
-            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
-              Shift
-            </kbd>
-          </span>
-          <span>Hold to <span class="text-rose-300">run</span></span>
-        </li>
+        <div class="flex flex-col items-center gap-2">
+          <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+            Shift
+          </kbd>
+          <span class="text-xs text-slate-300">Hold to <span class="text-rose-300">run</span></span>
+        </div>
 
-        <li class="flex items-center gap-3">
-          <span class="flex shrink-0 gap-1">
-            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
-              Mouse
-            </kbd>
-          </span>
-          <span>Aim your crosshair, click to fire your one bullet</span>
-        </li>
-      </ul>
+        <div class="flex flex-col items-center gap-2">
+          <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+            Mouse
+          </kbd>
+          <span class="text-xs text-slate-300">Aim &amp; click to fire</span>
+        </div>
+      </div>
+
+      <p class="mt-5 text-center text-xs text-slate-500">One shot only.</p>
     </div>
   </main>
 </div>
