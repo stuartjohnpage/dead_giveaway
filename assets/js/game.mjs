@@ -6,7 +6,7 @@ import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Tilin
 import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { loadVolume, sfxGain } from "./volume.mjs";
-import { createMusicLoop, MUSIC_GAIN } from "./music.mjs";
+import { createMusicLoop, createEscalatingLoop, MUSIC_GAIN } from "./music.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -130,28 +130,59 @@ export async function boot() {
   // (volume.mjs); we read the stored level at boot and apply it to the SFX gain.
   const volume = loadVolume();
 
-  // Two background loops: the menu/lobby track and the escalating in-game track. Each
-  // (re)starts from the top when its view opens (showLobby/hideLobby) and is stopped
-  // when we leave — so the lobby music restarts on every lobby entrance, and the round
-  // always opens on the game loop's intro. Both honour the master sound switch.
+  // Two background tracks: the menu/lobby loop and the four-stage escalating in-game
+  // loop. The game loop covers both the live round AND the between-rounds "Play again?"
+  // card — we never drop back to the menu loop once a round has started, since the
+  // player now stays in the game. Both honour the master sound switch.
   const lobbyMusic = createMusicLoop("/sounds/music/neon_loop.mp3");
-  const gameMusic = createMusicLoop("/sounds/music/game/demo.mp3");
+  // The escalating loop climbs stage1→stage4 over the round (one stage per 15s, holding
+  // at stage 4); a round opens on its chill stage-1 bed and ramps up from there.
+  const gameStages = [1, 2, 3, 4].map((i) => `/sounds/music/game/stage${i}.mp3`);
+  const gameMusic = createEscalatingLoop(gameStages);
   const musicGain = () => (volume.enabled ? (volume.master / 100) * MUSIC_GAIN : 0);
-  let inRound = null; // null until the first show/hide so that first edge always fires
+  // Which loop belongs to the current view: false = pre-game lobby (menu track),
+  // true = in the game (live round or the post-round card). null until the first edge.
+  let inGame = null;
+  // What to (re)play on the autoplay-unlock gesture — kept current as the view changes.
+  let replayMusic = () => {};
   // Swap to the lobby loop (stop game music, start lobby music from the top).
   const playLobbyMusic = () => {
     gameMusic.stop();
     if (volume.enabled) lobbyMusic.start(musicGain());
   };
-  // Swap to the in-game loop (stop lobby music, start game music from the top).
-  const playRoundMusic = () => {
+  // Swap to the in-game loop. `escalate` true climbs the stages (a live round); false
+  // holds the chill stage-1 bed (the between-rounds card).
+  const playGameMusic = (escalate) => {
     lobbyMusic.stop();
-    if (volume.enabled) gameMusic.start(musicGain());
+    if (volume.enabled) gameMusic.start(musicGain(), { escalate });
   };
-  // Autoplay policy re-arms on every page load, so the loop queued by the initial
-  // showLobby() can't actually sound until the first user gesture — (re)start the
-  // matching loop then. No-op when sound is off.
-  const primeMusic = () => (inRound ? playRoundMusic() : playLobbyMusic());
+  // Enter the lobby track (pre-game only).
+  const toLobbyMusic = () => {
+    inGame = false;
+    replayMusic = playLobbyMusic;
+    playLobbyMusic();
+  };
+  // Open a round on the climbing game track (stage 1, ramping up).
+  const toRoundMusic = () => {
+    inGame = true;
+    replayMusic = () => playGameMusic(true);
+    playGameMusic(true);
+  };
+  // The between-rounds card: reset the game track to its chill stage-1 bed and hold.
+  const toCardMusic = () => {
+    inGame = true;
+    replayMusic = () => playGameMusic(false);
+    playGameMusic(false);
+  };
+  // Make sure the game loop is the one playing, in case a snapshot ever beats its
+  // round_start to the client (a no-op once we're already in the game).
+  const ensureGameMusic = () => {
+    if (!inGame) toRoundMusic();
+  };
+  // Autoplay policy re-arms on every page load, so the loop queued at boot can't
+  // actually sound until the first user gesture — (re)start the matching loop then.
+  // No-op when sound is off.
+  const primeMusic = () => replayMusic();
   window.addEventListener("pointerdown", primeMusic, { once: true });
   window.addEventListener("keydown", primeMusic, { once: true });
 
@@ -171,6 +202,7 @@ export async function boot() {
   // These all ship together in game_html/show.html.heex, so we resolve them
   // once and trust they're present rather than nil-guarding every use.
   const lobby = document.getElementById("lobby");
+  const lobbyScrim = document.getElementById("lobby-scrim");
   const lobbyBanner = document.getElementById("lobby-banner");
   const lobbyCode = document.getElementById("lobby-code");
   const lobbyList = document.getElementById("lobby-list");
@@ -178,6 +210,22 @@ export async function boot() {
   const lobbyBack = document.getElementById("lobby-back");
   const lobbyLeave = document.getElementById("lobby-leave");
   const goButton = document.getElementById("go");
+
+  // --- In-round ammo HUD: your single bullet (DESIGN §5) ---
+  const hudAmmo = document.getElementById("hud-ammo");
+  const ammoBullet = document.getElementById("ammo-bullet");
+  const ammoCount = document.getElementById("ammo-count");
+  // Reflect the one bullet: show the icon + a 1 while armed; on a spent shot the count
+  // drops to 0 and the bullet icon is removed. `armed` true (re)loads for a fresh round.
+  const setAmmo = (armed) => {
+    ammoCount.textContent = armed ? "1" : "0";
+    ammoBullet.hidden = !armed;
+  };
+  // The HUD only belongs on screen during a live round, not the lobby or the card.
+  const showAmmo = (visible) => {
+    if (visible) setAmmo(true);
+    hudAmmo.hidden = !visible;
+  };
 
   // Backing out is destructive for the host (it closes the lobby for everyone),
   // so the label says so; a guest only leaves their own seat.
@@ -210,25 +258,21 @@ export async function boot() {
       lobbyList.appendChild(li);
     }
   };
-  const showLobby = () => {
+  // Reveal the lobby card. `overlay` true floats it over the (now-frozen) game — the
+  // post-round "Play again?" card, so the player stays in the game rather than being
+  // kicked back to a full-screen lobby. `overlay` false is the pre-game lobby: the
+  // full themed backdrop and its scrim. Music is driven by the channel handlers, not
+  // here, since this is also called redundantly (every snapshot calls hideCard).
+  const showCard = (overlay) => {
     renderLobby();
     goButton.disabled = false;
     lobbyHint.textContent = "";
+    lobbyScrim.style.display = overlay ? "none" : "";
+    lobby.style.background = overlay ? "transparent" : "";
     lobby.style.display = "flex";
-    // Swap tracks only on the round→lobby edge. showLobby/hideLobby are called
-    // redundantly (hideLobby fires on every snapshot, many times a second); without this
-    // guard we'd restart the loop from the top every tick — a machine-gun stutter.
-    if (inRound !== false) {
-      inRound = false;
-      playLobbyMusic(); // restart the lobby loop from the top on lobby entrance
-    }
   };
-  const hideLobby = () => {
+  const hideCard = () => {
     lobby.style.display = "none";
-    if (inRound !== true) {
-      inRound = true;
-      playRoundMusic(); // round opens on the in-game loop's intro
-    }
   };
 
   goButton.addEventListener("click", () => {
@@ -270,25 +314,34 @@ export async function boot() {
     window.location.href = "/";
   });
   channel.on("snapshot", (snap) => {
-    hideLobby();
+    ensureGameMusic();
+    hideCard();
     updateWorld(snap);
   });
   // Any player's shot — including your own — arrives here, so everyone hears it (§5).
   channel.on("shot", () => playShot());
   channel.on("round_start", () => {
-    hideLobby();
+    toRoundMusic(); // open on stage 1 and climb the ladder through the round
+    hideCard();
     scores = null;
     myCross.visible = true; // fresh round → fresh bullet (DESIGN §5)
+    showAmmo(true); // (re)load the ammo HUD for the new round
   });
   channel.on("round_over", (p) => {
     // The winner is always set now — a player name, or "Bot" when a bot crossed first.
     banner = p.winner ? `🏁 ${p.winner} wins!` : "Round over";
     scores = p.scores || {};
-    showLobby();
+    myCross.visible = false; // no firing while the card is up
+    showAmmo(false); // the round's done — pull the HUD with the card up
+    // Stay in the game: float the card over the frozen final frame, and drop the music
+    // back to its chill stage-1 bed (held, not climbing) so the next round ramps anew.
+    toCardMusic();
+    showCard(true);
   });
 
-  // Start out in the lobby, waiting to hit Go.
-  showLobby();
+  // Start out in the pre-game lobby (full backdrop), waiting to hit Go.
+  toLobbyMusic();
+  showCard(false);
 
   function updateWorld(snap) {
     const ents = snap.entities || [];
@@ -368,6 +421,7 @@ export async function boot() {
     // above), so you hear the same crack as everyone else rather than a local one.
     channel.push("fire", { x: wx, y: wy });
     myCross.visible = false; // your crosshair vanishes once you've fired (§5)
+    setAmmo(false); // spent — empty the HUD (count 0, bullet icon removed)
   });
 
   // --- Render loop: interpolate other entities toward the latest snapshot ---

@@ -35,6 +35,7 @@ async function setup() {
       this.state = "suspended";
       this.destination = {};
       this.resumeCount = 0;
+      this.currentTime = 0;
     }
     async resume() {
       this.state = "running";
@@ -49,7 +50,25 @@ async function setup() {
       return s;
     }
     createGain() {
-      const g = { gain: { value: null }, connect: (node) => node };
+      // The gain param records its scheduled automation so escalation tests can assert
+      // on the crossfade ramps; setting .value directly still works for the simple loop.
+      const ramps = [];
+      const g = {
+        gain: {
+          value: null,
+          setValueAtTime(v, t) {
+            ramps.push({ type: "set", v, t });
+            this.value = v;
+          },
+          linearRampToValueAtTime(v, t) {
+            ramps.push({ type: "ramp", v, t });
+            this.value = v;
+          },
+        },
+        ramps,
+        connect: (node) => node,
+        disconnect() {},
+      };
       gains.push(g);
       return g;
     }
@@ -143,4 +162,82 @@ test("start() stays silent when WebAudio is unavailable", async () => {
   const loop = createMusicLoop("/x.mp3");
   await loop.start(); // swallows the error
   assert.equal(loop.live, false);
+});
+
+const STAGE_URLS = ["/s1.mp3", "/s2.mp3", "/s3.mp3", "/s4.mp3"];
+
+test("escalating loop plays every stage at once, phase-locked, with only stage 1 audible", async () => {
+  const { createEscalatingLoop, sources, gains } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS);
+  // escalate:false so the initial per-stage gains aren't immediately overwritten by the
+  // scheduled crossfade ramps (the mock collapses scheduled values onto .value).
+  await loop.start(0.4, { escalate: false });
+
+  // One looping, started source per stage.
+  assert.equal(sources.length, 4);
+  assert.ok(sources.every((s) => s.started && s.loop));
+  // gains: [master, stage0..stage3]. Master carries the level; only stage 1 is open.
+  const [master, ...stageGains] = gains;
+  assert.equal(master.gain.value, 0.4);
+  assert.equal(stageGains[0].gain.value, 1);
+  assert.deepEqual(
+    stageGains.slice(1).map((g) => g.gain.value),
+    [0, 0, 0],
+  );
+  assert.equal(loop.live, true);
+});
+
+test("escalate (the default) schedules crossfade ramps up the ladder", async () => {
+  const { createEscalatingLoop, gains } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS, { stageMs: 15000, crossMs: 1200 });
+  await loop.start();
+
+  const stageGains = gains.slice(1);
+  // Stage 1 fades out once (its boundary); the middle stages fade in then out; the
+  // final stage only fades in — so there is automation on every stage gain.
+  assert.ok(stageGains.every((g) => g.ramps.length > 0));
+  // First boundary at t0(0)+15s: stage 1 ramps 1→0 and stage 2 ramps 0→1 over 1.2s.
+  assert.deepEqual(stageGains[0].ramps, [
+    { type: "set", v: 1, t: 15 },
+    { type: "ramp", v: 0, t: 16.2 },
+  ]);
+  assert.deepEqual(stageGains[1].ramps.slice(0, 2), [
+    { type: "set", v: 0, t: 15 },
+    { type: "ramp", v: 1, t: 16.2 },
+  ]);
+});
+
+test("escalate:false holds the chill stage-1 bed (no ramps scheduled)", async () => {
+  const { createEscalatingLoop, gains } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS);
+  await loop.start(undefined, { escalate: false });
+
+  const stageGains = gains.slice(1);
+  assert.ok(stageGains.every((g) => g.ramps.length === 0));
+  assert.equal(stageGains[0].gain.value, 1); // stage 1 audible and steady
+});
+
+test("escalating loop stop() halts every stage and clears live", async () => {
+  const { createEscalatingLoop, sources } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS);
+  await loop.start();
+  loop.stop();
+  assert.ok(sources.every((s) => s.stopped));
+  assert.equal(loop.live, false);
+});
+
+test("escalating loop restart decodes each stage once and reuses the buffers", async () => {
+  const { createEscalatingLoop, fetchCalls } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS);
+  await loop.start();
+  await loop.start();
+  assert.equal(fetchCalls(), STAGE_URLS.length); // four stages, fetched once each
+});
+
+test("escalating loop setGain re-levels the master", async () => {
+  const { createEscalatingLoop, gains } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS);
+  await loop.start(0.5);
+  loop.setGain(0.2);
+  assert.equal(gains[0].gain.value, 0.2); // master is the first gain created
 });

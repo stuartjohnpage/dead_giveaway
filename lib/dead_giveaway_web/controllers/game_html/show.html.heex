@@ -9,6 +9,23 @@
 >
 </div>
 
+<%!-- In-round HUD: your one bullet (DESIGN §5). game.mjs reveals this while a round is
+      live and empties it — count to 0, bullet icon removed — the moment you fire. --%>
+<div
+  id="hud-ammo"
+  hidden
+  class="pointer-events-none fixed left-4 top-4 z-10 flex items-center gap-2 rounded-xl bg-black/50 px-3 py-2 ring-1 ring-white/10 backdrop-blur-sm"
+>
+  <span class="text-xs font-semibold uppercase tracking-widest text-slate-400">Ammo</span>
+  <img
+    id="ammo-bullet"
+    src="/images/ui/bullet.png"
+    alt="bullet"
+    class="h-6 w-auto [image-rendering:pixelated]"
+  />
+  <span id="ammo-count" class="min-w-[1ch] text-center font-mono text-lg font-bold text-white">1</span>
+</div>
+
 <%!-- Lobby / between-rounds screen. Shown by default and on round_over; game.mjs
       hides it once a round is live. Lists who has joined (or the standings after
       a round); the Go button starts the round. --%>
@@ -16,8 +33,10 @@
   id="lobby"
   class="fixed inset-0 z-10 flex items-center justify-center bg-[#0b1020] bg-[url(/images/themes/neon/lobby_bg.png)] bg-cover bg-center"
 >
-  <%!-- Dark scrim over the themed backdrop so the card's text stays legible. --%>
-  <div aria-hidden="true" class="absolute inset-0 bg-black/60 backdrop-blur-[1px]"></div>
+  <%!-- Dark scrim over the themed backdrop so the card's text stays legible. game.mjs
+        hides it (and clears the backdrop) for the post-round card, which floats over
+        the still-visible game instead of taking the screen over. --%>
+  <div id="lobby-scrim" aria-hidden="true" class="absolute inset-0 bg-black/60 backdrop-blur-[1px]"></div>
   <div class="relative w-full max-w-sm rounded-2xl bg-[#10162e] p-8 text-center shadow-2xl ring-1 ring-white/10">
     <h2 id="lobby-banner" class="text-2xl font-bold text-white">Dead Giveaway</h2>
     <%!-- The shareable lobby code, so the host can read it off and pass it on. --%>

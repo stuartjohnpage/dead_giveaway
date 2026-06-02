@@ -19,11 +19,18 @@ crossfades don't jump), and brightness climbs hard across stages (spectral centr
 Files: `stage1.mp3`..`stage4.mp3` (the per-stage loops), `demo.mp3` (all four
 back-to-back, 60s), `stems/stem0..3.mp3` (raw layers for a future WebAudio live mix).
 
-**Currently wired in:** the client loops `demo.mp3` as a single in-game track
-(`assets/js/game.mjs`, via the gapless WebAudio loop in `music.mjs`) — the round opens on
-its stage-1 intro and the 60s escalation repeats. The per-stage crossfade below is the
-documented upgrade path (drive `gotoStage()` off game state) for when we want the tension
-to hold at stage 4 instead of looping back to the bed.
+**Currently wired in:** the full four-stage escalation, via `createEscalatingLoop`
+in `music.mjs` (`assets/js/game.mjs`). All four stage loops are decoded and started
+together so they stay phase-locked, and escalation is pure gain automation — at each
+15s boundary the next stage crossfades in and the current one out (WebAudio
+`linearRampToValueAtTime`, gapless), holding at stage 4. A live round opens on stage 1
+and climbs; the between-rounds "Play again?" card resets to the stage-1 bed and *holds*
+there (no climb), so the next round ramps up from calm again.
+
+The HTML5 two-element crossfade below is the original sketch of the same idea; the
+shipped version does it in WebAudio (sample-accurate scheduling, one shared
+AudioContext, honours the master sound switch). Future upgrade: drive the stage advance
+off the lead racer's progress to the finish rather than wall-clock 15s (see Notes).
 
 ## Wiring it (HTML5, two-element crossfade)
 

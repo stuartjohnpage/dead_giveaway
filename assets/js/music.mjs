@@ -84,3 +84,110 @@ export function createMusicLoop(url) {
     },
   };
 }
+
+// The in-game music advances one stage every 15s, then holds at the top (game README).
+export const STAGE_MS = 15_000;
+// Crossfade length at each stage boundary. The stages share key/tempo/length, so a
+// linear gain crossfade mid-loop still lands musically.
+const CROSS_MS = 1200;
+
+// A four-stage escalating loop with the SAME shape as createMusicLoop (start/stop/
+// setGain/live), so callers swap it in without changing their control flow.
+//
+// All stages are equal-length loops on one grid, so we start every stage source
+// together (phase-locked for the loop's whole life) and treat escalation as pure gain
+// automation — fade the next stage up and the current one down at each boundary, with
+// no playhead to align. `start({escalate})` false holds at stage 1 (the chill bed, for
+// the between-rounds card); true climbs the ladder and holds at the final stage.
+export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS_MS } = {}) {
+  let buffers = null; // decoded once, reused across restarts
+  let sources = []; // current per-stage source nodes ([] = stopped)
+  let stageGains = []; // per-stage gain nodes we automate to crossfade
+  let master = null; // master gain (carries the volume level)
+  let gain = MUSIC_GAIN;
+  let wantPlaying = false;
+
+  const fade = (param, from, to, at, dur) => {
+    param.setValueAtTime(from, at);
+    param.linearRampToValueAtTime(to, at + dur);
+  };
+
+  const teardown = () => {
+    for (const s of sources) {
+      try {
+        s.stop();
+      } catch {
+        /* already stopped */
+      }
+      s.disconnect();
+    }
+    for (const sg of stageGains) sg.disconnect();
+    if (master) master.disconnect();
+    sources = [];
+    stageGains = [];
+    master = null;
+  };
+
+  return {
+    // (Re)start at stage 1. `escalate` true schedules the climb (one stage per stageMs,
+    // holding at the last); false holds at the chill bed. Like createMusicLoop.start,
+    // must first run from a user gesture or the shared AudioContext stays suspended.
+    async start(g = MUSIC_GAIN, { escalate = true } = {}) {
+      gain = g;
+      wantPlaying = true;
+      try {
+        const ctx = audioContext();
+        if (!buffers) {
+          buffers = await Promise.all(
+            urls.map(async (u) => ctx.decodeAudioData(await (await fetch(u)).arrayBuffer())),
+          );
+        }
+        await ctx.resume(); // no-op until the first gesture; resumes a suspended ctx after
+        if (!wantPlaying) return; // stopped while we were fetching/decoding
+        teardown();
+
+        master = ctx.createGain();
+        master.gain.value = gain;
+        master.connect(ctx.destination);
+
+        const t0 = ctx.currentTime;
+        buffers.forEach((buf, i) => {
+          const sg = ctx.createGain();
+          sg.gain.value = i === 0 ? 1 : 0; // stage 1 audible, the rest silent
+          sg.connect(master);
+          const s = ctx.createBufferSource();
+          s.buffer = buf;
+          s.loop = true;
+          s.connect(sg);
+          s.start(t0); // start every stage together so they stay phase-locked
+          sources.push(s);
+          stageGains.push(sg);
+        });
+
+        // Climb the ladder: at each boundary fade the next stage in and the current out.
+        // Past the last boundary there are no more ramps, so it simply holds at the top.
+        if (escalate) {
+          const dur = crossMs / 1000;
+          for (let i = 1; i < buffers.length; i++) {
+            const at = t0 + (i * stageMs) / 1000;
+            fade(stageGains[i - 1].gain, 1, 0, at, dur);
+            fade(stageGains[i].gain, 0, 1, at, dur);
+          }
+        }
+      } catch {
+        /* WebAudio unavailable or fetch failed — caller just stays silent */
+      }
+    },
+    setGain(g) {
+      gain = g;
+      if (master) master.gain.value = g;
+    },
+    stop() {
+      wantPlaying = false;
+      teardown();
+    },
+    get live() {
+      return sources.length > 0;
+    },
+  };
+}

@@ -97,35 +97,59 @@ def _tom(freq,nb=0.3):
     n=b2s(nb); t=np.arange(n)/SR; f=freq*np.exp(-t*4)
     return np.sin(2*np.pi*np.cumsum(f)/SR)*np.exp(-t*12)
 
+# ---- reworked synth bass: punchy, defined, with octave/fifth movement ----
+def _bassvoice(f,nb):
+    n=b2s(nb); env=adsr(n,0.004,0.09,0.5,0.08)
+    body=osc(f,n,'sine')+0.45*osc(f,n,'saw')+0.18*osc(f*2,n,'saw')   # sub + grit + definition
+    return np.tanh(lp(body,1500)*env*1.05)
+
+def _bassline(buf,gain):
+    # eighth-note groove, root in bass register with octave/fifth pops for movement
+    offs=[0,0,12,0,0,0,7,12]                       # semitone offset per eighth slot
+    for bar,(nm,tones,root) in enumerate(PROG):
+        base=bar*int(BAR*SR); rf=nf(root)*2        # up an octave into the bass register
+        for e in range(8):
+            f=rf*2**(offs[e]/12.0)
+            place(buf,_bassvoice(f,0.46),base+b2s(e*0.5),gain=gain)
+
 # ============================================================================
 # LAYERS
 # ============================================================================
 def L0_bed():
+    # Stage 1: warm pad + reworked groovy bass + a LIGHT groove (beat from the start).
     buf=np.zeros((N,2))
+    # warm pad
     for bar,(nm,tones,root) in enumerate(PROG):
         pos=bar*int(BAR*SR); n=int(BAR*SR); env=adsr(n,0.4,0.4,0.85,0.5)
         for ti,t in enumerate(tones):
             f=nf(t); v=(osc(f,n,'saw',-6)+osc(f,n,'saw',6)+0.6*osc(f,n,'saw'))/2.6
-            place(buf,lp(v,1300)*env,pos,pan=-0.35+0.35*ti,gain=0.13)
+            place(buf,lp(v,1300)*env,pos,pan=-0.35+0.35*ti,gain=0.11)
+    # sustained sub root for low-end glue (under the moving bassline)
     for bar,(nm,tones,root) in enumerate(PROG):
         pos=bar*int(BAR*SR); n=b2s(3.6); env=adsr(n,0.02,0.3,0.8,0.6)
-        f=nf(root); place(buf,(osc(f,n,'sine')+0.3*osc(f,n,'tri'))*env,pos,gain=0.42)
-    for bar in range(BARS): place(buf,_kick(),bar*int(BAR*SR),gain=0.7)
+        f=nf(root); place(buf,(osc(f,n,'sine')+0.25*osc(f,n,'tri'))*env,pos,gain=0.26)
+    # reworked groovy bassline (present from stage 1)
+    _bassline(buf,gain=0.34)
+    # light groove: kick on 1 & 3, soft backbeat on 2 & 4, soft 8th hats
+    for bar in range(BARS):
+        base=bar*int(BAR*SR)
+        place(buf,_kick(),base+b2s(0),gain=0.9)
+        place(buf,_kick(),base+b2s(2),gain=0.7)
+        place(buf,_clap(),base+b2s(1),gain=0.26)
+        place(buf,_clap(),base+b2s(3),gain=0.26)
+        for e in range(8):
+            place(buf,_hat(0.10),base+b2s(e*0.5),pan=0.10*(-1)**e,gain=0.10)
     return buf
 
 def L1_tense():
+    # Stage 2: tighten the groove + bring in the arp (bass already grooves from stage 1).
     buf=np.zeros((N,2))
-    # quarter hats + rim on beat 3
     for bar in range(BARS):
         base=bar*int(BAR*SR)
-        for beat in range(4): place(buf,_hat(0.12),base+b2s(beat),pan=0.1*(-1)**beat,gain=0.15)
-        place(buf,_rim(),base+b2s(2),gain=0.22)
-    # driving eighth-note bass ostinato (root pedal)
-    for bar,(nm,tones,root) in enumerate(PROG):
-        base=bar*int(BAR*SR); f=nf(root)
-        for e in range(8):
-            n=b2s(0.45); env=adsr(n,0.005,0.08,0.5,0.1)
-            place(buf,lp(osc(f,n,'square')*0.5+osc(f,n,'tri')*0.6,900)*env,base+b2s(e*0.5),gain=0.28)
+        place(buf,_rim(),base+b2s(2),gain=0.22)               # rim accent on 3
+        place(buf,_kick(0.4),base+b2s(2.75),gain=0.40)        # syncopated pickup (and of 3)
+        for e in (1,3,5,7):                                   # offbeat hat accents
+            place(buf,_hat(0.14),base+b2s(e*0.5),pan=0.12*(-1)**e,gain=0.10)
     # mid arp eighths + ping-pong
     arp=np.zeros(N)
     for bar,(nm,tones,root) in enumerate(PROG):
@@ -138,12 +162,13 @@ def L1_tense():
     return buf
 
 def L2_urgent():
+    # Stage 3: fill kicks to four-on-the-floor + harder backbeat + reinforced hats.
     buf=np.zeros((N,2))
     for bar in range(BARS):
         base=bar*int(BAR*SR)
-        for beat in range(4): place(buf,_kick(),base+b2s(beat),gain=0.8)      # four-on-floor
-        for beat in (1,3):    place(buf,_clap(),base+b2s(beat),gain=0.5)      # backbeat
-        for e in range(8):    place(buf,_hat(0.10),base+b2s(e*0.5),pan=0.12*(-1)**e,gain=0.12)
+        for beat in (1,3): place(buf,_kick(),base+b2s(beat),gain=0.8)   # adds 2&4 -> 4-on-floor
+        for beat in (1,3): place(buf,_clap(),base+b2s(beat),gain=0.42)  # harder backbeat
+        for e in range(8): place(buf,_hat(0.10),base+b2s(e*0.5),pan=0.12*(-1)**e,gain=0.10)
     return buf
 
 def L3_frantic():
@@ -216,4 +241,3 @@ def main():
 
 if __name__=="__main__":
     main()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
