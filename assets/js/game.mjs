@@ -180,11 +180,21 @@ export async function boot() {
     if (!inGame) toRoundMusic();
   };
   // Autoplay policy re-arms on every page load, so the loop queued at boot can't
-  // actually sound until the first user gesture — (re)start the matching loop then.
-  // No-op when sound is off.
-  const primeMusic = () => replayMusic();
-  window.addEventListener("pointerdown", primeMusic, { once: true });
-  window.addEventListener("keydown", primeMusic, { once: true });
+  // actually sound until the first user gesture — (re)start the matching loop then to
+  // unlock the shared AudioContext. This must fire EXACTLY ONCE across both gesture
+  // types: otherwise the gesture that doesn't trigger it (e.g. the first spacebar after
+  // a Go click already primed via pointerdown) would re-run replayMusic and restart the
+  // track mid-round. So one guard removes both listeners on the first gesture.
+  let primed = false;
+  const primeMusic = () => {
+    if (primed) return;
+    primed = true;
+    window.removeEventListener("pointerdown", primeMusic);
+    window.removeEventListener("keydown", primeMusic);
+    replayMusic();
+  };
+  window.addEventListener("pointerdown", primeMusic);
+  window.addEventListener("keydown", primeMusic);
 
   // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
   // Pixabay Content License, credited in priv/static/sounds/CREDITS.md.
