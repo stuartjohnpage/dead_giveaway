@@ -61,8 +61,9 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 - A crosshair is **decoupled from any character body** — seeing a reticle does NOT tell
   you which character its owner is. But *where* a reticle hovers is intel (a reticle
   parked on someone = that someone is suspected).
-- **One bullet per player per round.** Hitscan: kills the character **nearest to the
-  crosshair**.
+- **One bullet per player per round** by default — the lobby host can raise the count
+  (up to a handful) before a round. Hitscan: each shot kills the character **nearest to
+  the crosshair**.
 - **Firing reveals nothing about who fired.** Its only costs:
   1. You've spent your one and only shot (now defenseless), and
   2. **Your crosshair disappears** — so everyone can see you are now unarmed.

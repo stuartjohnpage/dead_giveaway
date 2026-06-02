@@ -9,8 +9,9 @@
 >
 </div>
 
-<%!-- In-round HUD: your one bullet (DESIGN §5). game.mjs reveals this while a round is
-      live and empties it — count to 0, bullet icon removed — the moment you fire. --%>
+<%!-- In-round HUD: your bullets for the round (host-configured, DESIGN §5). game.mjs
+      reveals this while a round is live and counts it down as you fire, emptying it
+      — count 0, bullet icon removed — when your last shot is spent. --%>
 <div
   id="hud-ammo"
   hidden
@@ -50,6 +51,27 @@
     <p id="lobby-code" class="mt-1 text-xs uppercase tracking-[0.3em] text-slate-500"></p>
 
     <ul id="lobby-list" class="my-6 space-y-1 text-sm text-slate-300"></ul>
+
+    <%!-- Host-only room setting: how many bullets each player gets per round (DESIGN §5).
+          game.mjs disables the select for guests (they see the host's choice) and pushes
+          changes to the room, which broadcasts the new value back to every lobby. --%>
+    <div
+      id="ammo-config"
+      class="mb-6 flex items-center justify-center gap-2 text-sm text-slate-300"
+    >
+      <label for="ammo-select" class="uppercase tracking-wider text-slate-400">Bullets</label>
+      <select
+        id="ammo-select"
+        class="rounded-lg bg-[#0b1020] px-3 py-1 font-mono text-white ring-1 ring-white/10 transition disabled:opacity-60"
+      >
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+      </select>
+    </div>
 
     <button
       id="go"

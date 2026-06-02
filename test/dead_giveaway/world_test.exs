@@ -237,6 +237,32 @@ defmodule DeadGiveaway.WorldTest do
       assert e.x == 0.0
     end
 
+    test "max_ammo lets a player fire that many times, then no more" do
+      # Three bullets, three bots to spend them on. Everyone starts at x=0, so aiming
+      # exactly at a bot's row drops that bot and never the shooter.
+      world = World.new(seed: 1, humans: ["alice"], bots: 3, max_ammo: 3)
+      alice_row = world.slot_of["alice"]
+      bot_rows = Enum.reject(0..3, &(&1 == alice_row))
+
+      assert World.ammo_left(world, "alice") == 3
+
+      world =
+        Enum.reduce(bot_rows, world, fn row, w ->
+          {w, event} = World.fire(w, "alice", {0.0, row * World.row_spacing()})
+          assert event == {:killed, :bot}
+          w
+        end)
+
+      assert World.ammo_left(world, "alice") == 0
+      {_world, event} = World.fire(world, "alice", {0.0, alice_row * World.row_spacing()})
+      assert event == :no_shot
+    end
+
+    test "ammo defaults to a single bullet" do
+      world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
+      assert World.ammo_left(world, "alice") == 1
+    end
+
     test "a player who has been shot can no longer fire" do
       world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
       alice_row = world.slot_of["alice"]

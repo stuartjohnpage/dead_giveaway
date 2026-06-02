@@ -92,6 +92,25 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_push "shot", %{}
   end
 
+  test "the host can set the bullet count and it reaches every client's lobby" do
+    {_reply, socket} = join_room("chan-ammo", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"max_ammo" => 4})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{max_ammo: 4}, 500
+  end
+
+  test "a guest cannot change the bullet count" do
+    join_room("chan-ammo-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-ammo-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"max_ammo" => 4})
+    assert_reply ref, :ok
+    # The room ignores a non-host's config push, so no lobby ever carries the change.
+    refute_push "lobby", %{max_ammo: 4}, 200
+  end
+
   test "an input message is accepted and acknowledged" do
     join_room("chan-d")
     {_reply, socket} = join_room("chan-d")

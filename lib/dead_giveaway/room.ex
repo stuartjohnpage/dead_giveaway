@@ -23,6 +23,11 @@ defmodule DeadGiveaway.Room do
   # A round can start with as few as this many players (the rest are bots).
   @min_players 1
 
+  # Bullets-per-round is host-configurable in the lobby; default 1 (DESIGN §5),
+  # clamped to this range so a stray client value can't hand out absurd ammo.
+  @min_ammo 1
+  @max_ammo 6
+
   # The bots race as a single shared opponent on the scoreboard: any bot crossing
   # first credits this one tally (DESIGN §7 — what the sim reports as a "wash").
   @bot_name "Bot"
@@ -56,6 +61,13 @@ defmodule DeadGiveaway.Room do
 
   @doc "Start a round from the lobby with everyone currently joined (the Go button)."
   def go(room), do: GenServer.call(room, :go)
+
+  @doc """
+  Set how many bullets each player gets next round (DESIGN §5), clamped to a sane
+  range. Takes effect from the next Go; ignored mid-round. A lobby-config knob, so
+  the new value is broadcast to everyone's lobby view.
+  """
+  def set_max_ammo(room, n), do: GenServer.call(room, {:set_max_ammo, n})
 
   @doc "Round status: `:waiting` until a round is running, then `:running`."
   def status(room), do: GenServer.call(room, :status)
@@ -95,6 +107,8 @@ defmodule DeadGiveaway.Room do
       seed: Keyword.get(opts, :seed, :erlang.unique_integer([:positive])),
       bots: Keyword.get(opts, :bots, 0),
       finish_x: Keyword.get(opts, :finish_x),
+      # Host-configurable bullets per player per round; defaults to one (DESIGN §5).
+      max_ammo: clamp_ammo(Keyword.get(opts, :max_ammo, 1)),
       # Optional persistence sink (a module with `record_win/1`, e.g.
       # DeadGiveaway.Accounts). Off by default so the sim has no DB dependency.
       stats_mod: Keyword.get(opts, :stats),
@@ -160,6 +174,16 @@ defmodule DeadGiveaway.Room do
   def handle_call(:status, _from, state) do
     {:reply, if(state.world, do: :running, else: :waiting), state}
   end
+
+  # Ammo only reconfigures between rounds — a live round keeps the count it started
+  # with, so a mid-round change can't hand a player extra bullets.
+  def handle_call({:set_max_ammo, n}, _from, %{world: nil} = state) do
+    state = %{state | max_ammo: clamp_ammo(n)}
+    broadcast_lobby(state)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_max_ammo, _n}, _from, state), do: {:reply, :ok, state}
 
   def handle_call({:set_verb, player, verb}, _from, state) do
     {:reply, :ok, update_world(state, &state.world_mod.set_verb(&1, player, verb))}
@@ -231,7 +255,12 @@ defmodule DeadGiveaway.Room do
 
   defp start_round(state) do
     opts =
-      [seed: state.seed, humans: Map.values(state.players), bots: state.bots]
+      [
+        seed: state.seed,
+        humans: Map.values(state.players),
+        bots: state.bots,
+        max_ammo: state.max_ammo
+      ]
       |> put_unless_nil(:finish_x, state.finish_x)
 
     # Tell clients the round is live so they can clear the lobby and re-arm.
@@ -319,10 +348,20 @@ defmodule DeadGiveaway.Room do
     Phoenix.PubSub.broadcast(DeadGiveaway.PubSub, topic(id), message)
   end
 
-  # The lobby roster — who's currently waiting to play.
+  # The lobby roster — who's currently waiting to play — plus the room config the
+  # lobby UI reflects (the host-set bullet count).
   defp broadcast_lobby(state) do
-    broadcast(state.id, {:lobby, %{players: Map.values(state.players)}})
+    broadcast(
+      state.id,
+      {:lobby, %{players: Map.values(state.players), max_ammo: state.max_ammo}}
+    )
   end
+
+  # Keep bullets-per-round a whole number in [@min_ammo, @max_ammo], whatever a
+  # client sends — out-of-range or non-integer values are pulled back into bounds.
+  defp clamp_ammo(n) when is_integer(n), do: n |> max(@min_ammo) |> min(@max_ammo)
+  defp clamp_ammo(n) when is_number(n), do: clamp_ammo(trunc(n))
+  defp clamp_ammo(_), do: @min_ammo
 
   defp put_unless_nil(opts, _key, nil), do: opts
   defp put_unless_nil(opts, key, value), do: Keyword.put(opts, key, value)

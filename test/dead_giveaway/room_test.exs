@@ -255,6 +255,31 @@ defmodule DeadGiveaway.RoomTest do
       assert Room.fire(room, "alice", {0.0, 0.0}) == :no_shot
       refute_receive :shot, 200
     end
+
+    test "the host's bullet count reaches every lobby view" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("ammo-1"))
+      {:ok, room} = Room.start_link(id: "ammo-1", seed: 1, bots: 0)
+      # A fresh lobby defaults to one bullet (DESIGN §5).
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{max_ammo: 1}}
+
+      # The host raising it re-broadcasts the roster carrying the new count.
+      Room.set_max_ammo(room, 3)
+      assert_receive {:lobby, %{max_ammo: 3}}
+    end
+
+    test "the bullet count is clamped to a sane range" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("ammo-2"))
+      {:ok, room} = Room.start_link(id: "ammo-2", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{max_ammo: 1}}
+
+      # Absurd or sub-1 values are pulled back to the [1, 6] range.
+      Room.set_max_ammo(room, 999)
+      assert_receive {:lobby, %{max_ammo: 6}}
+      Room.set_max_ammo(room, 0)
+      assert_receive {:lobby, %{max_ammo: 1}}
+    end
   end
 
   describe "the between-rounds lobby" do

@@ -126,6 +126,17 @@ export async function boot() {
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
 
+  // The pink reticle *is* your pointer while you're armed, so hide the OS cursor over
+  // the canvas whenever it's up — no arrow sitting on top of the crosshair. When the
+  // reticle is gone (lobby, between rounds, or after your last shot) the real cursor
+  // comes back so you can still click the canvas / read the field. The lobby overlay
+  // sits above the canvas with its own default cursor, so its buttons stay normal.
+  const setCrosshairVisible = (v) => {
+    myCross.visible = v;
+    app.canvas.style.cursor = v ? "none" : "default";
+  };
+  setCrosshairVisible(false); // boot into the lobby: no reticle, normal cursor
+
   // Audio volume is configured on the home page and kept in sessionStorage
   // (volume.mjs); we read the stored level at boot and apply it to the SFX gain.
   const volume = loadVolume();
@@ -220,20 +231,42 @@ export async function boot() {
   const lobbyBack = document.getElementById("lobby-back");
   const lobbyLeave = document.getElementById("lobby-leave");
   const goButton = document.getElementById("go");
+  const ammoSelect = document.getElementById("ammo-select");
 
-  // --- In-round ammo HUD: your single bullet (DESIGN §5) ---
+  // Bullets-per-round is the host's call: guests see a disabled select reflecting the
+  // host's choice (kept current by the lobby broadcast). The host's changes push to the
+  // room, which clamps and re-broadcasts the value to everyone.
+  ammoSelect.disabled = !isHost;
+  ammoSelect.addEventListener("change", () => {
+    channel.push("set_config", { max_ammo: Number(ammoSelect.value) });
+  });
+  // Mirror the room's setting into the control (and our local maxAmmo) from a broadcast.
+  const applyMaxAmmo = (n) => {
+    if (typeof n !== "number") return;
+    maxAmmo = n;
+    ammoSelect.value = String(n);
+  };
+
+  // --- In-round ammo HUD: your bullets for the round (DESIGN §5) ---
   const hudAmmo = document.getElementById("hud-ammo");
   const ammoBullet = document.getElementById("ammo-bullet");
   const ammoCount = document.getElementById("ammo-count");
-  // Reflect the one bullet: show the icon + a 1 while armed; on a spent shot the count
-  // drops to 0 and the bullet icon is removed. `armed` true (re)loads for a fresh round.
-  const setAmmo = (armed) => {
-    ammoCount.textContent = armed ? "1" : "0";
-    ammoBullet.hidden = !armed;
+  // Bullets the host grants per round (from the lobby broadcast) and how many of those
+  // are still in hand this round. A fresh round reloads `ammo` back up to `maxAmmo`.
+  let maxAmmo = 1;
+  let ammo = 1;
+  // Reflect the remaining count: show the number, and once it hits 0 drop the bullet icon.
+  const setAmmo = (n) => {
+    ammoCount.textContent = String(n);
+    ammoBullet.hidden = n <= 0;
   };
   // The HUD only belongs on screen during a live round, not the lobby or the card.
+  // Showing it (re)loads a full clip for the round just starting.
   const showAmmo = (visible) => {
-    if (visible) setAmmo(true);
+    if (visible) {
+      ammo = maxAmmo;
+      setAmmo(ammo);
+    }
     hudAmmo.hidden = !visible;
   };
 
@@ -316,6 +349,7 @@ export async function boot() {
 
   channel.on("lobby", (p) => {
     roster = p.players || [];
+    applyMaxAmmo(p.max_ammo);
     if (!scores) banner = "Lobby";
     renderLobby();
   });
@@ -334,14 +368,14 @@ export async function boot() {
     toRoundMusic(); // open on stage 1 and climb the ladder through the round
     hideCard();
     scores = null;
-    myCross.visible = true; // fresh round → fresh bullet (DESIGN §5)
-    showAmmo(true); // (re)load the ammo HUD for the new round
+    setCrosshairVisible(true); // fresh round → fresh clip (DESIGN §5)
+    showAmmo(true); // (re)load the ammo HUD to a full clip for the new round
   });
   channel.on("round_over", (p) => {
     // The winner is always set now — a player name, or "Bot" when a bot crossed first.
     banner = p.winner ? `🏁 ${p.winner} wins!` : "Round over";
     scores = p.scores || {};
-    myCross.visible = false; // no firing while the card is up
+    setCrosshairVisible(false); // no firing while the card is up
     showAmmo(false); // the round's done — pull the HUD with the card up
     // Stay in the game: float the card over the frozen final frame, and drop the music
     // back to its chill stage-1 bed (held, not climbing) so the next round ramps anew.
@@ -421,17 +455,21 @@ export async function boot() {
     mouse = { x: ev.clientX - r.left, y: ev.clientY - r.top };
   });
   app.canvas.addEventListener("click", () => {
-    if (!myCross.visible) return; // already fired — defenceless
+    if (!myCross.visible || ammo <= 0) return; // out of bullets — defenceless
     // Undo the letterbox transform: canvas pixels → design space → world.
     const dx = (mouse.x - world.x) / world.scale.x;
     const dy = (mouse.y - world.y) / world.scale.y;
     const { wx, wy } = screenToWorld(dx, dy, view);
-    // Firing reveals nothing about what you hit — only that you're now unarmed (§5).
+    // Firing reveals nothing about what you hit — only that you've spent a bullet (§5).
     // The SFX plays when the server broadcasts the shot back (the "shot" handler
     // above), so you hear the same crack as everyone else rather than a local one.
     channel.push("fire", { x: wx, y: wy });
-    myCross.visible = false; // your crosshair vanishes once you've fired (§5)
-    setAmmo(false); // spent — empty the HUD (count 0, bullet icon removed)
+    // Spend a round locally — the server enforces the same cap, so this stays in sync.
+    ammo = Math.max(0, ammo - 1);
+    setAmmo(ammo);
+    // Only your *last* shot disarms you: the crosshair (and the OS cursor's absence)
+    // lingers while you still have bullets, and vanishes once you're empty (§5).
+    if (ammo <= 0) setCrosshairVisible(false);
   });
 
   // --- Render loop: interpolate other entities toward the latest snapshot ---

@@ -10,7 +10,7 @@ defmodule DeadGiveaway.World do
   client ever sees) never reveals which entities are human (DESIGN §2, §9).
   """
 
-  defstruct entities: %{}, finish_x: 1000.0, rng: nil, slot_of: %{}, spent: MapSet.new()
+  defstruct entities: %{}, finish_x: 1000.0, rng: nil, slot_of: %{}, max_ammo: 1, shots: %{}
 
   # Movement speeds, in world units per tick (dev values).
   @walk_speed 1.25
@@ -44,12 +44,14 @@ defmodule DeadGiveaway.World do
     * `:humans` — list of player ids that occupy human entities
     * `:bots`   — number of bot entities to fill in
     * `:finish_x` — finish line x (default 1000.0)
+    * `:max_ammo` — bullets each player gets for the round (default 1)
   """
   def new(opts) do
     seed = Keyword.fetch!(opts, :seed)
     humans = Keyword.get(opts, :humans, [])
     bot_count = Keyword.get(opts, :bots, 0)
     finish_x = Keyword.get(opts, :finish_x, 1000.0)
+    max_ammo = Keyword.get(opts, :max_ammo, 1)
 
     total = length(humans) + bot_count
     rng = :rand.seed_s(:exsss, {seed, seed, seed})
@@ -75,7 +77,13 @@ defmodule DeadGiveaway.World do
     # tick 1 rather than all flipping move/stop together.
     {entities, rng} = seed_bot_phases(entities, rng)
 
-    %__MODULE__{entities: entities, finish_x: finish_x, rng: rng, slot_of: slot_of}
+    %__MODULE__{
+      entities: entities,
+      finish_x: finish_x,
+      rng: rng,
+      slot_of: slot_of,
+      max_ammo: max_ammo
+    }
   end
 
   @doc """
@@ -107,19 +115,24 @@ defmodule DeadGiveaway.World do
   end
 
   @doc """
-  Fire `player`'s single bullet at crosshair point `{x, y}` (DESIGN §5).
+  Fire one of `player`'s bullets at crosshair point `{x, y}` (DESIGN §5).
 
   Hitscan: kills the living character nearest the crosshair — which may be the
   shooter's own body. Returns `{world, {:killed, :human | :bot}}` revealing
-  player-vs-bot to all, or `{world, :no_shot}` if the player has already fired
-  or is already out. One bullet per player per round.
+  player-vs-bot to all, or `{world, :no_shot}` if the player is out of ammo or
+  already out. Each player gets `max_ammo` bullets per round (default 1).
   """
   def fire(%__MODULE__{} = world, player, {_cx, _cy} = crosshair) do
     cond do
-      MapSet.member?(world.spent, player) -> {world, :no_shot}
+      ammo_left(world, player) <= 0 -> {world, :no_shot}
       not player_alive?(world, player) -> {world, :no_shot}
       true -> resolve_shot(world, player, crosshair)
     end
+  end
+
+  @doc "Bullets `player` has left this round — their `max_ammo` minus shots fired."
+  def ammo_left(%__MODULE__{} = world, player) do
+    world.max_ammo - Map.get(world.shots, player, 0)
   end
 
   @doc "True once any living character has crossed the finish line."
@@ -181,7 +194,7 @@ defmodule DeadGiveaway.World do
     world =
       world
       |> put_in([Access.key(:entities), target.row, :alive], false)
-      |> Map.update!(:spent, &MapSet.put(&1, player))
+      |> Map.update!(:shots, &Map.update(&1, player, 1, fn n -> n + 1 end))
 
     reveal = if target.human?, do: :human, else: :bot
     {world, {:killed, reveal}}

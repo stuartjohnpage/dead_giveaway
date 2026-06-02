@@ -93,6 +93,14 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, :ok, socket}
   end
 
+  # Lobby config (currently just bullets-per-round). Host-only: a guest's attempt is
+  # ignored so they can't change the room out from under the host. The Room clamps
+  # the value and broadcasts the new setting to everyone's lobby view.
+  def handle_in("set_config", %{"max_ammo" => n}, socket) when is_number(n) do
+    if socket.assigns.host, do: Room.set_max_ammo(socket.assigns.room, trunc(n))
+    {:reply, :ok, socket}
+  end
+
   # Backing out of the lobby. The host tears the whole room down (everyone is sent
   # `closed`); a guest just frees their own slot and heads home on their own.
   def handle_in("leave", _payload, socket) do
