@@ -38,7 +38,8 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
         # Remember whether this client is the host (host=true) — only the host can
         # close the lobby out from under everyone when they back out.
-        {:ok, %{name: name}, assign(socket, room: room, name: name, host: payload["host"] == true)}
+        {:ok, %{name: name},
+         assign(socket, room: room, name: name, host: payload["host"] == true)}
 
       :error ->
         # The join-by-code path (host=false) hit a code with no live room behind
