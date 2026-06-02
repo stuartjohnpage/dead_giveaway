@@ -18,7 +18,7 @@ defmodule DeadGiveaway.Room do
   # is NOT restarted by its supervisor; a genuine crash still is.
   use GenServer, restart: :transient
 
-  alias DeadGiveaway.World
+  alias DeadGiveaway.{Themes, World}
 
   # A round can start with as few as this many players (the rest are bots).
   @min_players 1
@@ -69,6 +69,13 @@ defmodule DeadGiveaway.Room do
   """
   def set_max_ammo(room, n), do: GenServer.call(room, {:set_max_ammo, n})
 
+  @doc """
+  Set the room's cosmetic theme (`DeadGiveaway.Themes`). Like the bullet count it's a
+  host-set lobby knob: an unknown key keeps the current theme, and a change is broadcast
+  to everyone's lobby view so all clients swap art/audio together. Ignored mid-round.
+  """
+  def set_theme(room, theme), do: GenServer.call(room, {:set_theme, theme})
+
   @doc "Round status: `:waiting` until a round is running, then `:running`."
   def status(room), do: GenServer.call(room, :status)
 
@@ -109,6 +116,8 @@ defmodule DeadGiveaway.Room do
       finish_x: Keyword.get(opts, :finish_x),
       # Host-configurable bullets per player per round; defaults to one (DESIGN §5).
       max_ammo: clamp_ammo(Keyword.get(opts, :max_ammo, 1)),
+      # Host-configurable cosmetic theme (DESIGN §9); defaults to the catalogue head.
+      theme: validate_theme(Keyword.get(opts, :theme, Themes.default()), Themes.default()),
       # Optional persistence sink (a module with `record_win/1`, e.g.
       # DeadGiveaway.Accounts). Off by default so the sim has no DB dependency.
       stats_mod: Keyword.get(opts, :stats),
@@ -184,6 +193,16 @@ defmodule DeadGiveaway.Room do
   end
 
   def handle_call({:set_max_ammo, _n}, _from, state), do: {:reply, :ok, state}
+
+  # Theme is cosmetic and reloaded client-side, so it only changes between rounds —
+  # a live round keeps the look it started with rather than swapping mid-race.
+  def handle_call({:set_theme, theme}, _from, %{world: nil} = state) do
+    state = %{state | theme: validate_theme(theme, state.theme)}
+    broadcast_lobby(state)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_theme, _theme}, _from, state), do: {:reply, :ok, state}
 
   def handle_call({:set_verb, player, verb}, _from, state) do
     {:reply, :ok, update_world(state, &state.world_mod.set_verb(&1, player, verb))}
@@ -349,11 +368,12 @@ defmodule DeadGiveaway.Room do
   end
 
   # The lobby roster — who's currently waiting to play — plus the room config the
-  # lobby UI reflects (the host-set bullet count).
+  # lobby UI reflects (the host-set bullet count and theme).
   defp broadcast_lobby(state) do
     broadcast(
       state.id,
-      {:lobby, %{players: Map.values(state.players), max_ammo: state.max_ammo}}
+      {:lobby,
+       %{players: Map.values(state.players), max_ammo: state.max_ammo, theme: state.theme}}
     )
   end
 
@@ -362,6 +382,10 @@ defmodule DeadGiveaway.Room do
   defp clamp_ammo(n) when is_integer(n), do: n |> max(@min_ammo) |> min(@max_ammo)
   defp clamp_ammo(n) when is_number(n), do: clamp_ammo(trunc(n))
   defp clamp_ammo(_), do: @min_ammo
+
+  # Keep `theme` a known key; anything else (a stale or hand-crafted client value)
+  # falls back to `current` so a bad pick can't leave the room on a missing pack.
+  defp validate_theme(theme, current), do: if(Themes.valid?(theme), do: theme, else: current)
 
   defp put_unless_nil(opts, _key, nil), do: opts
   defp put_unless_nil(opts, key, value), do: Keyword.put(opts, key, value)

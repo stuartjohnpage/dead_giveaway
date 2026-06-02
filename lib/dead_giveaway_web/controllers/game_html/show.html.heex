@@ -19,9 +19,11 @@
   class="pointer-events-none fixed left-4 top-4 z-10 flex items-center gap-2 rounded-xl bg-black/50 px-3 py-2 ring-1 ring-white/10 backdrop-blur-sm"
 >
   <span class="text-xs font-semibold uppercase tracking-widest text-slate-400">Ammo</span>
+  <%!-- Initial icon is the default theme's bullet; game.mjs swaps the src to the
+        active theme's bullet (from its manifest) when a theme loads. --%>
   <img
     id="ammo-bullet"
-    src="/images/ui/bullet.png"
+    src="/themes/neon/bullet.png"
     alt="bullet"
     class="h-6 w-auto [image-rendering:pixelated]"
   />
@@ -33,9 +35,12 @@
 <%!-- Lobby / between-rounds screen. Shown by default and on round_over; game.mjs
       hides it once a round is live. Lists who has joined (or the standings after
       a round); the Go button starts the round. --%>
+<%!-- The themed lobby backdrop is set by game.mjs (loadTheme) as an inline
+      background-image, so it swaps with the room's theme; only the cover/center
+      framing lives here. --%>
 <div
   id="lobby"
-  class="fixed inset-0 z-10 flex items-center justify-center bg-[#0b1020] bg-[url(/images/themes/neon/lobby_bg.png)] bg-cover bg-center"
+  class="fixed inset-0 z-10 flex items-center justify-center bg-[#0b1020] bg-cover bg-center"
 >
   <%!-- Dark scrim over the themed backdrop so the card's text stays legible. game.mjs
         hides it (and clears the backdrop) for the post-round card, which floats over
@@ -53,25 +58,37 @@
 
     <ul id="lobby-list" class="my-6 space-y-1 text-sm text-slate-300"></ul>
 
-    <%!-- Host-only room setting: how many bullets each player gets per round (DESIGN §5).
-          game.mjs disables the select for guests (they see the host's choice) and pushes
-          changes to the room, which broadcasts the new value back to every lobby. --%>
-    <div
-      id="ammo-config"
-      class="mb-6 flex items-center justify-center gap-2 text-sm text-slate-300"
-    >
-      <label for="ammo-select" class="uppercase tracking-wider text-slate-400">Bullets</label>
-      <select
-        id="ammo-select"
-        class="rounded-lg bg-[#0b1020] px-3 py-1 font-mono text-white ring-1 ring-white/10 transition disabled:opacity-60"
-      >
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-        <option value="4">4</option>
-        <option value="5">5</option>
-        <option value="6">6</option>
-      </select>
+    <%!-- Host-only room settings. game.mjs disables these for guests (they see the
+          host's choices) and pushes changes to the room, which broadcasts the new
+          values back to every lobby. --%>
+    <div id="lobby-config" class="mb-6 space-y-3 text-sm text-slate-300">
+      <%!-- Bullets each player gets per round (DESIGN §5). --%>
+      <div id="ammo-config" class="flex items-center justify-center gap-2">
+        <label for="ammo-select" class="uppercase tracking-wider text-slate-400">Bullets</label>
+        <select
+          id="ammo-select"
+          class="rounded-lg bg-[#0b1020] px-3 py-1 font-mono text-white ring-1 ring-white/10 transition disabled:opacity-60"
+        >
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+        </select>
+      </div>
+
+      <%!-- Cosmetic theme (DESIGN §9). Changing it swaps art/audio for everyone in the
+            room; options come from DeadGiveaway.Themes via the controller. --%>
+      <div id="theme-config" class="flex items-center justify-center gap-2">
+        <label for="theme-select" class="uppercase tracking-wider text-slate-400">Theme</label>
+        <select
+          id="theme-select"
+          class="rounded-lg bg-[#0b1020] px-3 py-1 text-white ring-1 ring-white/10 transition disabled:opacity-60"
+        >
+          <option :for={t <- @themes} value={t.key}>{t.display}</option>
+        </select>
+      </div>
     </div>
 
     <button

@@ -282,6 +282,44 @@ defmodule DeadGiveaway.RoomTest do
     end
   end
 
+  describe "the room's theme" do
+    test "defaults to the catalogue head and the host's pick reaches every lobby view" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("theme-1"))
+      {:ok, room} = Room.start_link(id: "theme-1", seed: 1, bots: 0)
+      # A fresh lobby wears the default theme.
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{theme: "neon"}}
+
+      # The host switching it re-broadcasts the roster carrying the new theme.
+      Room.set_theme(room, "western")
+      assert_receive {:lobby, %{theme: "western"}}
+    end
+
+    test "an unknown theme is ignored, keeping the current one" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("theme-2"))
+      {:ok, room} = Room.start_link(id: "theme-2", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.set_theme(room, "western")
+      assert_receive {:lobby, %{theme: "western"}}
+
+      # A stale/hand-crafted key can't strand the room on a missing pack.
+      Room.set_theme(room, "no-such-theme")
+      assert_receive {:lobby, %{theme: "western"}}
+    end
+
+    test "the theme can't change mid-round" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("theme-3"))
+      {:ok, room} = Room.start_link(id: "theme-3", seed: 1, bots: 0, finish_x: 100.0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # A live round keeps the look it started with — set_theme is a no-op (no lobby
+      # broadcast carrying the change) until the round ends.
+      Room.set_theme(room, "western")
+      refute_receive {:lobby, %{theme: "western"}}
+    end
+  end
+
   describe "the between-rounds lobby" do
     setup do
       {:ok, room} =

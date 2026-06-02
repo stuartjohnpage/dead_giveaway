@@ -11,6 +11,19 @@ defmodule DeadGiveawayWeb.GameControllerTest do
     assert body =~ ~s(data-host="false")
   end
 
+  test "GET /play/:room renders the theme picker with every catalogued theme", %{conn: conn} do
+    conn = get(conn, ~p"/play/lobby")
+    body = html_response(conn, 200)
+
+    assert body =~ ~s(id="theme-select")
+
+    for theme <- DeadGiveaway.Themes.all() do
+      assert body =~ ~s(value="#{theme.key}")
+      # Display names are HTML-escaped in the markup (e.g. the apostrophe in "Gulch").
+      assert body =~ theme.display |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+    end
+  end
+
   test "GET /play/new mints a fresh code and drops the creator in as host", %{conn: conn} do
     conn = get(conn, ~p"/play/new")
 

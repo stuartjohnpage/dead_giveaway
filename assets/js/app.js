@@ -101,7 +101,7 @@ import { bindVolumeSliders, bindSoundToggle, loadVolume, sfxGain } from "./volum
 import { createMusicLoop, MUSIC_GAIN } from "./music.mjs"
 if (document.getElementById("vol-master")) {
   const volume = loadVolume()
-  const music = createMusicLoop("/sounds/music/neon_loop.mp3")
+  const music = createMusicLoop("/themes/neon/menu_loop.mp3")
   // enabled × master scales the music (no dedicated music channel yet).
   const musicVol = (v) => (v.enabled ? (v.master / 100) * MUSIC_GAIN : 0)
   // The On/Off switch starts or stops the loop (flipping it is a user gesture, so

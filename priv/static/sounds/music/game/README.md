@@ -1,5 +1,8 @@
 # In-game escalating music
 
+> **Note:** the shipped Neon stage loops now live at `priv/static/themes/neon/game/stage1..4.mp3`
+> (each theme owns its own in-round music). This directory keeps the generator, stems, and demo.
+
 Neon Concourse, in-round. Four 15-second seamless loops at rising urgency on the same
 key/tempo grid (A-minor + phrygian tension, 128 BPM). The game advances one stage every
 15s, then **holds at stage 4** — so tension peaks at ~1 minute and sustains. Reset to

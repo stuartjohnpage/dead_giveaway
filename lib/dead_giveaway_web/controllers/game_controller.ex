@@ -32,7 +32,12 @@ defmodule DeadGiveawayWeb.GameController do
   def show(conn, %{"room" => room} = params) do
     conn
     |> put_layout(false)
-    |> render(:show, room: room, host: params["host"] == "true", name: params["name"] || "")
+    |> render(:show,
+      room: room,
+      host: params["host"] == "true",
+      name: params["name"] || "",
+      themes: DeadGiveaway.Themes.all()
+    )
   end
 
   # A chosen name (from the splash) becomes a query param the game page reads and

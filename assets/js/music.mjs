@@ -32,7 +32,7 @@ export function audioRunning() {
 }
 
 export function createMusicLoop(url) {
-  let buffer = null; // decoded once, reused across restarts
+  let buffer = null; // decoded once, reused across restarts (invalidated by setUrl)
   let src = null; // the currently-playing source node (null = stopped)
   let gainNode = null;
   let gain = MUSIC_GAIN;
@@ -76,6 +76,12 @@ export function createMusicLoop(url) {
       gain = g;
       if (gainNode) gainNode.gain.value = g;
     },
+    // Retarget the loop at a different track (e.g. a theme swap). Drops the cached
+    // buffer so the next start() re-fetches/decodes; the caller restarts to hear it.
+    setUrl(u) {
+      url = u;
+      buffer = null;
+    },
     stop() {
       wantPlaying = false;
       if (src) {
@@ -109,7 +115,7 @@ const CROSS_MS = 1200;
 // no playhead to align. `start({escalate})` false holds at stage 1 (the chill bed, for
 // the between-rounds card); true climbs the ladder and holds at the final stage.
 export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS_MS } = {}) {
-  let buffers = null; // decoded once, reused across restarts
+  let buffers = null; // decoded once, reused across restarts (invalidated by setUrls)
   let sources = []; // current per-stage source nodes ([] = stopped)
   let stageGains = []; // per-stage gain nodes we automate to crossfade
   let master = null; // master gain (carries the volume level)
@@ -190,6 +196,12 @@ export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS
     setGain(g) {
       gain = g;
       if (master) master.gain.value = g;
+    },
+    // Retarget at a different set of stage tracks (a theme swap). Drops the cached
+    // buffers so the next start() re-fetches/decodes; the caller restarts to hear it.
+    setUrls(us) {
+      urls = us;
+      buffers = null;
     },
     stop() {
       wantPlaying = false;

@@ -102,6 +102,13 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, :ok, socket}
   end
 
+  # The other host-only lobby knob: the room's cosmetic theme. The Room validates the
+  # key against the catalogue and broadcasts the change so everyone's art/audio swaps.
+  def handle_in("set_config", %{"theme" => theme}, socket) when is_binary(theme) do
+    if socket.assigns.host, do: Room.set_theme(socket.assigns.room, theme)
+    {:reply, :ok, socket}
+  end
+
   # Backing out of the lobby. The host tears the whole room down (everyone is sent
   # `closed`); a guest just frees their own slot and heads home on their own.
   def handle_in("leave", _payload, socket) do

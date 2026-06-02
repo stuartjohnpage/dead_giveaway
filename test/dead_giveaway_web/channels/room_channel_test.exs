@@ -12,6 +12,17 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     {reply, socket}
   end
 
+  # Registry deregistration is asynchronous w.r.t. a process's death, so a lookup can
+  # briefly still see a just-stopped room even after its :DOWN arrives. Retry the
+  # predicate over a short bounded window rather than checking exactly once.
+  defp eventually(fun, retries \\ 50) do
+    cond do
+      fun.() -> true
+      retries > 0 -> Process.sleep(2) || eventually(fun, retries - 1)
+      true -> false
+    end
+  end
+
   test "a player can join a room channel" do
     assert {_reply, %Phoenix.Socket{}} = join_room("chan-a")
   end
@@ -111,6 +122,25 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     refute_push "lobby", %{max_ammo: 4}, 200
   end
 
+  test "the host can set the theme and it reaches every client's lobby" do
+    {_reply, socket} = join_room("chan-theme", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"theme" => "western"})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{theme: "western"}, 500
+  end
+
+  test "a guest cannot change the theme" do
+    join_room("chan-theme-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-theme-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"theme" => "western"})
+    assert_reply ref, :ok
+    # As with the bullet count, a non-host's push is ignored — no lobby carries it.
+    refute_push "lobby", %{theme: "western"}, 200
+  end
+
   test "an input message is accepted and acknowledged" do
     join_room("chan-d")
     {_reply, socket} = join_room("chan-d")
@@ -146,9 +176,10 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
 
     # Every client (the closing host included) is told the lobby is gone...
     assert_push "closed", %{}
-    # ...and the room process is actually torn down, freeing its code.
+    # ...and the room process is actually torn down, freeing its code (once the
+    # Registry has processed its own :DOWN and dropped the entry).
     assert_receive {:DOWN, ^ref_down, :process, ^room, _}
-    refute Rooms.whereis("chan-host-close")
+    assert eventually(fn -> is_nil(Rooms.whereis("chan-host-close")) end)
   end
 
   test "leaving the channel frees the player's slot in the room" do

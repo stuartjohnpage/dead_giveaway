@@ -1,8 +1,13 @@
 # Background music
 
+> **Note:** the *shipped* loops now live with their theme packs under
+> `priv/static/themes/<key>/` (`menu_loop.mp3` and `game/stage1..4.mp3`), so switching a
+> lobby's theme swaps its music too. This directory keeps the music *generators* and
+> stems/demos — generate here, then place the encoded mp3s in the theme folder.
+
 `neon_loop` — chill / hypnotic synthwave, matched to the Neon Concourse theme.
 ~46s seamless loop, A minor, 84 BPM. Generated procedurally (`gen_music.py`), free, no
-external service.
+external service. (Shipped as `themes/neon/menu_loop.mp3`.)
 
 File: `neon_loop.mp3` (kept as the single, widely-supported format for an HTML5
 `<audio>` element). Regenerate an `.ogg` from the steps below if you want the gapless
