@@ -22,6 +22,15 @@ function audioContext() {
   return (sharedCtx ||= new AudioContext());
 }
 
+// True once the shared context is actually producing sound — i.e. autoplay was permitted
+// (high media-engagement) or a gesture has already unlocked it. This distinguishes "audio
+// is already playing" from "a loop is queued but the context is still suspended (silent),
+// awaiting a gesture". Callers use it so the unlock gesture only (re)starts a loop that
+// hasn't sounded yet, instead of restarting one that's already playing from the top.
+export function audioRunning() {
+  return sharedCtx?.state === "running";
+}
+
 export function createMusicLoop(url) {
   let buffer = null; // decoded once, reused across restarts
   let src = null; // the currently-playing source node (null = stopped)

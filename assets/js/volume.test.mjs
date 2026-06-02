@@ -21,14 +21,14 @@ const { loadVolume, saveVolume, sfxGain } = await import("./volume.mjs");
 
 test("sound starts off by default", () => {
   globalThis.sessionStorage = new FakeStorage(); // empty store
-  assert.deepEqual(loadVolume(), { enabled: false, master: 100, sfx: 70 });
+  assert.deepEqual(loadVolume(), { enabled: false, master: 10, sfx: 70 });
 });
 
 test("stored settings merge over the defaults", () => {
   globalThis.sessionStorage = new FakeStorage();
   sessionStorage.setItem("dg:volume", JSON.stringify({ enabled: true, sfx: 40 }));
   // master is absent in the stored blob → falls back to the default.
-  assert.deepEqual(loadVolume(), { enabled: true, master: 100, sfx: 40 });
+  assert.deepEqual(loadVolume(), { enabled: true, master: 10, sfx: 40 });
 });
 
 test("save then load round-trips", () => {
@@ -40,7 +40,7 @@ test("save then load round-trips", () => {
 test("a corrupt stored value falls back to defaults", () => {
   globalThis.sessionStorage = new FakeStorage();
   sessionStorage.setItem("dg:volume", "{not json");
-  assert.deepEqual(loadVolume(), { enabled: false, master: 100, sfx: 70 });
+  assert.deepEqual(loadVolume(), { enabled: false, master: 10, sfx: 70 });
 });
 
 test("sfxGain is master × sfx when enabled", () => {

@@ -6,7 +6,7 @@ import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Tilin
 import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { loadVolume, sfxGain } from "./volume.mjs";
-import { createMusicLoop, createEscalatingLoop, MUSIC_GAIN } from "./music.mjs";
+import { createMusicLoop, createEscalatingLoop, audioRunning, MUSIC_GAIN } from "./music.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -196,13 +196,18 @@ export async function boot() {
   // types: otherwise the gesture that doesn't trigger it (e.g. the first spacebar after
   // a Go click already primed via pointerdown) would re-run replayMusic and restart the
   // track mid-round. So one guard removes both listeners on the first gesture.
+  //
+  // And only replay when the context is still SUSPENDED. Where autoplay is permitted
+  // (high media-engagement), the boot-time start() is already sounding — so the first
+  // gesture (e.g. clicking the lobby's bullet-count select) must not restart it from the
+  // top. When suspended, the queued loop is silent and replaying is what unlocks it.
   let primed = false;
   const primeMusic = () => {
     if (primed) return;
     primed = true;
     window.removeEventListener("pointerdown", primeMusic);
     window.removeEventListener("keydown", primeMusic);
-    replayMusic();
+    if (!audioRunning()) replayMusic();
   };
   window.addEventListener("pointerdown", primeMusic);
   window.addEventListener("keydown", primeMusic);

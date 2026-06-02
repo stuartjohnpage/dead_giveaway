@@ -124,7 +124,20 @@ if (document.getElementById("vol-master")) {
   // If sound was left On from a previous visit, autoplay policy still needs a gesture
   // before the loop can sound — kick it off on the first interaction. (A fresh visit
   // starts Off, so this is a no-op until the player flips the switch above.)
-  const startMusic = () => volume.enabled && !music.live && music.start(musicVol(volume))
-  window.addEventListener("pointerdown", startMusic, { once: true })
-  window.addEventListener("keydown", startMusic, { once: true })
+  //
+  // This must fire EXACTLY ONCE across both gesture types: start() is async (fetch +
+  // decode), so music.live stays false during the decode. Clicking into the lobby-code
+  // field (pointerdown) starts the load; the first keystroke (keydown) would then see
+  // live still false and call start() a second time — restarting the track. So one guard
+  // removes both listeners on the first gesture, rather than two independent `once`s.
+  let started = false
+  const startMusic = () => {
+    if (started) return
+    started = true
+    window.removeEventListener("pointerdown", startMusic)
+    window.removeEventListener("keydown", startMusic)
+    if (volume.enabled && !music.live) music.start(musicVol(volume))
+  }
+  window.addEventListener("pointerdown", startMusic)
+  window.addEventListener("keydown", startMusic)
 }

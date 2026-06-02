@@ -11,7 +11,7 @@
 
 const VOL_KEY = "dg:volume";
 const SLIDER_KEYS = ["master", "sfx"];
-const DEFAULTS = { enabled: false, master: 100, sfx: 70 };
+const DEFAULTS = { enabled: false, master: 10, sfx: 70 };
 
 export function loadVolume() {
   try {
