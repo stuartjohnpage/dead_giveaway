@@ -45,6 +45,8 @@ export async function boot() {
   // The host (from /play/new) starts the room; a join-by-code requires it to
   // already exist (the server replies "not_found" otherwise).
   const isHost = mount.dataset.host === "true";
+  // The name the player chose on the splash (empty → the room auto-names us).
+  const playerName = mount.dataset.name || "";
 
   const app = new Application();
   // The canvas tracks the window; the world container (below) is letterbox-scaled to
@@ -332,7 +334,7 @@ export async function boot() {
   // --- Socket / channel ---
   const socket = new Socket("/socket", {});
   socket.connect();
-  const channel = socket.channel("room:" + room, { host: isHost });
+  const channel = socket.channel("room:" + room, { host: isHost, name: playerName });
   channel
     .join()
     .receive("ok", (resp) => {

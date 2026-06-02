@@ -1,0 +1,62 @@
+{
+  "key": "western",
+  "display": "Dead Man's Gulch",
+  "blurb": "Sun-baked frontier main street: packed dirt, plank boardwalks, a noon showdown at the line.",
+  "frameSize": {
+    "w": 32,
+    "h": 32
+  },
+  "variants": 12,
+  "animations": {
+    "idle": 4,
+    "walk": 4,
+    "run": 6,
+    "dropped": 1
+  },
+  "assets": {
+    "agentsAtlas": "agents.json",
+    "agentsImage": "agents.png",
+    "floorTile": "floor_tile.png",
+    "finishLine": "finish_line.png",
+    "arenaBackground": "arena_bg.png",
+    "menuBackground": "menu_bg.png",
+    "lobbyBackground": "lobby_bg.png"
+  },
+  "palette": {
+    "wall": [
+      28,
+      18,
+      12
+    ],
+    "floor": [
+      [
+        124,
+        96,
+        60
+      ],
+      [
+        110,
+        84,
+        52
+      ]
+    ],
+    "accent": [
+      [
+        224,
+        150,
+        60
+      ],
+      [
+        196,
+        72,
+        48
+      ],
+      [
+        214,
+        180,
+        96
+      ]
+    ]
+  },
+  "note": "Cosmetic variants are NOT correlated with human/bot identity. Assign a random variant per character at spawn, server-side."
+}

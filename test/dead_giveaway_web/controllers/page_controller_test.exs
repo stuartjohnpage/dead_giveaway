@@ -6,7 +6,9 @@ defmodule DeadGiveawayWeb.PageControllerTest do
     body = html_response(conn, 200)
 
     assert body =~ "DEAD GIVEAWAY"
-    assert body =~ ~s(href="/play/new")
+    assert body =~ ~s(action="/play/new")
     assert body =~ ~s(action="/join")
+    # The name field that feeds both create and join (skribbl-style centre block).
+    assert body =~ ~s(id="player-name")
   end
 end

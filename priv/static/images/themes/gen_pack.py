@@ -42,6 +42,28 @@ THEMES = {
         "pants":  (35,33,48),
         "outline":(8,6,14),
     },
+    "western": {
+        "display": "Dead Man's Gulch",
+        "blurb": "Sun-baked frontier main street: packed dirt, plank boardwalks, a noon showdown at the line.",
+        "floor": [(124, 96, 60), (110, 84, 52)],     # packed-dirt two-tone
+        "grid_line": (84, 60, 38),                   # dry plank/dirt seams
+        "accent": [(224, 150, 60), (196, 72, 48), (214, 180, 96)],  # sunset orange / barn red / gold
+        "wall": (28, 18, 12),
+        "vignette": (14, 8, 4),
+        "finish": [(235, 225, 200), (70, 44, 28)],   # cream / brown finish banner
+        "shirts": [(70,96,150),(150,60,45),(170,140,80),(96,110,70),(196,160,70),
+                   (110,80,55),(205,195,170),(120,50,55),(120,120,128),(70,95,75),
+                   (180,120,60),(60,55,60)],
+        "hairs":  [(40,28,18),(20,16,12),(90,60,35),(120,90,55),(150,150,155),
+                   (60,40,25),(30,25,22),(80,55,30),(110,75,45),(25,22,20),
+                   (95,65,38),(45,35,28)],
+        "skins":  [(245,205,170),(225,175,135),(200,150,110),(165,115,80),(120,80,55)],
+        "pants":  (60,48,36),
+        "outline":(20,12,8),
+        # presence of "hats" switches the head to a cowboy hat
+        "hats":   [(92,62,36),(70,48,28),(120,92,58),(45,32,22),(140,110,72),(60,40,26),
+                   (30,24,18),(100,72,44),(150,120,80),(80,55,32),(55,42,30),(110,85,52)],
+    },
 }
 
 FW = FH = 32                      # frame size
@@ -156,9 +178,19 @@ def draw_agent(pal, variant, pose, t):
     # face hint (facing right): a touch of shadow on left, nose pixel on right
     d.ellipse([bx-3, top, bx+0, top+8], fill=shade(skin,.9))
     d.point((bx+4, top+4), fill=shade(skin,.85))
-    # hair cap
-    d.chord([bx-4, top-1, bx+5, top+6], 180, 360, fill=hair)
-    d.rectangle([bx-4, top+1, bx-2, top+4], fill=hair)  # back of hair
+    if pal.get("hats"):
+        # cowboy hat (3/4 side, facing right): crown + wide brim + accent band
+        hat = pal["hats"][variant % len(pal["hats"])]
+        band = pal["accent"][variant % len(pal["accent"])]
+        d.rectangle([bx-4, top+5, bx-2, top+7], fill=hair)              # sliver of hair at back
+        d.ellipse([bx-5, top+3, bx+7, top+6], fill=hat)                 # brim
+        d.rounded_rectangle([bx-2, top-2, bx+3, top+3], radius=1, fill=hat)  # crown
+        d.rectangle([bx-2, top+2, bx+3, top+3], fill=shade(band, .9))   # hat band
+        d.line([(bx-2, top-2), (bx+2, top-2)], fill=shade(hat, 1.2))    # crown highlight
+    else:
+        # hair cap
+        d.chord([bx-4, top-1, bx+5, top+6], 180, 360, fill=hair)
+        d.rectangle([bx-4, top+1, bx-2, top+4], fill=hair)  # back of hair
 
     fig = add_outline(fig, pal["outline"])
 
@@ -410,4 +442,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            

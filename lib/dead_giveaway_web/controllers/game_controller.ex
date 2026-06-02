@@ -11,8 +11,8 @@ defmodule DeadGiveawayWeb.GameController do
   # Create a lobby: mint a fresh code not currently in use and drop the host into
   # it. `host=true` tells the client to *start* the room (the join-by-code path
   # instead requires it to already exist — see RoomChannel).
-  def new(conn, _params) do
-    redirect(conn, to: ~p"/play/#{fresh_code()}?#{[host: true]}")
+  def new(conn, params) do
+    redirect(conn, to: ~p"/play/#{fresh_code()}?#{[host: true] ++ name_query(params)}")
   end
 
   # Join a lobby by typed code. We normalise to the code alphabet so "abcd ",
@@ -20,7 +20,7 @@ defmodule DeadGiveawayWeb.GameController do
   def join(conn, params) do
     case normalize_code(params["code"]) do
       "" -> conn |> put_flash(:error, "Enter a lobby code to join.") |> redirect(to: ~p"/")
-      code -> redirect(conn, to: ~p"/play/#{code}")
+      code -> redirect(conn, to: play_path(code, name_query(params)))
     end
   end
 
@@ -32,8 +32,21 @@ defmodule DeadGiveawayWeb.GameController do
   def show(conn, %{"room" => room} = params) do
     conn
     |> put_layout(false)
-    |> render(:show, room: room, host: params["host"] == "true")
+    |> render(:show, room: room, host: params["host"] == "true", name: params["name"] || "")
   end
+
+  # A chosen name (from the splash) becomes a query param the game page reads and
+  # hands to the channel on join. Blank → omitted (the room auto-names "Player N").
+  defp name_query(params) do
+    case params["name"] |> to_string() |> String.trim() do
+      "" -> []
+      name -> [name: String.slice(name, 0, 16)]
+    end
+  end
+
+  # Verified routes append a stray "?" for an empty query, so branch on it.
+  defp play_path(code, []), do: ~p"/play/#{code}"
+  defp play_path(code, query), do: ~p"/play/#{code}?#{query}"
 
   defp normalize_code(nil), do: ""
 

@@ -32,9 +32,10 @@ defmodule DeadGiveawayWeb.RoomChannel do
         # Subscribe before joining so we receive our own join's lobby roster.
         Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic(id))
 
-        # Players are auto-named "Player N" for now; the room returns the canonical
-        # name, which is this player's identity for all subsequent input/fire.
-        {:ok, _slot, name} = Room.join(room)
+        # The player's chosen name (from the splash) is their identity for all
+        # subsequent input/fire; the room uniquifies it and returns the canonical
+        # form. A blank name falls back to an auto-assigned "Player N".
+        {:ok, _slot, name} = Room.join(room, normalize_name(payload["name"]))
 
         # Remember whether this client is the host (host=true) — only the host can
         # close the lobby out from under everyone when they back out.
@@ -147,6 +148,15 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   defp room_opts do
     Keyword.merge(@default_room_opts, Application.get_env(:dead_giveaway, :room, []))
+  end
+
+  # A chosen name from the client: trimmed and length-capped, blank → nil (the
+  # room then auto-names the player "Player N").
+  defp normalize_name(name) do
+    case name |> to_string() |> String.trim() |> String.slice(0, 16) do
+      "" -> nil
+      n -> n
+    end
   end
 
   defp to_verb("walk"), do: :walk

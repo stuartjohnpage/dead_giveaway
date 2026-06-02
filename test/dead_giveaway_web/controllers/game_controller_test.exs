@@ -20,8 +20,23 @@ defmodule DeadGiveawayWeb.GameControllerTest do
     assert String.length(code) == 4
   end
 
+  test "GET /play/new carries the chosen name through to the lobby", %{conn: conn} do
+    conn = get(conn, ~p"/play/new?#{[name: "Ada"]}")
+    assert redirected_to(conn) =~ ~r"\?host=true&name=Ada$"
+  end
+
   test "POST /join normalises the code and redirects into that room", %{conn: conn} do
     conn = post(conn, ~p"/join", %{"code" => "ab2d"})
+    assert redirected_to(conn) == ~p"/play/AB2D"
+  end
+
+  test "POST /join carries the chosen name through to the lobby", %{conn: conn} do
+    conn = post(conn, ~p"/join", %{"code" => "AB2D", "name" => "Ada"})
+    assert redirected_to(conn) == ~p"/play/AB2D?#{[name: "Ada"]}"
+  end
+
+  test "POST /join with a blank name adds no query (the room auto-names)", %{conn: conn} do
+    conn = post(conn, ~p"/join", %{"code" => "AB2D", "name" => "   "})
     assert redirected_to(conn) == ~p"/play/AB2D"
   end
 
