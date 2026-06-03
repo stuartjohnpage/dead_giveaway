@@ -22,7 +22,7 @@
     <div class="mx-auto mt-10 w-full max-w-md space-y-5 rounded-2xl bg-[#10162e] p-7 shadow-2xl ring-1 ring-white/10">
       <%!-- Create: carries the name and mints a fresh shareable code, dropping you in
             as host. GET so the name rides along as a query param into /play/new. --%>
-      <form action={~p"/play/new"} method="get" class="space-y-4">
+      <form id="create-form" action={~p"/play/new"} method="get" class="space-y-4">
         <input
           type="text"
           id="player-name"
@@ -176,18 +176,7 @@
   </main>
 </div>
 
-<%!-- The name is typed once (in the create form) but both lobby actions need it.
-      Mirror it into the join form's hidden field just before that form submits so a
-      guest joining by code carries their chosen name in too. --%>
-<script>
-  (() => {
-    const name = document.getElementById("player-name");
-    const joinName = document.getElementById("join-name");
-    const joinForm = document.getElementById("join-form");
-    if (name && joinName && joinForm) {
-      joinForm.addEventListener("submit", () => {
-        joinName.value = name.value;
-      });
-    }
-  })();
-</script>
+<%!-- The name is typed once (in the create form) but both lobby actions need it. The
+      client mirrors it into the join form's hidden field on submit (router.mjs handles
+      both the mirroring and the client-side navigation); with no JS the hidden field is
+      simply empty and the room auto-names the guest "Player N". --%>

@@ -82,30 +82,42 @@ import "phoenix_html"
 // }
 
 
-// Handle flash close
-document.querySelectorAll("[role=alert][data-flash]").forEach((el) => {
-  el.addEventListener("click", () => {
-    el.setAttribute("hidden", "")
-  })
-})
-
-// Boot the Dead Giveaway client on the game page (identified by the #game element).
 import { boot } from "./game.mjs"
-if (document.getElementById("game")) {
-  boot()
+import { getAudio } from "./audio-shell.mjs"
+import { bindVolumeSliders, bindSoundToggle } from "./volume.mjs"
+import { initRouter } from "./router.mjs"
+
+// Mount the current page in place. Called once for the server-rendered page at load and
+// again by the router after each client-side content swap, so all per-page setup must be
+// re-runnable here (top-level init wouldn't run after a swap). Returns a teardown the
+// router calls before navigating away, or nothing for a page that needs no cleanup.
+async function mount() {
+  // Flash banners — re-bound each page (their elements are replaced on every swap).
+  document.querySelectorAll("[role=alert][data-flash]").forEach((el) => {
+    el.addEventListener("click", () => el.setAttribute("hidden", ""))
+  })
+
+  // The game page mounts the Pixi/socket client. Check #game first so a play page mounts
+  // as the game even once it grows its own audio controls (#19).
+  if (document.getElementById("game")) return boot()
+
+  // The home splash wires the sound card to the shared audio shell.
+  if (document.getElementById("vol-master")) return mountHome()
 }
 
 // Home page: bind the volume sliders (the game reads the persisted level at boot, so
 // changing it here carries into play) and loop the menu's background music.
-import { getAudio } from "./audio-shell.mjs"
-import { bindVolumeSliders, bindSoundToggle } from "./volume.mjs"
-if (document.getElementById("vol-master")) {
+function mountHome() {
   // The home sound card drives the shared menu loop directly — start/stop on the On/Off
   // switch, re-gain on the sliders — rather than through the music director: the Off state
   // must actually stop the loop, which the director's "stay silent when muted" model
   // doesn't do. It's the same loop instance the in-game director later uses (one audio
   // shell), so once navigation is client-side the menu music carries straight into the lobby.
-  const { volume, lobbyMusic, musicGain, playShot } = getAudio()
+  const { volume, lobbyMusic, musicGain, playShot, enterMenu } = getAudio()
+  // Reset audio to the menu loop. Post client-side nav this mount may be a return from a
+  // live game, so drop any in-game loop and (if already unlocked + sound on) resume the
+  // menu track — seamlessly if it was still playing (a pre-round lobby we backed out of).
+  enterMenu()
   // The On/Off switch starts or stops the loop (flipping it is a user gesture, so
   // autoplay is allowed); the sliders only re-gain the already-playing loop — they must
   // not restart it from the top on every drag.
@@ -136,4 +148,15 @@ if (document.getElementById("vol-master")) {
   }
   window.addEventListener("pointerdown", startMusic)
   window.addEventListener("keydown", startMusic)
+
+  // Navigating to a lobby before that first gesture fired must not leave these dangling on
+  // the next page (the audio shell itself — and any loop it's playing — persists).
+  return () => {
+    window.removeEventListener("pointerdown", startMusic)
+    window.removeEventListener("keydown", startMusic)
+  }
 }
+
+// Take over the home↔play navigations (and mount the initial page). Everything degrades to
+// ordinary full-page loads if JS is off or this throws (the forms/links keep working).
+initRouter(mount)

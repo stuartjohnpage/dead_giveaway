@@ -6,6 +6,7 @@ import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Textu
 import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES } from "./audio-shell.mjs";
+import { navigate } from "./router.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -153,7 +154,7 @@ export async function boot() {
   // can outlive any single boot() once navigation is client-side (#20). The volume is
   // configured on the home page and read fresh per transition. Arm the director's autoplay
   // unlock: the menu loop is queued, awaiting the first user gesture to sound.
-  const { music, playShot, armUnlock } = getAudio();
+  const { music, playShot, armUnlock, lobbyMusic } = getAudio();
   armUnlock();
 
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
@@ -261,7 +262,9 @@ export async function boot() {
   // label (set by applyHostUI) says so, while a guest only leaves their own seat.
   lobbyLeave.addEventListener("click", () => {
     channel.push("leave", {});
-    window.location.href = "/";
+    // Client-navigate home so the menu music carries straight back (#20); the router runs
+    // boot()'s teardown (below), which leaves the channel and tears the canvas/socket down.
+    navigate("/");
   });
 
   // Reflect our server-assigned host status in the lobby controls: only the host can
@@ -465,7 +468,7 @@ export async function boot() {
   });
   // The host closed the lobby — everyone still in it gets dropped back home.
   channel.on("closed", () => {
-    window.location.href = "/";
+    navigate("/");
   });
   channel.on("snapshot", (snap) => {
     music.ensureInGame();
@@ -509,8 +512,12 @@ export async function boot() {
     showCard(true);
   });
 
-  // Start out in the pre-game lobby (full backdrop), waiting to hit Go.
-  music.toLobby();
+  // Start out in the pre-game lobby (full backdrop), waiting to hit Go. If the menu loop
+  // is already playing — carried over from the splash through the shared audio shell when
+  // we arrived here via client-side navigation (#20) — adopt it without a restart so the
+  // music doesn't skip; otherwise (a direct load, or sound was off) start it fresh.
+  if (lobbyMusic.live) music.adoptLobby();
+  else music.toLobby();
   showCard(false);
 
   function updateWorld(snap) {
@@ -594,14 +601,16 @@ export async function boot() {
   const verb = () => (running ? "run" : walking ? "walk" : "stop");
   const sendVerb = () => channel.push("input", { verb: verb() });
 
-  window.addEventListener("keydown", (ev) => {
+  const onKeyDown = (ev) => {
     if (ev.key === "Shift" && !running) (running = true), sendVerb();
     else if (ev.code === "Space" && !walking) (walking = true), sendVerb();
-  });
-  window.addEventListener("keyup", (ev) => {
+  };
+  const onKeyUp = (ev) => {
     if (ev.key === "Shift") (running = false), sendVerb();
     else if (ev.code === "Space") (walking = false), sendVerb();
-  });
+  };
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
 
   // --- Mouse aim + the one bullet (§5) ---
   let mouse = { x: app.screen.width / 2, y: app.screen.height / 2 };
@@ -673,4 +682,30 @@ export async function boot() {
     // still reports its resting spot — peers need to see a reticle linger on a suspect.
     sendAim();
   });
+
+  // Teardown for client-side navigation away from the game (#20): leave the room, drop the
+  // socket, and destroy the Pixi app (which removes its canvas, ticker and canvas-bound
+  // listeners). The window-level listeners we added are removed explicitly. The audio shell
+  // is deliberately NOT torn down — its loop keeps playing across the hop, which is the point.
+  // Lobby/HUD DOM listeners aren't removed: those elements are replaced wholesale by the
+  // router's content swap, so they're collected with the old DOM.
+  return () => {
+    window.removeEventListener("resize", layout);
+    window.removeEventListener("keydown", onKeyDown);
+    window.removeEventListener("keyup", onKeyUp);
+    // Destroy the Pixi app first: its render loop pushes "aim" over the channel, so stop
+    // the ticker before we leave the room. `removeView` drops the canvas (the router's
+    // content swap would discard it anyway, but don't rely on that here).
+    try {
+      app.destroy({ removeView: true }, { children: true });
+    } catch {
+      /* already destroyed */
+    }
+    try {
+      channel.leave();
+      socket.disconnect();
+    } catch {
+      /* already gone */
+    }
+  };
 }

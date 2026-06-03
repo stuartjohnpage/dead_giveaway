@@ -81,6 +81,20 @@ function create() {
     s.play().catch(() => {}); // autoplay is rejected until the first gesture; in-game the click is the gesture
   };
 
+  // Return to the splash/menu from anywhere — the home page calls this on mount, which
+  // (post client-side nav) may be arriving back from a live game. Reset the director to the
+  // lobby view and make sure no in-game loop is left sounding under the splash. If the menu
+  // loop is already playing (we left a pre-round lobby, sound on) it's kept as-is — seamless,
+  // no restart. Otherwise drop the game loop; and if audio is already unlocked (we came from
+  // the game, not a fresh page load) and sound is on, (re)start the menu loop now — on a
+  // fresh load the context is still suspended, so first playback is left to the home gesture.
+  const enterMenu = () => {
+    music.adoptLobby();
+    if (lobbyMusic.live) return;
+    gameMusic.stop();
+    if (volume.enabled && audioRunning()) lobbyMusic.start(musicGain());
+  };
+
   // Arm the autoplay unlock for the director: the first user gesture (of either type)
   // primes the AudioContext, replaying the queued loop only if it's still suspended, then
   // tears both listeners down. The game arms this; the home splash drives the loop
@@ -99,5 +113,15 @@ function create() {
     window.addEventListener("keydown", unlock);
   };
 
-  return { music, lobbyMusic, gameMusic, volume, musicGain, applyMusicGain, playShot, armUnlock };
+  return {
+    music,
+    lobbyMusic,
+    gameMusic,
+    volume,
+    musicGain,
+    applyMusicGain,
+    playShot,
+    armUnlock,
+    enterMenu,
+  };
 }
