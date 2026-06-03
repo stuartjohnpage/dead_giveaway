@@ -9,10 +9,16 @@ defmodule DeadGiveawayWeb.GameController do
   @code_length 4
 
   # Create a lobby: mint a fresh code not currently in use and drop the host into
-  # it. `host=true` tells the client to *start* the room (the join-by-code path
-  # instead requires it to already exist — see RoomChannel).
+  # it. Create-intent (which tells the client to *start* the room rather than
+  # require it to already exist — see RoomChannel) rides the session, not the URL,
+  # so the host's address bar stays a clean `/play/CODE` and the flag can't be
+  # forged by editing the URL (#21).
   def new(conn, params) do
-    redirect(conn, to: ~p"/play/#{fresh_code()}?#{[host: true] ++ name_query(params)}")
+    code = fresh_code()
+
+    conn
+    |> put_session(:host_code, code)
+    |> redirect(to: play_path(code, name_query(params)))
   end
 
   # Join a lobby by typed code. We normalise to the code alphabet so "abcd ",
@@ -25,16 +31,17 @@ defmodule DeadGiveawayWeb.GameController do
   end
 
   # Serves the in-browser game client for a room. The room id is read by the JS
-  # client to join the matching channel. `host` (from the create redirect) tells
-  # the client whether to start the room or require it to already exist. Skip the
-  # app content layout so the canvas can own the viewport (the root layout still
-  # loads app.js/css).
+  # client to join the matching channel. Create-intent comes from the session
+  # (set by `new` for the lobby's creator) and tells the client whether to start
+  # the room or require it to already exist — direct navigation has no such
+  # session entry, so it joins as a guest. Skip the app content layout so the
+  # canvas can own the viewport (the root layout still loads app.js/css).
   def show(conn, %{"room" => room} = params) do
     conn
     |> put_layout(false)
     |> render(:show,
       room: room,
-      host: params["host"] == "true",
+      host: get_session(conn, :host_code) == room,
       name: params["name"] || "",
       themes: DeadGiveaway.Themes.all()
     )

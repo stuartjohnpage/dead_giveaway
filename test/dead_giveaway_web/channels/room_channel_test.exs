@@ -191,7 +191,7 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
   test "a second joiner claiming host=true in the payload cannot seize the lobby" do
     # The real host opens the room...
     {_r, host} = join_room("chan-steal", %{"host" => true})
-    # ...then an interloper joins forging host=true (as a crafted ?host=true URL would).
+    # ...then an interloper joins forging host=true (as a crafted websocket payload would).
     {_r2, thief} = join_room("chan-steal", %{"host" => true})
     room = Rooms.whereis("chan-steal")
 

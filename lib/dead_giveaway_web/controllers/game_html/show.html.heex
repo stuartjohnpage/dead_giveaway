@@ -1,6 +1,7 @@
 <%!-- The Pixi canvas (assets/js/game.mjs, booted from app.js) fills this and owns
-      the whole viewport — no page chrome during play. `data-host` tells the client
-      whether to start this lobby (the host) or require it to already exist. --%>
+      the whole viewport — no page chrome during play. `data-host` (set server-side
+      from the creator's session, not the URL) tells the client whether to start this
+      lobby (the host) or require it to already exist. --%>
 <div
   id="game"
   data-room={@room}
