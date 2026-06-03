@@ -7,6 +7,7 @@ import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { loadVolume, sfxGain } from "./volume.mjs";
 import { createMusicLoop, createEscalatingLoop, audioRunning, MUSIC_GAIN } from "./music.mjs";
+import { createMusicDirector, createAudioPort } from "./music-director.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -164,66 +165,27 @@ export async function boot() {
   const lobbyMusic = createMusicLoop(DEFAULT_MENU_LOOP);
   const gameMusic = createEscalatingLoop(DEFAULT_GAME_STAGES);
   const musicGain = () => (volume.enabled ? (volume.master / 100) * MUSIC_GAIN : 0);
-  // Which loop belongs to the current view: false = pre-game lobby (menu track),
-  // true = in the game (live round or the post-round card). null until the first edge.
-  let inGame = null;
-  // What to (re)play on the autoplay-unlock gesture — kept current as the view changes.
-  let replayMusic = () => {};
-  // Swap to the lobby loop (stop game music, start lobby music from the top).
-  const playLobbyMusic = () => {
-    gameMusic.stop();
-    if (volume.enabled) lobbyMusic.start(musicGain());
+
+  // All view-transition policy (which loop, when to replay, the prime-once/suspended-only
+  // unlock, boot-load vs live-swap) lives in the music director (music-director.mjs),
+  // driving the two loops through the production AudioPort adapter (start-one-stops-the-
+  // other, stay-silent-when-muted) — both built and tested there, so boot() just wires them.
+  const music = createMusicDirector(
+    createAudioPort({ lobbyMusic, gameMusic, audioRunning, gain: musicGain }),
+  );
+
+  // Autoplay policy re-arms on every page load, so the loop queued at boot can't sound
+  // until the first user gesture. prime() unlocks the shared AudioContext (replaying only
+  // while it's still suspended) and returns whether it consumed the gesture — true exactly
+  // once, across both gesture types — so we tear both listeners down on the first unlock.
+  const unlock = () => {
+    if (music.prime()) {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    }
   };
-  // Swap to the in-game loop. `escalate` true climbs the stages (a live round); false
-  // holds the chill stage-1 bed (the between-rounds card).
-  const playGameMusic = (escalate) => {
-    lobbyMusic.stop();
-    if (volume.enabled) gameMusic.start(musicGain(), { escalate });
-  };
-  // Enter the lobby track (pre-game only).
-  const toLobbyMusic = () => {
-    inGame = false;
-    replayMusic = playLobbyMusic;
-    playLobbyMusic();
-  };
-  // Open a round on the climbing game track (stage 1, ramping up).
-  const toRoundMusic = () => {
-    inGame = true;
-    replayMusic = () => playGameMusic(true);
-    playGameMusic(true);
-  };
-  // The between-rounds card: reset the game track to its chill stage-1 bed and hold.
-  const toCardMusic = () => {
-    inGame = true;
-    replayMusic = () => playGameMusic(false);
-    playGameMusic(false);
-  };
-  // Make sure the game loop is the one playing, in case a snapshot ever beats its
-  // round_start to the client (a no-op once we're already in the game).
-  const ensureGameMusic = () => {
-    if (!inGame) toRoundMusic();
-  };
-  // Autoplay policy re-arms on every page load, so the loop queued at boot can't
-  // actually sound until the first user gesture — (re)start the matching loop then to
-  // unlock the shared AudioContext. This must fire EXACTLY ONCE across both gesture
-  // types: otherwise the gesture that doesn't trigger it (e.g. the first spacebar after
-  // a Go click already primed via pointerdown) would re-run replayMusic and restart the
-  // track mid-round. So one guard removes both listeners on the first gesture.
-  //
-  // And only replay when the context is still SUSPENDED. Where autoplay is permitted
-  // (high media-engagement), the boot-time start() is already sounding — so the first
-  // gesture (e.g. clicking the lobby's bullet-count select) must not restart it from the
-  // top. When suspended, the queued loop is silent and replaying is what unlocks it.
-  let primed = false;
-  const primeMusic = () => {
-    if (primed) return;
-    primed = true;
-    window.removeEventListener("pointerdown", primeMusic);
-    window.removeEventListener("keydown", primeMusic);
-    if (!audioRunning()) replayMusic();
-  };
-  window.addEventListener("pointerdown", primeMusic);
-  window.addEventListener("keydown", primeMusic);
+  window.addEventListener("pointerdown", unlock);
+  window.addEventListener("keydown", unlock);
 
   // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
   // Pixabay Content License, credited in priv/static/sounds/CREDITS.md.
@@ -483,19 +445,16 @@ export async function boot() {
     }
 
     // Music: lobby loop + escalating game stages, falling back to the default theme's
-    // tracks if this pack hasn't declared (or generated) its own yet.
+    // tracks if this pack hasn't declared (or generated) its own yet. The director points
+    // both loops at the new tracks and decides boot-load (no replay; first playback is the
+    // toLobby() below) vs live-swap (restart whatever's playing) off its own first-load flag.
     const audio = manifest.audio || {};
     const menuLoop = audio.menuLoop ? url(audio.menuLoop) : DEFAULT_MENU_LOOP;
     const stages =
       audio.gameStages && audio.gameStages.length ? audio.gameStages.map(url) : DEFAULT_GAME_STAGES;
-    lobbyMusic.setUrl(menuLoop);
-    gameMusic.setUrls(stages);
+    music.setTheme({ menuLoop, gameStages: stages });
 
-    const isSwap = currentTheme !== null;
     currentTheme = key;
-    // On a live swap, restart whatever loop is currently playing so it picks up the new
-    // track; the initial boot load leaves first playback to the toLobbyMusic() call below.
-    if (isSwap) replayMusic();
   }
 
   // Bring the scene up on the default theme before we join; the lobby broadcast then
@@ -552,14 +511,14 @@ export async function boot() {
     window.location.href = "/";
   });
   channel.on("snapshot", (snap) => {
-    ensureGameMusic();
+    music.ensureInGame();
     hideCard();
     updateWorld(snap);
   });
   // Any player's shot — including your own — arrives here, so everyone hears it (§5).
   channel.on("shot", () => playShot());
   channel.on("round_start", () => {
-    toRoundMusic(); // open on stage 1 and climb the ladder through the round
+    music.toRound(); // open on stage 1 and climb the ladder through the round
     hideCard();
     scores = null;
     dead = false; // fresh round → back in play (a previous round's death is cleared)
@@ -589,12 +548,12 @@ export async function boot() {
     showChances(false); // pull the lives HUD too
     // Stay in the game: float the card over the frozen final frame, and drop the music
     // back to its chill stage-1 bed (held, not climbing) so the next round ramps anew.
-    toCardMusic();
+    music.toCard();
     showCard(true);
   });
 
   // Start out in the pre-game lobby (full backdrop), waiting to hit Go.
-  toLobbyMusic();
+  music.toLobby();
   showCard(false);
 
   function updateWorld(snap) {
