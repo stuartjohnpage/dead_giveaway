@@ -61,7 +61,17 @@ export async function boot() {
   const app = new Application();
   // The canvas tracks the window; the world container (below) is letterbox-scaled to
   // fit it. antialias off + nearest-neighbour scaling keeps the pixel art crisp.
-  await app.init({ resizeTo: window, background: "#0b1020", antialias: false });
+  // Render at the device pixel ratio (autoDensity sizes the canvas in CSS pixels while
+  // backing it at native resolution) so the scene is sharp on HiDPI/retina screens
+  // instead of upscaled and soft (#24). app.screen stays in CSS pixels, so the letterbox
+  // math and the mouse→world mapping are unaffected.
+  await app.init({
+    resizeTo: window,
+    background: "#0b1020",
+    antialias: false,
+    resolution: window.devicePixelRatio || 1,
+    autoDensity: true,
+  });
   mount.appendChild(app.canvas);
 
   // The sprite atlas (cosmetic variants × idle/walk/run/dropped) and backdrop art are

@@ -66,7 +66,7 @@
     class="absolute inset-0 bg-black/60 backdrop-blur-[1px]"
   >
   </div>
-  <div class="relative w-full max-w-lg rounded-2xl bg-[#10162e] p-8 text-center shadow-2xl ring-1 ring-white/10">
+  <div class="relative max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl bg-[#10162e] p-6 text-center shadow-2xl ring-1 ring-white/10 sm:p-8">
     <h2 id="lobby-banner" class="text-2xl font-bold text-white">Dead Giveaway</h2>
     <%!-- The shareable lobby code, so the host can read it off and pass it on. --%>
     <p id="lobby-code" class="mt-1 text-xs uppercase tracking-[0.3em] text-slate-500"></p>
@@ -74,7 +74,7 @@
     <%!-- Two columns: who's here on the left, host's room settings on the right. The
           options use a label/select grid so the controls line up regardless of how
           long each label ("Bullets" vs "Lives") or value ("1" vs "Neon Concourse") is. --%>
-    <div class="my-6 flex justify-between gap-6 text-left">
+    <div class="my-6 flex flex-col gap-6 text-left sm:flex-row sm:justify-between">
       <%!-- Players column. game.mjs fills #lobby-list with the roster (or post-round
             standings), one <li> per player. --%>
       <div class="min-w-0 flex-1">
