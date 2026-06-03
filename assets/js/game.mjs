@@ -275,6 +275,12 @@ export async function boot() {
     chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
     lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
+    // The host's close is destructive (it ends the lobby for everyone), so make it
+    // read dark red; a guest only leaves their own seat, so it stays neutral slate.
+    lobbyLeave.classList.toggle("bg-red-800", isHost);
+    lobbyLeave.classList.toggle("hover:bg-red-700", isHost);
+    lobbyLeave.classList.toggle("bg-slate-700", !isHost);
+    lobbyLeave.classList.toggle("hover:bg-slate-600", !isHost);
   };
   applyHostUI();
 
