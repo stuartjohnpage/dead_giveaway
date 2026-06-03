@@ -428,10 +428,13 @@ def lobby_bg(pal):
         img.paste(tile, (tx, floor_top))
     img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle([0, floor_top - 3, W, floor_top], fill=accent[2] + (220,)), 4))
 
-    # A waiting line of rim-lit idle agents at the start.
+    # A waiting line of rim-lit idle agents at the start. The line runs full-bleed: it
+    # starts half off the left edge and continues until it runs off the right, so the
+    # crowd is balanced edge-to-edge rather than anchored to a left margin. That keeps it
+    # centred under bg-cover at any viewport aspect (the sides crop evenly).
     rnd = random.Random(5)
-    x = 16
-    while x < W - 28:
+    x = -18
+    while x < W:
         v = rnd.randrange(N_VARIANTS)
         fr = draw_agent(pal, v, "idle", rnd.randrange(ANIM["idle"]))
         fr = _silhouette(fr, shade(wall, 0.3), accent[0]).resize((FW * 2, FH * 2), Image.NEAREST)
