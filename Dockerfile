@@ -97,6 +97,12 @@ ENV MIX_ENV="prod"
 # Only copy the final release from the build stage
 COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/dead_giveaway ./
 
+# The migrate/server overlay scripts must be executable. Git on Windows doesn't track
+# the execute bit, so a checkout-based build (e.g. CI) can land them as 0644 and the
+# release machine fails to spawn /app/bin/migrate ("Permission denied"). Force it here
+# so the deploy works regardless of how the build context's permissions arrived.
+RUN chmod +x bin/migrate bin/server
+
 USER nobody
 
 # If using an environment that doesn't automatically reap zombie processes, it is
