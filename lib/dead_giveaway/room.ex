@@ -18,7 +18,7 @@ defmodule DeadGiveaway.Room do
   # is NOT restarted by its supervisor; a genuine crash still is.
   use GenServer, restart: :transient
 
-  alias DeadGiveaway.{Themes, World}
+  alias DeadGiveaway.{Session, Themes, World}
 
   # A round can start with as few as this many players (the rest are bots).
   @min_players 1
@@ -155,20 +155,19 @@ defmodule DeadGiveaway.Room do
       # for unit tests that don't want a room vanishing under them.
       empty_after_ms: Keyword.get(opts, :empty_after_ms),
       expire_ref: nil,
-      players: %{},
+      # The pure lobby-and-scoreboard core: the monotonic-slot roster, name policy,
+      # and the cumulative scoreboard (incl. the shared Bot tally). Room threads it
+      # through state and delegates every roster read/write and scoring decision to it.
+      session: Session.new(bot_name: @bot_name),
       # The host's name (DESIGN §9): the first player to join, reassigned to the
       # earliest remaining joiner if the host leaves, `nil` while the room is empty.
       # Only the host may reconfigure or close the lobby — and it's tracked here, not
       # taken from the client, so a crafted URL can't grant it.
       host: nil,
-      # Monotonic so a freed slot is never handed out again — reusing a slot key
-      # after a `leave` would silently overwrite a still-present player.
-      next_slot: 0,
       world: nil,
       # Last-aimed crosshair point per player name, for the round in progress; the
       # snapshot carries the still-armed ones out. Cleared at every round boundary.
-      crosshairs: %{},
-      scores: %{}
+      crosshairs: %{}
     }
 
     # The tick timer (if any) runs for the room's lifetime; it idles while no
@@ -179,16 +178,14 @@ defmodule DeadGiveaway.Room do
 
   @impl true
   def handle_call({:join, player}, _from, state) do
-    slot = state.next_slot
-    name = player_name(player, state.players)
+    {slot, name, session} = Session.join(state.session, player)
     # The first player in owns the room; everyone after joins as a guest.
     host = state.host || name
 
     # Joining only places you in the lobby — a round starts when someone hits Go.
     # A join means the room is no longer empty, so cancel any pending expiry.
     state =
-      %{state | next_slot: slot + 1, host: host}
-      |> put_in([:players, slot], name)
+      %{state | session: session, host: host}
       |> cancel_expiry()
 
     broadcast_lobby(state)
@@ -196,17 +193,15 @@ defmodule DeadGiveaway.Room do
   end
 
   def handle_call({:leave, player}, _from, state) do
-    players = state.players |> Enum.reject(fn {_slot, name} -> name == player end) |> Map.new()
-    # Drop the departed player's win tally with them: names are reused now (a freed
-    # "Player N" goes to the next joiner), so a lingering score would otherwise be
-    # inherited by whoever next takes that name. The shared Bot tally isn't a player,
-    # so it's left alone.
-    scores = Map.delete(state.scores, player)
+    # Session.leave retires the slot and drops the departed player's win tally (names
+    # are reused, so a lingering score would otherwise be inherited by whoever next
+    # takes that name; the shared Bot tally isn't a player, so it's left alone).
+    session = Session.leave(state.session, player)
     # If the host left, hand the room to the earliest remaining joiner so the lobby
     # is never left without an owner. If that was the last player, start the
     # countdown to shut the room down.
     state =
-      %{state | players: players, scores: scores}
+      %{state | session: session}
       |> reassign_host(player)
       |> maybe_schedule_expiry()
 
@@ -222,7 +217,7 @@ defmodule DeadGiveaway.Room do
   end
 
   def handle_call(:go, _from, %{world: nil} = state) do
-    state = if map_size(state.players) >= @min_players, do: start_round(state), else: state
+    state = if Session.count(state.session) >= @min_players, do: start_round(state), else: state
     {:reply, :ok, state}
   end
 
@@ -308,7 +303,7 @@ defmodule DeadGiveaway.Room do
   end
 
   def handle_call({:score, player}, _from, state) do
-    {:reply, Map.get(state.scores, player, 0), state}
+    {:reply, Session.score(state.session, player), state}
   end
 
   # Crosshair updates only mean something during a live round; drop any that arrive
@@ -330,51 +325,25 @@ defmodule DeadGiveaway.Room do
   # The empty-room countdown elapsed. Stop only if still empty — a player may
   # have rejoined and cancelled the timer just as it fired (the message can
   # already be in the mailbox), in which case we stand down.
-  def handle_info(:expire, %{players: players} = state) when map_size(players) == 0 do
-    {:stop, :normal, state}
-  end
-
-  def handle_info(:expire, state), do: {:noreply, %{state | expire_ref: nil}}
-
-  # --- Internals ---
-
-  # No name given → the lowest free "Player N" among those present ("Player 1",
-  # "Player 2", …). Naming by the smallest open number rather than a monotonic slot
-  # means a number freed by a leaver is handed back out, so the count tracks the room
-  # instead of climbing on every (re)join. An explicit name is kept, but disambiguated
-  # since the name is also the player's identity and two players must never collapse
-  # onto one body/bullet.
-  defp player_name(nil, players) do
-    taken = MapSet.new(Map.values(players))
-
-    Stream.iterate(1, &(&1 + 1))
-    |> Stream.map(&"Player #{&1}")
-    |> Enum.find(&(not MapSet.member?(taken, &1)))
-  end
-
-  defp player_name(name, players), do: uniquify(name, players)
-
-  defp uniquify(name, players) do
-    taken = MapSet.new(Map.values(players))
-
-    if MapSet.member?(taken, name) do
-      Stream.iterate(2, &(&1 + 1))
-      |> Stream.map(&"#{name} (#{&1})")
-      |> Enum.find(&(not MapSet.member?(taken, &1)))
+  def handle_info(:expire, state) do
+    if Session.empty?(state.session) do
+      {:stop, :normal, state}
     else
-      name
+      {:noreply, %{state | expire_ref: nil}}
     end
   end
 
+  # --- Internals ---
+
   # Host hand-off on a leave: only matters if the leaver *was* the host. The room
-  # then passes to the remaining player with the lowest slot — the earliest joiner
-  # still present — or to nobody once the room is empty.
+  # then passes to the earliest remaining joiner (the lowest slot, first in the
+  # slot-ordered roster) — or to nobody once the room is empty.
   defp reassign_host(%{host: host} = state, left) when host != left, do: state
 
   defp reassign_host(state, _left) do
     new_host =
-      case Enum.sort(Map.keys(state.players)) do
-        [slot | _] -> Map.fetch!(state.players, slot)
+      case Session.players(state.session) do
+        [%Session.Player{name: name} | _] -> name
         [] -> nil
       end
 
@@ -385,7 +354,7 @@ defmodule DeadGiveaway.Room do
     opts =
       [
         seed: state.seed,
-        humans: Map.values(state.players),
+        humans: Session.names(state.session),
         bots: state.bots,
         max_ammo: state.max_ammo,
         max_chances: state.max_chances
@@ -425,7 +394,7 @@ defmodule DeadGiveaway.Room do
   defp player_states(%{world: nil}), do: %{}
 
   defp player_states(state) do
-    for name <- Map.values(state.players), into: %{} do
+    for name <- Session.names(state.session), into: %{} do
       {name,
        {state.world_mod.player_alive?(state.world, name),
         state.world_mod.chances_left(state.world, name)}}
@@ -475,29 +444,20 @@ defmodule DeadGiveaway.Room do
     outcome = state.world_mod.outcome(state.world)
     # Award first so the broadcast carries the up-to-date session scoreboard.
     state = award(state, outcome)
-    broadcast(state.id, {:round_over, outcome, scoreboard(state)})
+    broadcast(state.id, {:round_over, outcome, Session.scoreboard(state.session)})
     reset_round(state)
   end
 
-  defp award(state, {:winner, player}) do
-    # Persist the win for registered players (guests are ignored by the sink).
-    if state.stats_mod, do: state.stats_mod.record_win(player)
-    update_in(state.scores[player], &((&1 || 0) + 1))
-  end
-
-  # A bot crossing first (the sim's `:wash`) credits the shared Bot tally — bots
-  # are one opponent on the board. Not persisted (no player stat behind it).
-  defp award(state, :wash), do: update_in(state.scores[@bot_name], &((&1 || 0) + 1))
-
-  defp award(state, _outcome), do: state
-
-  # The standings shown between rounds: every current player next to their win
-  # count (0 if they've yet to finish first), plus the shared Bot tally. Built
-  # from the live roster so the board reads like the lobby list, not just winners.
-  defp scoreboard(state) do
-    for name <- [@bot_name | Map.values(state.players)], into: %{} do
-      {name, Map.get(state.scores, name, 0)}
+  # The pure tally moves into Session; the persistence side effect (record a win for
+  # registered players — guests are ignored by the sink) stays here in the shell. A
+  # `:wash` or any non-winner outcome has no player behind it, so nothing is persisted.
+  defp award(state, outcome) do
+    case outcome do
+      {:winner, player} -> if state.stats_mod, do: state.stats_mod.record_win(player)
+      _ -> :ok
     end
+
+    %{state | session: Session.award(state.session, outcome)}
   end
 
   # Drop back to the lobby: re-seed and tear down the world. The next round
@@ -518,12 +478,13 @@ defmodule DeadGiveaway.Room do
   # can't stack up multiple pending expiries.
   defp maybe_schedule_expiry(%{empty_after_ms: nil} = state), do: state
 
-  defp maybe_schedule_expiry(%{players: players} = state) when map_size(players) > 0,
-    do: state
-
   defp maybe_schedule_expiry(state) do
-    state = cancel_expiry(state)
-    %{state | expire_ref: Process.send_after(self(), :expire, state.empty_after_ms)}
+    if Session.empty?(state.session) do
+      state = cancel_expiry(state)
+      %{state | expire_ref: Process.send_after(self(), :expire, state.empty_after_ms)}
+    else
+      state
+    end
   end
 
   defp cancel_expiry(%{expire_ref: nil} = state), do: state
@@ -546,7 +507,7 @@ defmodule DeadGiveaway.Room do
       state.id,
       {:lobby,
        %{
-         players: Map.values(state.players),
+         players: Session.names(state.session),
          host: state.host,
          max_ammo: state.max_ammo,
          max_chances: state.max_chances,
