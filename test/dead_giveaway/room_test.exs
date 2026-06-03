@@ -71,6 +71,26 @@ defmodule DeadGiveaway.RoomTest do
       assert :sys.get_state(room).host == "bob"
     end
 
+    test "a leaver's win tally is cleared so a reused name doesn't inherit it" do
+      {:ok, room} =
+        Room.start_link(id: "score-reuse", seed: 1, bots: 0, finish_x: 2 * World.run_speed())
+
+      {:ok, _, "Player 1", _} = Room.join(room)
+      {:ok, _, "Player 2", _} = Room.join(room)
+      Room.go(room)
+      # Player 1 runs across the finish (two run-ticks away) and banks a win.
+      Room.set_verb(room, "Player 1", :run)
+      Room.tick(room)
+      Room.tick(room)
+      assert Room.score(room, "Player 1") == 1
+
+      # Player 1 leaves; the freed "Player 1" number is handed to the next joiner, who
+      # must start from zero rather than inheriting the departed player's win.
+      :ok = Room.leave(room, "Player 1")
+      {:ok, _, "Player 1", _} = Room.join(room)
+      assert Room.score(room, "Player 1") == 0
+    end
+
     test "a guest leaving never changes who hosts" do
       {:ok, room} = Room.start_link(id: "host-3")
       Room.join(room, "alice")

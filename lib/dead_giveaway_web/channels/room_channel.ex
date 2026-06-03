@@ -40,9 +40,11 @@ defmodule DeadGiveawayWeb.RoomChannel do
         # never taken from the client's `host` flag, so a crafted URL can't seize it.
         {:ok, _slot, name, host?} = Room.join(room, normalize_name(payload["name"]))
 
-        # Track host status (only the host may reconfigure or close the lobby). We
-        # keep it current from the lobby broadcast too, since the host can change.
-        {:ok, %{name: name}, assign(socket, room: room, name: name, host: host?)}
+        # Track host status (only the host may reconfigure or close the lobby) and
+        # hand it back in the join reply so the client's lobby controls are right from
+        # first paint, not just after the first lobby broadcast. We keep it current
+        # from that broadcast too, since the host can change (a hand-off on leave).
+        {:ok, %{name: name, host: host?}, assign(socket, room: room, name: name, host: host?)}
 
       :error ->
         # The join-by-code path (host=false) hit a code with no live room behind

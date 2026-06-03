@@ -481,6 +481,10 @@ export async function boot() {
     .join()
     .receive("ok", (resp) => {
       myName = (resp && resp.name) || "";
+      // Host status comes from the server in the join reply, so the controls are
+      // right immediately; the lobby broadcast keeps it current if the host changes.
+      isHost = !!(resp && resp.host);
+      applyHostUI();
       renderLobby();
     })
     .receive("error", (r) => {

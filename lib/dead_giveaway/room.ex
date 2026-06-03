@@ -181,11 +181,16 @@ defmodule DeadGiveaway.Room do
 
   def handle_call({:leave, player}, _from, state) do
     players = state.players |> Enum.reject(fn {_slot, name} -> name == player end) |> Map.new()
+    # Drop the departed player's win tally with them: names are reused now (a freed
+    # "Player N" goes to the next joiner), so a lingering score would otherwise be
+    # inherited by whoever next takes that name. The shared Bot tally isn't a player,
+    # so it's left alone.
+    scores = Map.delete(state.scores, player)
     # If the host left, hand the room to the earliest remaining joiner so the lobby
     # is never left without an owner. If that was the last player, start the
     # countdown to shut the room down.
     state =
-      %{state | players: players}
+      %{state | players: players, scores: scores}
       |> reassign_host(player)
       |> maybe_schedule_expiry()
 
