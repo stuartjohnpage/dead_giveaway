@@ -118,9 +118,16 @@ defmodule DeadGiveaway.World do
   Fire one of `player`'s bullets at crosshair point `{x, y}` (DESIGN §5).
 
   Hitscan: kills the living character nearest the crosshair — which may be the
-  shooter's own body. Returns `{world, {:killed, :human | :bot}}` revealing
-  player-vs-bot to all, or `{world, :no_shot}` if the player is out of ammo or
-  already out. Each player gets `max_ammo` bullets per round (default 1).
+  shooter's own body. Returns `{world, :killed}` once a body drops, or
+  `{world, :no_shot}` if the player is out of ammo or already out. Each player
+  gets `max_ammo` bullets per round (default 1).
+
+  A kill reveals *nothing* — not who fired, nor whether the body was a human or a
+  bot (DESIGN §5). The bare `:killed` says only "a bullet was spent"; the caller
+  learns no more than that, and the dropped body simply ghosts in the next
+  snapshot. Whether the *owner* of a dropped body is now out (vs. taken over a bot
+  body, §7) is found by querying `player_alive?/2`, not from this return value, so
+  the knock-out signal stays a private server detail and never rides a broadcast.
   """
   def fire(%__MODULE__{} = world, player, {_cx, _cy} = crosshair) do
     cond do
@@ -209,11 +216,20 @@ defmodule DeadGiveaway.World do
       |> put_in([Access.key(:entities), target.row, :alive], false)
       |> Map.update!(:shots, &Map.update(&1, player, 1, fn n -> n + 1 end))
 
-    reveal = if target.human?, do: :human, else: :bot
-    {world, {:killed, reveal}}
+    {world, :killed}
   end
 
-  defp player_alive?(world, player) do
+  @doc """
+  Whether `player`'s body is still standing this round — `false` if they've been
+  shot out or aren't in this round at all.
+
+  This is how the Room learns a player has been knocked out (their body dropped and,
+  with no chance/takeover left, they're out for the round, §7) so it can tell *that
+  owner privately*. It is deliberately a server-side query, never part of the public
+  snapshot: a body dropping reveals nothing about whose it was (DESIGN §5), so the
+  "you're out" signal must be routed to the owner alone, not inferred by peers.
+  """
+  def player_alive?(%__MODULE__{} = world, player) do
     case Map.fetch(world.slot_of, player) do
       {:ok, row} -> world.entities[row].alive
       :error -> false

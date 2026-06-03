@@ -246,18 +246,30 @@ defmodule DeadGiveaway.Room do
   end
 
   def handle_call({:fire, player, crosshair}, _from, state) do
+    # Snapshot who's still standing before the shot, so we can tell afterwards whose
+    # body (if any) just dropped and privately notify that owner (DESIGN §5).
+    alive_before = alive_players(state)
+
     {world, event} = state.world_mod.fire(state.world, player, crosshair)
+    state = %{state | world: world}
     # The world resolves *which body* dies (it ghosts in the next snapshot), but
     # we never surface whether it was human or bot — to the shooter or anyone
     # else. A shot is a pure gamble (DESIGN §5).
-    spent? = match?({:killed, _}, event)
+    spent? = event == :killed
 
     # A spent bullet cracks out a shot everyone in the room hears, but the
     # broadcast stays anonymous — no shooter, position, or outcome — so firing
     # still tells no one anything (DESIGN §5).
     if spent?, do: broadcast(state.id, :shot)
 
-    {:reply, if(spent?, do: :fired, else: :no_shot), %{state | world: world}}
+    # Tell any player who was just knocked out — privately, to that owner alone — so
+    # their client can drop its reticle and stop firing (#11). This rides a named
+    # message every channel receives but only the owner forwards to its browser, so a
+    # body dropping still leaks nothing to peers (DESIGN §5). A player who took over a
+    # bot body instead (§7) is still alive, so no signal fires for them.
+    notify_knocked_out(state, alive_before)
+
+    {:reply, if(spent?, do: :fired, else: :no_shot), state}
   end
 
   def handle_call(:tick, _from, state) do
@@ -361,12 +373,38 @@ defmodule DeadGiveaway.Room do
 
   defp do_tick(state) do
     world = state.world_mod.tick(state.world)
-    snapshot = Map.put(state.world_mod.snapshot(world), :crosshairs, visible_crosshairs(state, world))
+
+    snapshot =
+      Map.put(state.world_mod.snapshot(world), :crosshairs, visible_crosshairs(state, world))
+
     broadcast(state.id, {:snapshot, snapshot})
     state = %{state | world: world}
 
     state = if state.world_mod.finished?(world), do: finish_round(state), else: state
     {state, snapshot}
+  end
+
+  # Who among the joined players still has a body standing in the live round. Keyed by
+  # name so a before/after pair around a shot reveals exactly whose body just dropped.
+  # Empty in the lobby (no world), so a fire that somehow lands there notifies no one.
+  defp alive_players(%{world: nil}), do: %{}
+
+  defp alive_players(state) do
+    for name <- Map.values(state.players),
+        into: %{},
+        do: {name, state.world_mod.player_alive?(state.world, name)}
+  end
+
+  # Privately tell each owner whose body dropped this shot that they're out for the
+  # round. Compares post-shot liveness against `before`: a name that was alive and is
+  # now down gets a personal `:player_out`. A taken-over player (still alive) doesn't
+  # transition, so they're correctly left alone (DESIGN §5, §7).
+  defp notify_knocked_out(state, before) do
+    after_alive = alive_players(state)
+
+    for {name, true} <- before, after_alive[name] == false do
+      broadcast(state.id, {:player_out, name})
+    end
   end
 
   # The crosshairs to ship with this snapshot: each still-armed player's last-aimed

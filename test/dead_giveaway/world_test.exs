@@ -181,7 +181,7 @@ defmodule DeadGiveaway.WorldTest do
       world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
 
       {world, first} = World.fire(world, "alice", {0.0, World.row_spacing()})
-      assert match?({:killed, _}, first)
+      assert first == :killed
 
       {world2, second} = World.fire(world, "alice", {0.0, 0.0})
       assert second == :no_shot
@@ -197,24 +197,26 @@ defmodule DeadGiveaway.WorldTest do
       {world, ea} = World.fire(world, "alice", {0.0, arow * World.row_spacing()})
       {_world, eb} = World.fire(world, "bob", {0.0, brow * World.row_spacing()})
 
-      assert match?({:killed, _}, ea)
-      assert match?({:killed, _}, eb)
+      assert ea == :killed
+      assert eb == :killed
     end
 
-    test "a kill reveals the target was human" do
+    test "a kill reveals nothing — shooting a human body returns a bare :killed" do
+      # The return must not betray that a human dropped (DESIGN §5, §10): no client
+      # ever learns human-vs-bot from a shot.
       world = World.new(seed: 1, humans: ["alice"], bots: 0)
 
       # Sole entity is alice at row 0 — shooting that spot is shooting herself.
       {_world, event} = World.fire(world, "alice", {0.0, 0.0})
-      assert event == {:killed, :human}
+      assert event == :killed
     end
 
-    test "a kill reveals the target was a bot" do
+    test "a kill reveals nothing — shooting a bot body returns the same bare :killed" do
       world = World.new(seed: 1, humans: ["alice"], bots: 1)
       bot_row = 1 - world.slot_of["alice"]
 
       {_world, event} = World.fire(world, "alice", {0.0, bot_row * World.row_spacing()})
-      assert event == {:killed, :bot}
+      assert event == :killed
     end
 
     test "a player can shoot themselves" do
@@ -249,7 +251,7 @@ defmodule DeadGiveaway.WorldTest do
       world =
         Enum.reduce(bot_rows, world, fn row, w ->
           {w, event} = World.fire(w, "alice", {0.0, row * World.row_spacing()})
-          assert event == {:killed, :bot}
+          assert event == :killed
           w
         end)
 
@@ -267,8 +269,7 @@ defmodule DeadGiveaway.WorldTest do
       world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
       alice_row = world.slot_of["alice"]
 
-      {world, {:killed, :human}} =
-        World.fire(world, "bob", {0.0, alice_row * World.row_spacing()})
+      {world, :killed} = World.fire(world, "bob", {0.0, alice_row * World.row_spacing()})
 
       {world2, event} = World.fire(world, "alice", {0.0, 0.0})
       assert event == :no_shot
@@ -291,7 +292,7 @@ defmodule DeadGiveaway.WorldTest do
       world = World.new(seed: 1, humans: ["alice"], bots: 1)
       bot_row = 1 - world.slot_of["alice"]
 
-      {world, {:killed, :bot}} = World.fire(world, "alice", {0.0, bot_row * World.row_spacing()})
+      {world, :killed} = World.fire(world, "alice", {0.0, bot_row * World.row_spacing()})
       refute World.armed?(world, "alice")
     end
 
@@ -301,9 +302,12 @@ defmodule DeadGiveaway.WorldTest do
       world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
       alice_row = world.slot_of["alice"]
 
-      {world, {:killed, :human}} = World.fire(world, "bob", {0.0, alice_row * World.row_spacing()})
+      {world, :killed} = World.fire(world, "bob", {0.0, alice_row * World.row_spacing()})
 
-      refute World.snapshot(world).entities |> Enum.find(&(&1.row == alice_row)) |> Map.fetch!(:alive)
+      refute World.snapshot(world).entities
+             |> Enum.find(&(&1.row == alice_row))
+             |> Map.fetch!(:alive)
+
       assert World.armed?(world, "alice")
     end
   end

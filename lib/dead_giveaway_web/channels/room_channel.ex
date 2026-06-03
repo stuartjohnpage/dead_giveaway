@@ -168,6 +168,15 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:noreply, socket}
   end
 
+  # A private "you're out" — the room tells the owner whose body just dropped (#11).
+  # Every channel sees this broadcast, but only the named owner forwards it to its
+  # browser, so a body dropping still reveals nothing to peers (DESIGN §5). The client
+  # drops its reticle and stops firing on this; peers' view is unchanged.
+  def handle_info({:player_out, name}, socket) do
+    if name == socket.assigns.name, do: push(socket, "out", %{})
+    {:noreply, socket}
+  end
+
   # --- Encoding (atoms/tuples → JSON-friendly maps) ---
 
   defp room_opts do

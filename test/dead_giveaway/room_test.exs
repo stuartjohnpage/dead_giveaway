@@ -364,6 +364,35 @@ defmodule DeadGiveaway.RoomTest do
       refute_receive :shot, 200
     end
 
+    test "a player whose body is dropped is privately told they're out (#11)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("out-1"))
+
+      {:ok, room} = Room.start_link(id: "out-1", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # alice is the only body; shooting her spot drops her. The room signals *her*
+      # by name so the channel can forward it to her alone — peers learn nothing (§5).
+      assert Room.fire(room, "alice", {0.0, 0.0}) == :fired
+      assert_receive {:player_out, "alice"}, 500
+    end
+
+    test "dropping a bot body knocks no player out — no one is signalled (#11)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("out-2"))
+
+      {:ok, room} = Room.start_link(id: "out-2", seed: 1, bots: 1)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      alice_row = :sys.get_state(room).world.slot_of["alice"]
+      bot_row = 1 - alice_row
+
+      # The shot drops the bot, not a human — so although a bullet is spent, no
+      # `:player_out` is emitted (the signal tracks human knock-outs, not kills).
+      assert Room.fire(room, "alice", {0.0, bot_row * World.row_spacing()}) == :fired
+      refute_receive {:player_out, _}, 200
+    end
+
     test "the host's bullet count reaches every lobby view" do
       Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("ammo-1"))
       {:ok, room} = Room.start_link(id: "ammo-1", seed: 1, bots: 0)
