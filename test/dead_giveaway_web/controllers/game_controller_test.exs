@@ -9,6 +9,8 @@ defmodule DeadGiveawayWeb.GameControllerTest do
     assert body =~ ~s(data-room="lobby")
     # Direct navigation isn't the host — joining requires the room to exist.
     assert body =~ ~s(data-host="false")
+    # The always-accessible audio gear (#19) is on the play screen too (root layout).
+    assert body =~ ~s(id="audio-gear")
   end
 
   test "GET /play/:room renders the theme picker with every catalogued theme", %{conn: conn} do

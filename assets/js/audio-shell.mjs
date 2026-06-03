@@ -95,6 +95,17 @@ function create() {
     if (volume.enabled && audioRunning()) lobbyMusic.start(musicGain());
   };
 
+  // Make sure the current view's loop is actually playing — for when sound is switched ON
+  // from the gear. Because muting ducks gain rather than stopping, a loop that has ever
+  // played stays live, so this only kicks in for a loop that was never started (the page
+  // was loaded with sound off). Picks the loop by the director's current view.
+  const resumeMusic = () => {
+    const current = music.inGame ? gameMusic : lobbyMusic;
+    if (current.live) return;
+    if (music.inGame) music.toRound();
+    else music.toLobby();
+  };
+
   // Arm the autoplay unlock for the director: the first user gesture (of either type)
   // primes the AudioContext, replaying the queued loop only if it's still suspended, then
   // tears both listeners down. The game arms this; the home splash drives the loop
@@ -123,5 +134,6 @@ function create() {
     playShot,
     armUnlock,
     enterMenu,
+    resumeMusic,
   };
 }

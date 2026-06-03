@@ -10,5 +10,7 @@ defmodule DeadGiveawayWeb.PageControllerTest do
     assert body =~ ~s(action="/join")
     # The name field that feeds both create and join (skribbl-style centre block).
     assert body =~ ~s(id="player-name")
+    # Audio settings are the always-accessible gear (#19), in the root layout on every page.
+    assert body =~ ~s(id="audio-gear")
   end
 end

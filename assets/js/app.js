@@ -97,64 +97,49 @@ async function mount() {
     el.addEventListener("click", () => el.setAttribute("hidden", ""))
   })
 
-  // The game page mounts the Pixi/socket client. Check #game first so a play page mounts
-  // as the game even once it grows its own audio controls (#19).
+  // The audio-settings gear lives in the root layout, so it's on every page — wire it
+  // (and its controls) to the shared shell each mount.
+  mountAudioSettings()
+
+  // The game page mounts the Pixi/socket client (and owns its own audio playback).
   if (document.getElementById("game")) return boot()
 
-  // The home splash wires the sound card to the shared audio shell.
-  if (document.getElementById("vol-master")) return mountHome()
+  // The home splash plays the menu music; the gear above controls its volume.
+  if (document.getElementById("create-form")) mountHome()
 }
 
-// Home page: bind the volume sliders (the game reads the persisted level at boot, so
-// changing it here carries into play) and loop the menu's background music.
-function mountHome() {
-  // The home sound card drives the shared menu loop directly — start/stop on the On/Off
-  // switch, re-gain on the sliders — rather than through the music director: the Off state
-  // must actually stop the loop, which the director's "stay silent when muted" model
-  // doesn't do. It's the same loop instance the in-game director later uses (one audio
-  // shell), so once navigation is client-side the menu music carries straight into the lobby.
-  const { volume, lobbyMusic, musicGain, playShot, enterMenu } = getAudio()
-  // Reset audio to the menu loop. Post client-side nav this mount may be a return from a
-  // live game, so drop any in-game loop and (if already unlocked + sound on) resume the
-  // menu track — seamlessly if it was still playing (a pre-round lobby we backed out of).
-  enterMenu()
-  // The On/Off switch starts or stops the loop (flipping it is a user gesture, so
-  // autoplay is allowed); the sliders only re-gain the already-playing loop — they must
-  // not restart it from the top on every drag.
-  bindSoundToggle((v) => (v.enabled ? lobbyMusic.start(musicGain()) : lobbyMusic.stop()), volume)
-  bindVolumeSliders(() => lobbyMusic.setGain(musicGain()), volume)
+// Wire the always-accessible audio gear (#19): toggle the panel, and bind its On/Off +
+// sliders to the shared audio shell so a change takes effect live on any screen — the
+// sliders re-gain whatever loop is playing, and the On/Off ducks/boosts it (muting is a
+// gain-0 duck, not a stop). Present on every page (root layout), so this runs each mount;
+// its listeners are all on swapped-away DOM, so there's nothing to tear down.
+function mountAudioSettings() {
+  const gear = document.getElementById("audio-gear")
+  const panel = document.getElementById("audio-panel")
+  if (!gear || !panel) return
 
-  // Preview the firing SFX at the chosen level so the user hears what they've set. On
-  // "change" (slider release), not "input", so it's one shot per adjustment rather than a
-  // machine-gun while dragging. playShot reads the current sfx gain (0 when sound is off).
+  gear.addEventListener("click", () => (panel.hidden = !panel.hidden))
+
+  const { volume, applyMusicGain, resumeMusic, playShot } = getAudio()
+  bindSoundToggle((v) => {
+    applyMusicGain() // duck to silence when off, or restore the live loop's level when on
+    if (v.enabled) resumeMusic() // and start the current view's loop if it never began
+  }, volume)
+  bindVolumeSliders(() => applyMusicGain(), volume)
+
+  // Preview the firing SFX at the chosen level on slider release (change, not input, so
+  // it's one shot per adjustment). playShot reads the current sfx gain (0 when off).
   document.getElementById("vol-sfx")?.addEventListener("change", () => playShot())
+}
 
-  // If sound was left On from a previous visit, autoplay policy still needs a gesture
-  // before the loop can sound — kick it off on the first interaction. (A fresh visit
-  // starts Off, so this is a no-op until the player flips the switch above.)
-  //
-  // This must fire EXACTLY ONCE across both gesture types: start() is async (fetch +
-  // decode), so lobbyMusic.live stays false during the decode. Clicking into the
-  // lobby-code field (pointerdown) starts the load; the first keystroke (keydown) would
-  // then see live still false and call start() a second time — restarting the track. So
-  // one guard removes both listeners on the first gesture, not two independent `once`s.
-  let started = false
-  const startMusic = () => {
-    if (started) return
-    started = true
-    window.removeEventListener("pointerdown", startMusic)
-    window.removeEventListener("keydown", startMusic)
-    if (volume.enabled && !lobbyMusic.live) lobbyMusic.start(musicGain())
-  }
-  window.addEventListener("pointerdown", startMusic)
-  window.addEventListener("keydown", startMusic)
-
-  // Navigating to a lobby before that first gesture fired must not leave these dangling on
-  // the next page (the audio shell itself — and any loop it's playing — persists).
-  return () => {
-    window.removeEventListener("pointerdown", startMusic)
-    window.removeEventListener("keydown", startMusic)
-  }
+// Home splash: put the director in the menu/lobby view so the menu loop plays, and arm
+// the autoplay unlock so it sounds on the first gesture (the same path boot() uses for the
+// game). enterMenu adopts an already-playing loop without a restart, so arriving here from
+// a lobby is seamless, and resets off a left-over game loop otherwise (#20).
+function mountHome() {
+  const audio = getAudio()
+  audio.enterMenu()
+  audio.armUnlock()
 }
 
 // Take over the home↔play navigations (and mount the initial page). Everything degrades to

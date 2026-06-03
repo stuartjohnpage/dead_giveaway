@@ -132,47 +132,8 @@
       </section>
     </div>
 
-    <%!-- Sound. app.js (volume.mjs) loads/saves these to sessionStorage (session-scoped,
-          so a fresh visit starts off); the game reads the stored level at boot and
-          applies it to the gunshot SFX (master scales every channel). Kept as its own
-          card below the info row since it's interactive settings, not blurb. --%>
-    <div class="mt-6 w-full rounded-2xl bg-[#10162e] p-6 shadow-2xl ring-1 ring-white/10">
-      <h2 class="mb-4 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
-        Sound
-      </h2>
-
-      <div class="flex flex-col gap-5 sm:flex-row sm:items-center">
-        <%!-- On/Off gates the sliders (volume.mjs bindSoundToggle): Off hides them and
-              mutes audio; the choice persists with the rest of the volume settings. --%>
-        <div class="flex shrink-0 items-center gap-6 text-sm text-slate-300">
-          <label class="flex items-center gap-2">
-            <input type="radio" name="sound" value="on" class="accent-emerald-500" /> On
-          </label>
-          <label class="flex items-center gap-2">
-            <input type="radio" name="sound" value="off" class="accent-emerald-500" checked /> Off
-          </label>
-        </div>
-
-        <div id="vol-sliders" class="flex-1 space-y-3">
-          <label class="flex items-center gap-3 text-xs text-slate-400">
-            <span class="w-12 shrink-0">Master</span>
-            <input
-              id="vol-master"
-              type="range"
-              min="0"
-              max="100"
-              class="w-full accent-emerald-500"
-            />
-            <span id="vol-master-val" class="w-8 text-right tabular-nums text-slate-500"></span>
-          </label>
-          <label class="flex items-center gap-3 text-xs text-slate-400">
-            <span class="w-12 shrink-0">SFX</span>
-            <input id="vol-sfx" type="range" min="0" max="100" class="w-full accent-emerald-500" />
-            <span id="vol-sfx-val" class="w-8 text-right tabular-nums text-slate-500"></span>
-          </label>
-        </div>
-      </div>
-    </div>
+    <%!-- Audio settings used to live here as a "Sound" card; they're now the always-
+          accessible gear in the root layout (#19), available on every screen. --%>
   </main>
 </div>
 
