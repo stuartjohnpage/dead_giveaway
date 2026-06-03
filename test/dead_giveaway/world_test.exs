@@ -177,6 +177,19 @@ defmodule DeadGiveaway.WorldTest do
       assert Enum.find(snap.entities, &(&1.row == 1)).alive
     end
 
+    test "a shot far from any body misses: the bullet's spent but nothing drops (#12)" do
+      world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
+      before = living_count(world)
+
+      # Bodies sit at x=0; aim way off down the field, out of every body's hit radius.
+      {world, event} = World.fire(world, "alice", {200.0, 0.0})
+
+      assert event == :spent
+      assert living_count(world) == before
+      # The miss still cost alice her one bullet — she's now unarmed.
+      refute World.armed?(world, "alice")
+    end
+
     test "a player has only one bullet — a second shot does nothing" do
       world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
 

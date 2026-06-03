@@ -276,8 +276,9 @@ defmodule DeadGiveaway.Room do
     state = %{state | world: world}
     # The world resolves *which body* dies (it ghosts in the next snapshot), but
     # we never surface whether it was human or bot — to the shooter or anyone
-    # else. A shot is a pure gamble (DESIGN §5).
-    spent? = event == :killed
+    # else. A shot is a pure gamble (DESIGN §5). Both a hit (:killed) and a miss
+    # (:spent) consume the bullet; only :no_shot leaves it in hand (#12).
+    spent? = event in [:killed, :spent]
 
     # A spent bullet cracks out a shot everyone in the room hears, but the
     # broadcast stays anonymous — no shooter, position, or outcome — so firing

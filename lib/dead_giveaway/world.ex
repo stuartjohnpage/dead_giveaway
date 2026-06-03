@@ -37,6 +37,15 @@ defmodule DeadGiveaway.World do
   # point) can pick the nearest body across rows.
   @row_spacing 10.0
 
+  # How close (world units) the crosshair must be to a body for the shot to connect
+  # (#12). A shot lands on the nearest living body only within this radius; a click into
+  # empty space misses — the bullet's still spent, but no one drops. This is what stops
+  # the old "every shot kills the nearest body" magnetism: aim now has to be on a body
+  # ("click them, they drop") and can whiff ("oh, missed"). A touch under the ~10-unit row
+  # spacing, so you must click roughly on a body rather than snap to a far one. Tuned by
+  # feel — bump it up if shots feel too fiddly, down if aim still feels too forgiving.
+  @hit_radius 7.0
+
   def walk_speed, do: @walk_speed
   def run_speed, do: @run_speed
   # The fastest a bot ever moves (it walks or stands still — never runs).
@@ -131,10 +140,12 @@ defmodule DeadGiveaway.World do
   @doc """
   Fire one of `player`'s bullets at crosshair point `{x, y}` (DESIGN §5).
 
-  Hitscan: kills the living character nearest the crosshair — which may be the
-  shooter's own body. Returns `{world, :killed}` once a body drops, or
-  `{world, :no_shot}` if the player is out of ammo or already out. Each player
-  gets `max_ammo` bullets per round (default 1).
+  Hitscan with a hit radius (#12): kills the living character nearest the crosshair —
+  which may be the shooter's own body — but only if one is within `@hit_radius`. Returns
+  `{world, :killed}` when a body drops, `{world, :spent}` when the bullet's spent on empty
+  air (a miss — aim was off, or nothing's in range), or `{world, :no_shot}` if the player
+  is out of ammo or already out. A killed and a missed shot both consume a bullet; only
+  `:no_shot` doesn't. Each player gets `max_ammo` bullets per round (default 1).
 
   A kill reveals *nothing* — not who fired, nor whether the body was a human or a
   bot (DESIGN §5). The bare `:killed` says only "a bullet was spent"; the caller
@@ -233,15 +244,24 @@ defmodule DeadGiveaway.World do
   defp speed_for(:run), do: @run_speed
 
   defp resolve_shot(world, player, crosshair) do
-    target = nearest_living(world, crosshair)
+    # The bullet is spent whichever way this goes — a miss costs you the shot too (#12).
+    world = Map.update!(world, :shots, &Map.update(&1, player, 1, fn n -> n + 1 end))
 
-    world =
-      world
-      |> put_in([Access.key(:entities), target.row, :alive], false)
-      |> Map.update!(:shots, &Map.update(&1, player, 1, fn n -> n + 1 end))
-      |> maybe_takeover(target)
+    case nearest_living(world, crosshair) do
+      {target, dist2} when dist2 <= @hit_radius * @hit_radius ->
+        world =
+          world
+          |> put_in([Access.key(:entities), target.row, :alive], false)
+          |> maybe_takeover(target)
 
-    {world, :killed}
+        {world, :killed}
+
+      _ ->
+        # Out of range of any body (or none left to hit) — the shot cracks out over empty
+        # ground. Nothing drops, so the shooter sees their aim whiffed; everyone still
+        # hears the (anonymous) report, exactly as for a hit (DESIGN §5).
+        {world, :spent}
+    end
   end
 
   # When a *human's* body drops, spend one of their lives to slip into a free bot body
@@ -316,15 +336,22 @@ defmodule DeadGiveaway.World do
     end
   end
 
+  # The nearest living body to the crosshair as `{entity, squared_distance}`, or `nil` if
+  # nothing's left alive. The caller compares the distance against @hit_radius — squared on
+  # both sides, so no sqrt.
   defp nearest_living(world, {cx, cy}) do
     world.entities
     |> Map.values()
     |> Enum.filter(& &1.alive)
-    |> Enum.min_by(fn e ->
+    |> Enum.map(fn e ->
       dx = e.x - cx
       dy = e.row * @row_spacing - cy
-      dx * dx + dy * dy
+      {e, dx * dx + dy * dy}
     end)
+    |> case do
+      [] -> nil
+      scored -> Enum.min_by(scored, &elem(&1, 1))
+    end
   end
 
   # Dead characters are out for the round — frozen, can't win, can't be re-shot.
