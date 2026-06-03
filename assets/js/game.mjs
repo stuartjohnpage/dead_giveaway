@@ -260,25 +260,24 @@ export async function boot() {
   ammoSelect.addEventListener("change", () => {
     channel.push("set_config", { max_ammo: Number(ammoSelect.value) });
   });
-  // Mirror the room's setting into the control (and our local maxAmmo) from a broadcast.
-  const applyMaxAmmo = (n) => {
+  // Mirror a numeric host knob from a lobby broadcast into our local copy (via `set`)
+  // and the disabled-for-guests <select>, ignoring anything non-numeric.
+  const applyNumericConfig = (n, set, select) => {
     if (typeof n !== "number") return;
-    maxAmmo = n;
-    ammoSelect.value = String(n);
+    set(n);
+    select.value = String(n);
   };
+  // Reflect the bullet count (and our local maxAmmo) from a broadcast.
+  const applyMaxAmmo = (n) => applyNumericConfig(n, (v) => (maxAmmo = v), ammoSelect);
 
   // Lives-per-round is the other numeric host knob (same shape as the bullet count):
   // 1 = "shot = out", above 1 a dropped player takes over a free bot body (DESIGN §7).
   chancesSelect.addEventListener("change", () => {
     channel.push("set_config", { max_chances: Number(chancesSelect.value) });
   });
-  // Mirror the room's life count into the control (and our local maxChances) from a
-  // broadcast, so guests track the host's pick and the HUD knows whether to appear.
-  const applyMaxChances = (n) => {
-    if (typeof n !== "number") return;
-    maxChances = n;
-    chancesSelect.value = String(n);
-  };
+  // Reflect the life count (and our local maxChances) from a broadcast, so guests track
+  // the host's pick and the HUD knows whether to appear.
+  const applyMaxChances = (n) => applyNumericConfig(n, (v) => (maxChances = v), chancesSelect);
 
   // The theme is the other host-set knob (same shape as the bullet count): a guest's
   // select is disabled and just reflects the host's pick. Pushing it lets the room

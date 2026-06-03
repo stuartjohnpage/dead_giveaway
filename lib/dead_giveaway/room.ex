@@ -141,9 +141,9 @@ defmodule DeadGiveaway.Room do
       bots: Keyword.get(opts, :bots, 0),
       finish_x: Keyword.get(opts, :finish_x),
       # Host-configurable bullets per player per round; defaults to one (DESIGN §5).
-      max_ammo: clamp_ammo(Keyword.get(opts, :max_ammo, 1)),
+      max_ammo: clamp(Keyword.get(opts, :max_ammo, 1), @min_ammo, @max_ammo),
       # Host-configurable lives per player per round; defaults to one (DESIGN §7).
-      max_chances: clamp_chances(Keyword.get(opts, :max_chances, 1)),
+      max_chances: clamp(Keyword.get(opts, :max_chances, 1), @min_chances, @max_chances),
       # Host-configurable cosmetic theme (DESIGN §9); defaults to the catalogue head.
       theme: validate_theme(Keyword.get(opts, :theme, Themes.default()), Themes.default()),
       # Optional persistence sink (a module with `record_win/1`, e.g.
@@ -236,7 +236,7 @@ defmodule DeadGiveaway.Room do
   # Ammo only reconfigures between rounds — a live round keeps the count it started
   # with, so a mid-round change can't hand a player extra bullets.
   def handle_call({:set_max_ammo, n}, _from, %{world: nil} = state) do
-    state = %{state | max_ammo: clamp_ammo(n)}
+    state = %{state | max_ammo: clamp(n, @min_ammo, @max_ammo)}
     broadcast_lobby(state)
     {:reply, :ok, state}
   end
@@ -246,7 +246,7 @@ defmodule DeadGiveaway.Room do
   # Lives reconfigure only between rounds, same as ammo — a live round keeps the count
   # it started with.
   def handle_call({:set_max_chances, n}, _from, %{world: nil} = state) do
-    state = %{state | max_chances: clamp_chances(n)}
+    state = %{state | max_chances: clamp(n, @min_chances, @max_chances)}
     broadcast_lobby(state)
     {:reply, :ok, state}
   end
@@ -275,8 +275,7 @@ defmodule DeadGiveaway.Room do
     # Snapshot who's still standing (and their lives) before the shot, so we can tell
     # afterwards whose body dropped and whose life-count changed, and privately notify
     # those owners (DESIGN §5).
-    alive_before = alive_players(state)
-    chances_before = chances_of(state)
+    states_before = player_states(state)
 
     {world, event} = state.world_mod.fire(state.world, player, crosshair)
     state = %{state | world: world}
@@ -295,9 +294,10 @@ defmodule DeadGiveaway.Room do
     # message every channel receives but only the owner forwards to its browser, so a
     # body dropping still leaks nothing to peers (DESIGN §5). A player who took over a
     # bot body instead (§7) is still alive, so no signal fires for them.
-    notify_knocked_out(state, alive_before)
+    states_after = player_states(state)
+    notify_knocked_out(state, states_before, states_after)
     # A taken-over player stays alive but spent a life — refresh their lives HUD (§7).
-    notify_chances(state, chances_before)
+    notify_chances(state, states_before, states_after)
 
     {:reply, if(spent?, do: :fired, else: :no_shot), state}
   end
@@ -397,7 +397,7 @@ defmodule DeadGiveaway.Room do
     # Fresh round → fresh reticles; last round's aim points don't carry over.
     state = %{state | world: state.world_mod.new(opts), crosshairs: %{}}
     # Privately seed each player's lives HUD with their starting count (DESIGN §7).
-    notify_chances(state, %{})
+    notify_chances(state, %{}, player_states(state))
     state
   end
 
@@ -418,45 +418,45 @@ defmodule DeadGiveaway.Room do
     {state, snapshot}
   end
 
-  # Who among the joined players still has a body standing in the live round. Keyed by
-  # name so a before/after pair around a shot reveals exactly whose body just dropped.
-  # Empty in the lobby (no world), so a fire that somehow lands there notifies no one.
-  defp alive_players(%{world: nil}), do: %{}
+  # Each joined player's `{alive?, lives-left}` for the live round, keyed by name (empty
+  # in the lobby, so a fire that somehow lands there notifies no one). One walk feeds both
+  # the knock-out and lives-HUD diffs around a shot; both stay private — neither liveness
+  # nor lives ever ride the public snapshot (DESIGN §5).
+  defp player_states(%{world: nil}), do: %{}
 
-  defp alive_players(state) do
-    for name <- Map.values(state.players),
-        into: %{},
-        do: {name, state.world_mod.player_alive?(state.world, name)}
+  defp player_states(state) do
+    for name <- Map.values(state.players), into: %{} do
+      {name,
+       {state.world_mod.player_alive?(state.world, name),
+        state.world_mod.chances_left(state.world, name)}}
+    end
   end
 
   # Privately tell each owner whose body dropped this shot that they're out for the
   # round. Compares post-shot liveness against `before`: a name that was alive and is
   # now down gets a personal `:player_out`. A taken-over player (still alive) doesn't
   # transition, so they're correctly left alone (DESIGN §5, §7).
-  defp notify_knocked_out(state, before) do
-    after_alive = alive_players(state)
-
-    for {name, true} <- before, after_alive[name] == false do
+  defp notify_knocked_out(state, before, after_states) do
+    for {name, {true, _}} <- before, match?({false, _}, after_states[name]) do
       broadcast(state.id, {:player_out, name})
     end
-  end
-
-  # Each joined player's remaining lives this round, keyed by name (empty in the lobby).
-  # Like `alive_players/1` it's a private query — lives never ride the public snapshot.
-  defp chances_of(%{world: nil}), do: %{}
-
-  defp chances_of(state) do
-    for name <- Map.values(state.players),
-        into: %{},
-        do: {name, state.world_mod.chances_left(state.world, name)}
   end
 
   # Privately push each player whose life-count changed (or all of them, when `before`
   # is empty at round start) their current lives, for the HUD (DESIGN §7). Routed per
   # owner by the channel, so a takeover stays invisible to peers (DESIGN §5).
-  defp notify_chances(state, before) do
-    for {name, n} <- chances_of(state), Map.get(before, name) != n do
+  defp notify_chances(state, before, after_states) do
+    for {name, {_, n}} <- after_states, chances_in(before, name) != n do
       broadcast(state.id, {:chances, name, n})
+    end
+  end
+
+  # A player's lives from a `player_states/1` map, or nil when absent (e.g. an empty
+  # `before` at round start, where every count then reads as changed and gets seeded).
+  defp chances_in(states, name) do
+    case states do
+      %{^name => {_, n}} -> n
+      _ -> nil
     end
   end
 
@@ -555,16 +555,11 @@ defmodule DeadGiveaway.Room do
     )
   end
 
-  # Keep bullets-per-round a whole number in [@min_ammo, @max_ammo], whatever a
-  # client sends — out-of-range or non-integer values are pulled back into bounds.
-  defp clamp_ammo(n) when is_integer(n), do: n |> max(@min_ammo) |> min(@max_ammo)
-  defp clamp_ammo(n) when is_number(n), do: clamp_ammo(trunc(n))
-  defp clamp_ammo(_), do: @min_ammo
-
-  # Keep lives-per-round a whole number in [@min_chances, @max_chances], like ammo.
-  defp clamp_chances(n) when is_integer(n), do: n |> max(@min_chances) |> min(@max_chances)
-  defp clamp_chances(n) when is_number(n), do: clamp_chances(trunc(n))
-  defp clamp_chances(_), do: @min_chances
+  # Pull a host-set count (bullets or lives) into the whole-number range [lo, hi],
+  # whatever a client sends — out-of-range or non-integer values are clamped back in.
+  defp clamp(n, lo, hi) when is_integer(n), do: n |> max(lo) |> min(hi)
+  defp clamp(n, lo, hi) when is_number(n), do: clamp(trunc(n), lo, hi)
+  defp clamp(_, lo, _), do: lo
 
   # Keep `theme` a known key; anything else (a stale or hand-crafted client value)
   # falls back to `current` so a bad pick can't leave the room on a missing pack.
