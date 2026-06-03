@@ -4,11 +4,14 @@
       and grain; the neon reticle motif frames the play card so it reads as a lock
       acquired on *you*. Cosmetic only — the create/join forms keep their ids, names,
       actions and methods (router.mjs intercepts both on submit). --%>
-<div class="dg-scanlines dg-grain relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat font-display text-slate-100">
-  <%!-- Darken + vignette the crowd so the neon UI reads cleanly on top of it. --%>
+<div class="dg-scanlines relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat font-display text-slate-100">
+  <%!-- Darken + vignette the crowd so the neon UI reads cleanly on top of it. Grain
+        rides this overlay's ::before (its own free pseudo) rather than the root's —
+        the root's ::before/::after are already the scanline texture + scan-sweep, and
+        an element only has one of each, so the two effects must live on separate nodes. --%>
   <div
     aria-hidden="true"
-    class="pointer-events-none absolute inset-0 bg-[var(--dg-ink)]/82 [background-image:radial-gradient(80rem_60rem_at_50%_-20%,rgba(56,225,255,0.12),transparent_60%),radial-gradient(60rem_50rem_at_50%_120%,rgba(6,7,14,0.95),transparent_55%)]"
+    class="dg-grain pointer-events-none absolute inset-0 bg-[var(--dg-ink)]/82 [background-image:radial-gradient(80rem_60rem_at_50%_-20%,rgba(56,225,255,0.12),transparent_60%),radial-gradient(60rem_50rem_at_50%_120%,rgba(6,7,14,0.95),transparent_55%)]"
   >
   </div>
 
@@ -24,15 +27,17 @@
   <main class="relative z-10 mx-auto flex min-h-[calc(100dvh-3.5rem)] max-w-5xl flex-col px-6 pb-16 pt-6 sm:pt-10">
     <%!-- Title block. --%>
     <div class="text-center">
-      <p class="dg-rise font-mono text-xs uppercase tracking-[0.5em] text-cyan-300/80" style="animation-delay:.05s">
-        Hidden-Identity Death Race
-      </p>
       <h1
-        class="dg-rise dg-flicker dg-glow-cyan mt-4 text-5xl font-bold uppercase leading-[0.95] tracking-[0.02em] text-white sm:text-7xl"
+        class="dg-rise dg-glow-cyan mt-4 text-5xl font-bold uppercase leading-[0.95] tracking-[0.02em] text-white sm:text-7xl"
         style="animation-delay:.12s"
       >
-        Dead<br class="sm:hidden" />
-        <span class="text-[var(--dg-cyan)]">Giveaway</span>
+        <%!-- Flicker lives on an inner span: the <h1> already spends its single
+              `animation` slot on dg-rise's intro fade, so the infinite flicker has to
+              own its own element or it would be overridden. --%>
+        <span class="dg-flicker">
+          Dead<br class="sm:hidden" />
+          <span class="text-[var(--dg-cyan)]">Giveaway</span>
+        </span>
       </h1>
       <p
         class="dg-rise mt-5 text-sm tracking-wide text-slate-300/90"
@@ -115,10 +120,8 @@
           // About
         </h2>
         <p class="text-sm leading-6 text-slate-300">
-          Dead Giveaway is a hidden-identity party game. 
-        </p>
-        <p class="text-sm leading-6 text-slate-300">
-          Do you know who your friends are? Do you know who you are?
+          Dead Giveaway is a hidden-identity party game. Do you know who your friends are? Do you know who you are? 
+          This game is heavily inspired by (if not an outright rip-off of) the Death Race game-mode in <a class="text-[var(--dg-magenta)]" href="https://store.steampowered.com/app/303590/Hidden_in_Plain_Sight/">Hidden in Plain Sight</a>. Go play this most excellent game!
         </p>
       </section>
 
@@ -133,10 +136,10 @@
               Latest
             </span>
             Will has already beaten me at the game; I am considering handicapping him. 
-            Mowgli does not feature in this game at all; I need to change that.
-            David is also working on a version with his own hands
-            V1 launch!
           </li>
+          <li> Mowgli does not feature in this game at all; I need to change that.</li>
+          <li>David is also working on a version with his own hands (not using Clankers).</li>
+          <li>V1 launch!</li>
         </ul>
       </section>
 
@@ -147,8 +150,7 @@
           // How to Play
         </h2>
         <p class="mb-4 text-sm leading-6 text-slate-300">
-          Move with the crowd and reach the finish first. Move too boldly and you
-          stand out; fire to take a rival down.
+          Move with the crowd and reach the finish first. Try not to stand-out or risk being slain. Try to shoot your friends before they finish!
         </p>
         <div class="grid grid-cols-3 gap-3 text-center">
           <div class="flex flex-col items-center gap-2">
@@ -172,6 +174,9 @@
             <span class="text-xs text-slate-400">Aim &amp; click to fire</span>
           </div>
         </div>
+        <p class="mb-4 text-sm leading-6 text-slate-300">
+          Bots can't run... so be careful.
+        </p>
       </section>
     </div>
 

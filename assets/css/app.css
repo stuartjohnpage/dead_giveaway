@@ -312,9 +312,11 @@ body {
   .dg-flicker,
   .dg-blink,
   .dg-rise,
-  .dg-scanlines::after,
   .dg-btn::before {
     animation: none !important;
   }
   .dg-rise { opacity: 1; transform: none; }
+  /* The sweep is pure motion — hide it outright rather than leaving the band
+     parked mid-screen at translateY(0). */
+  .dg-scanlines::after { display: none; }
 }
