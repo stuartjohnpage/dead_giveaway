@@ -103,6 +103,38 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_push "shot", %{}
   end
 
+  test "a player whose body is dropped is privately told they're out (#11)" do
+    {_reply, socket} = join_room("chan-out-self", %{"host" => true})
+
+    go = push(socket, "go", %{})
+    assert_reply go, :ok
+    # Wait until the round is actually running before firing.
+    assert_push "snapshot", %{entities: [_ | _]}, 500
+
+    # Solo player is the only body, so firing at the origin drops their own — they're
+    # out, and the room tells them so privately.
+    ref = push(socket, "fire", %{"x" => 0.0, "y" => 0.0})
+    assert_reply ref, :ok, %{fired: true}
+    assert_push "out", %{}, 500
+  end
+
+  test "the 'out' signal never reaches a player who wasn't the one dropped (#11)" do
+    # One channel (the host) plus a second, channel-less player we drop directly via
+    # the Room — so any "out" reaching this channel would be a leak.
+    {_reply, socket} = join_room("chan-out-peer", %{"host" => true})
+    room = Rooms.whereis("chan-out-peer")
+    DeadGiveaway.Room.join(room, "victim")
+
+    go = push(socket, "go", %{})
+    assert_reply go, :ok
+    assert_push "snapshot", %{entities: [_ | _]}, 500
+
+    # Drop "victim" by aiming exactly at their row; the host channel must stay silent.
+    victim_row = :sys.get_state(room).world.slot_of["victim"]
+    DeadGiveaway.Room.fire(room, "victim", {0.0, victim_row * DeadGiveaway.World.row_spacing()})
+    refute_push "out", %{}, 200
+  end
+
   test "a peer's crosshair reaches you as an anonymous point, and never your own" do
     {_r1, host} = join_room("chan-aim", %{"host" => true})
     {_r2, guest} = join_room("chan-aim", %{"host" => false})
@@ -126,6 +158,24 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_reply ref, :ok
 
     assert_push "lobby", %{max_ammo: 4}, 500
+  end
+
+  test "the host can set the life count and it reaches every client's lobby" do
+    {_reply, socket} = join_room("chan-lives", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"max_chances" => 3})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{max_chances: 3}, 500
+  end
+
+  test "a guest cannot change the life count" do
+    join_room("chan-lives-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-lives-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"max_chances" => 3})
+    assert_reply ref, :ok
+    refute_push "lobby", %{max_chances: 3}, 200
   end
 
   test "a guest cannot change the bullet count" do

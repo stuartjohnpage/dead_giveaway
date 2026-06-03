@@ -32,6 +32,20 @@
   </span>
 </div>
 
+<%!-- In-round lives HUD (DESIGN §7). game.mjs reveals this only when the host grants
+      more than one life, and counts it down as the player loses bodies and takes over
+      bots. Hidden entirely in single-life rounds, where dying is simply "out". --%>
+<div
+  id="hud-chances"
+  hidden
+  class="pointer-events-none fixed left-4 top-16 z-10 flex items-center gap-2 rounded-xl bg-black/50 px-3 py-2 ring-1 ring-white/10 backdrop-blur-sm"
+>
+  <span class="text-xs font-semibold uppercase tracking-widest text-slate-400">Lives</span>
+  <span id="chances-count" class="min-w-[1ch] text-center font-mono text-lg font-bold text-white">
+    1
+  </span>
+</div>
+
 <%!-- Lobby / between-rounds screen. Shown by default and on round_over; game.mjs
       hides it once a round is live. Lists who has joined (or the standings after
       a round); the Go button starts the round. --%>
@@ -75,6 +89,22 @@
           <option value="4">4</option>
           <option value="5">5</option>
           <option value="6">6</option>
+        </select>
+      </div>
+
+      <%!-- Lives each player gets per round (DESIGN §7). 1 = the original "shot = out";
+            above 1, a dropped player takes over a free bot body instead. --%>
+      <div id="chances-config" class="flex items-center justify-center gap-2">
+        <label for="chances-select" class="uppercase tracking-wider text-slate-400">Lives</label>
+        <select
+          id="chances-select"
+          class="rounded-lg bg-[#0b1020] px-3 py-1 font-mono text-white ring-1 ring-white/10 transition disabled:opacity-60"
+        >
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
         </select>
       </div>
 

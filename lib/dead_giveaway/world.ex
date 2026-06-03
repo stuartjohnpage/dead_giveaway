@@ -10,7 +10,13 @@ defmodule DeadGiveaway.World do
   client ever sees) never reveals which entities are human (DESIGN §2, §9).
   """
 
-  defstruct entities: %{}, finish_x: 1000.0, rng: nil, slot_of: %{}, max_ammo: 1, shots: %{}
+  defstruct entities: %{},
+            finish_x: 1000.0,
+            rng: nil,
+            slot_of: %{},
+            max_ammo: 1,
+            shots: %{},
+            chances: %{}
 
   # Movement speeds, in world units per tick (dev values).
   @walk_speed 1.25
@@ -45,6 +51,9 @@ defmodule DeadGiveaway.World do
     * `:bots`   — number of bot entities to fill in
     * `:finish_x` — finish line x (default 1000.0)
     * `:max_ammo` — bullets each player gets for the round (default 1)
+    * `:max_chances` — lives each player gets for the round (default 1, i.e. one
+      life: when your body drops you're out. >1 lets you take over a free bot body
+      on death instead, spending a life — DESIGN §7)
   """
   def new(opts) do
     seed = Keyword.fetch!(opts, :seed)
@@ -52,6 +61,7 @@ defmodule DeadGiveaway.World do
     bot_count = Keyword.get(opts, :bots, 0)
     finish_x = Keyword.get(opts, :finish_x, 1000.0)
     max_ammo = Keyword.get(opts, :max_ammo, 1)
+    max_chances = Keyword.get(opts, :max_chances, 1)
 
     total = length(humans) + bot_count
     rng = :rand.seed_s(:exsss, {seed, seed, seed})
@@ -77,12 +87,16 @@ defmodule DeadGiveaway.World do
     # tick 1 rather than all flipping move/stop together.
     {entities, rng} = seed_bot_phases(entities, rng)
 
+    # Every human starts the round with `max_chances` lives (DESIGN §7).
+    chances = for p <- humans, into: %{}, do: {p, max_chances}
+
     %__MODULE__{
       entities: entities,
       finish_x: finish_x,
       rng: rng,
       slot_of: slot_of,
-      max_ammo: max_ammo
+      max_ammo: max_ammo,
+      chances: chances
     }
   end
 
@@ -118,9 +132,16 @@ defmodule DeadGiveaway.World do
   Fire one of `player`'s bullets at crosshair point `{x, y}` (DESIGN §5).
 
   Hitscan: kills the living character nearest the crosshair — which may be the
-  shooter's own body. Returns `{world, {:killed, :human | :bot}}` revealing
-  player-vs-bot to all, or `{world, :no_shot}` if the player is out of ammo or
-  already out. Each player gets `max_ammo` bullets per round (default 1).
+  shooter's own body. Returns `{world, :killed}` once a body drops, or
+  `{world, :no_shot}` if the player is out of ammo or already out. Each player
+  gets `max_ammo` bullets per round (default 1).
+
+  A kill reveals *nothing* — not who fired, nor whether the body was a human or a
+  bot (DESIGN §5). The bare `:killed` says only "a bullet was spent"; the caller
+  learns no more than that, and the dropped body simply ghosts in the next
+  snapshot. Whether the *owner* of a dropped body is now out (vs. taken over a bot
+  body, §7) is found by querying `player_alive?/2`, not from this return value, so
+  the knock-out signal stays a private server detail and never rides a broadcast.
   """
   def fire(%__MODULE__{} = world, player, {_cx, _cy} = crosshair) do
     cond do
@@ -133,6 +154,16 @@ defmodule DeadGiveaway.World do
   @doc "Bullets `player` has left this round — their `max_ammo` minus shots fired."
   def ammo_left(%__MODULE__{} = world, player) do
     world.max_ammo - Map.get(world.shots, player, 0)
+  end
+
+  @doc """
+  Lives `player` has left this round (DESIGN §7). Starts at `max_chances`; each body
+  they lose to a bot-takeover spends one. At one life left, the next drop puts them
+  out. A player not in this round has none. Like `player_alive?/2` this is a private
+  server query for the owner's HUD — never part of the public snapshot.
+  """
+  def chances_left(%__MODULE__{} = world, player) do
+    Map.get(world.chances, player, 0)
   end
 
   @doc """
@@ -208,12 +239,77 @@ defmodule DeadGiveaway.World do
       world
       |> put_in([Access.key(:entities), target.row, :alive], false)
       |> Map.update!(:shots, &Map.update(&1, player, 1, fn n -> n + 1 end))
+      |> maybe_takeover(target)
 
-    reveal = if target.human?, do: :human, else: :bot
-    {world, {:killed, reveal}}
+    {world, :killed}
   end
 
-  defp player_alive?(world, player) do
+  # When a *human's* body drops, spend one of their lives to slip into a free bot body
+  # instead of being knocked out — provided they have a life to spare (more than the one
+  # just lost) and a living bot is free to inhabit (DESIGN §7). With the default of one
+  # life this never fires: the body just drops and the owner is out, exactly as before.
+  # A life is spent only when the takeover actually happens; with no free body the owner
+  # is simply out. The handoff is invisible to peers — the snapshot never says who
+  # controls a body, and the owner keeps the same (anonymous) crosshair (DESIGN §5).
+  defp maybe_takeover(world, %{human?: true, player: player}) when is_binary(player) do
+    lives = chances_left(world, player)
+
+    case lives > 1 and free_bot(world) do
+      %{row: row} ->
+        world
+        |> put_in([Access.key(:chances), player], lives - 1)
+        |> inhabit(player, row)
+
+      _ ->
+        world
+    end
+  end
+
+  # A bot's body dropping costs no player a life — nothing to do.
+  defp maybe_takeover(world, _target), do: world
+
+  # Move `player` into the bot body at `row`: that body becomes human-driven (idle until
+  # they pick it up, since they don't yet know it's theirs), the old body stays a corpse,
+  # and `slot_of` now points at the new row so input/fire/aim follow them there.
+  defp inhabit(world, player, row) do
+    old_row = world.slot_of[player]
+
+    world
+    |> put_in([Access.key(:entities), old_row, :player], nil)
+    |> put_in([Access.key(:entities), old_row, :human?], false)
+    |> update_in(
+      [Access.key(:entities), row],
+      &%{&1 | human?: true, player: player, verb: :stop, speed: 0.0}
+    )
+    |> put_in([Access.key(:slot_of), player], row)
+  end
+
+  # Which free body a respawning player inherits: the living bot furthest back (smallest
+  # x). The rule is deliberate — it's deterministic (no rng, so the sim stays replayable),
+  # leaks nothing (a body's controller is never in the snapshot, §5), and re-enters you at
+  # the back of the pack, a fair cost for cheating death. `nil` if every other character is
+  # a human or already down — with no free body you're simply out (DESIGN §7).
+  defp free_bot(world) do
+    world.entities
+    |> Map.values()
+    |> Enum.filter(&(&1.alive and not &1.human?))
+    |> case do
+      [] -> nil
+      bots -> Enum.min_by(bots, & &1.x)
+    end
+  end
+
+  @doc """
+  Whether `player`'s body is still standing this round — `false` if they've been
+  shot out or aren't in this round at all.
+
+  This is how the Room learns a player has been knocked out (their body dropped and,
+  with no chance/takeover left, they're out for the round, §7) so it can tell *that
+  owner privately*. It is deliberately a server-side query, never part of the public
+  snapshot: a body dropping reveals nothing about whose it was (DESIGN §5), so the
+  "you're out" signal must be routed to the owner alone, not inferred by peers.
+  """
+  def player_alive?(%__MODULE__{} = world, player) do
     case Map.fetch(world.slot_of, player) do
       {:ok, row} -> world.entities[row].alive
       :error -> false

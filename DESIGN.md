@@ -92,8 +92,18 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
     session scoreboard like any player, so the crowd beating you is visible rather
     than a silent "wash". (Bots reaching the line are still the natural shot-clock /
     anti-stalemate — no timer needed, no scroll.)
-- Getting shot (or shooting yourself) = **out for the round**, spectate; the round
-  continues until someone crosses.
+- **Lives ("chances") per round** are a lobby knob, host-set like the bullet count and
+  defaulting to **1**. With one life, getting shot (or shooting yourself) = **out for the
+  round**, spectate; the round continues until someone crosses.
+- With **more than one life**, a player whose body drops **takes over a free bot body**
+  instead of being knocked out, spending one life — they seamlessly keep playing in a new
+  character (the living bot furthest back, so a second life re-enters you at the back of
+  the pack). They're only out once they're **out of lives, or no free bot remains**.
+  - The takeover is **private to the owner** (DESIGN §5): the public snapshot never says
+    who controls a body and the owner keeps their same anonymous crosshair, so peers can't
+    tell "character X is now the human who was character Y." The owner's client is told
+    directly (their lives HUD updates); everyone else sees only an ordinary body that
+    happens to start moving differently.
 
 ## 8. Session / match structure
 

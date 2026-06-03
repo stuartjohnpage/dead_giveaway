@@ -250,6 +250,7 @@ export async function boot() {
   const lobbyLeave = document.getElementById("lobby-leave");
   const goButton = document.getElementById("go");
   const ammoSelect = document.getElementById("ammo-select");
+  const chancesSelect = document.getElementById("chances-select");
   const themeSelect = document.getElementById("theme-select");
 
   // Bullets-per-round is the host's call: guests see a disabled select reflecting the
@@ -259,12 +260,24 @@ export async function boot() {
   ammoSelect.addEventListener("change", () => {
     channel.push("set_config", { max_ammo: Number(ammoSelect.value) });
   });
-  // Mirror the room's setting into the control (and our local maxAmmo) from a broadcast.
-  const applyMaxAmmo = (n) => {
+  // Mirror a numeric host knob from a lobby broadcast into our local copy (via `set`)
+  // and the disabled-for-guests <select>, ignoring anything non-numeric.
+  const applyNumericConfig = (n, set, select) => {
     if (typeof n !== "number") return;
-    maxAmmo = n;
-    ammoSelect.value = String(n);
+    set(n);
+    select.value = String(n);
   };
+  // Reflect the bullet count (and our local maxAmmo) from a broadcast.
+  const applyMaxAmmo = (n) => applyNumericConfig(n, (v) => (maxAmmo = v), ammoSelect);
+
+  // Lives-per-round is the other numeric host knob (same shape as the bullet count):
+  // 1 = "shot = out", above 1 a dropped player takes over a free bot body (DESIGN §7).
+  chancesSelect.addEventListener("change", () => {
+    channel.push("set_config", { max_chances: Number(chancesSelect.value) });
+  });
+  // Reflect the life count (and our local maxChances) from a broadcast, so guests track
+  // the host's pick and the HUD knows whether to appear.
+  const applyMaxChances = (n) => applyNumericConfig(n, (v) => (maxChances = v), chancesSelect);
 
   // The theme is the other host-set knob (same shape as the bullet count): a guest's
   // select is disabled and just reflects the host's pick. Pushing it lets the room
@@ -289,6 +302,11 @@ export async function boot() {
   // are still in hand this round. A fresh round reloads `ammo` back up to `maxAmmo`.
   let maxAmmo = 1;
   let ammo = 1;
+  // Whether the local player's body has been dropped this round (a private "out" from
+  // the room, #11). Crosshairs are anonymous, so the client can't tell which body is
+  // its own and can't infer its own death from the snapshot — the room signals it
+  // directly. While dead we hide our reticle and ignore fire/aim (we're spectating, §7).
+  let dead = false;
   // Reflect the remaining count: show the number, and once it hits 0 drop the bullet icon.
   const setAmmo = (n) => {
     ammoCount.textContent = String(n);
@@ -304,6 +322,22 @@ export async function boot() {
     hudAmmo.hidden = !visible;
   };
 
+  // --- In-round lives HUD: your remaining lives this round (DESIGN §7) ---
+  const hudChances = document.getElementById("hud-chances");
+  const chancesCount = document.getElementById("chances-count");
+  // Lives the host grants per round (from the lobby broadcast) and how many remain. The
+  // room owns the truth and pushes a private "chances" update on every change (round
+  // start, and each bot takeover); we just reflect it. Single-life rounds hide the HUD
+  // entirely — there dying is simply "out", with nothing to count.
+  let maxChances = 1;
+  const setChances = (n) => {
+    chancesCount.textContent = String(n);
+  };
+  const showChances = (visible) => {
+    // Only meaningful when more than one life is in play; otherwise stay hidden.
+    hudChances.hidden = !(visible && maxChances > 1);
+  };
+
   // Backing out is destructive for the host (it closes the lobby for everyone); the
   // label (set by applyHostUI) says so, while a guest only leaves their own seat.
   lobbyLeave.addEventListener("click", () => {
@@ -316,6 +350,7 @@ export async function boot() {
   // roster whenever the host changes (e.g. the old host left and the room handed off).
   const applyHostUI = () => {
     ammoSelect.disabled = !isHost;
+    chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
     lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
   };
@@ -507,6 +542,7 @@ export async function boot() {
     isHost = !!myName && p.host === myName;
     applyHostUI();
     applyMaxAmmo(p.max_ammo);
+    applyMaxChances(p.max_chances);
     applyTheme(p.theme);
     if (!scores) banner = "Lobby";
     renderLobby();
@@ -526,9 +562,22 @@ export async function boot() {
     toRoundMusic(); // open on stage 1 and climb the ladder through the round
     hideCard();
     scores = null;
+    dead = false; // fresh round → back in play (a previous round's death is cleared)
     clearPeerCrosses(); // last round's reticles don't carry into this one
     setCrosshairVisible(true); // fresh round → fresh clip (DESIGN §5)
     showAmmo(true); // (re)load the ammo HUD to a full clip for the new round
+    showChances(true); // reveal the lives HUD (only when >1 life is in play, §7)
+  });
+  // The room privately told us our body dropped — we're out for the round (#11, §7).
+  // Drop our reticle and stop firing/aiming; peers' view is unchanged (DESIGN §5).
+  channel.on("out", () => {
+    dead = true;
+    setCrosshairVisible(false);
+  });
+  // Private lives update for our HUD (DESIGN §7): the room sends our starting count at
+  // round start and a fresh one each time we take over a bot. Peers never see this.
+  channel.on("chances", (p) => {
+    if (typeof p.chances === "number") setChances(p.chances);
   });
   channel.on("round_over", (p) => {
     // The winner is always set now — a player name, or "Bot" when a bot crossed first.
@@ -537,6 +586,7 @@ export async function boot() {
     clearPeerCrosses(); // the round's frozen — drop the peers' reticles with the card up
     setCrosshairVisible(false); // no firing while the card is up
     showAmmo(false); // the round's done — pull the HUD with the card up
+    showChances(false); // pull the lives HUD too
     // Stay in the game: float the card over the frozen final frame, and drop the music
     // back to its chill stage-1 bed (held, not climbing) so the next round ramps anew.
     toCardMusic();
@@ -657,7 +707,7 @@ export async function boot() {
   let lastAimAt = 0;
   let aimSent = { x: null, y: null };
   const sendAim = () => {
-    if (!myCross.visible || ammo <= 0) return;
+    if (dead || !myCross.visible || ammo <= 0) return;
     if (mouse.x === aimSent.x && mouse.y === aimSent.y) return;
     const now = performance.now();
     if (now - lastAimAt < 50) return;
@@ -667,18 +717,22 @@ export async function boot() {
     channel.push("aim", { x: wx, y: wy });
   };
   app.canvas.addEventListener("click", () => {
-    if (!myCross.visible || ammo <= 0) return; // out of bullets — defenceless
+    if (dead || !myCross.visible || ammo <= 0) return; // out of bullets or out of the round
     const { wx, wy } = mouseToWorld();
     // Firing reveals nothing about what you hit — only that you've spent a bullet (§5).
     // The SFX plays when the server broadcasts the shot back (the "shot" handler
     // above), so you hear the same crack as everyone else rather than a local one.
-    channel.push("fire", { x: wx, y: wy });
-    // Spend a round locally — the server enforces the same cap, so this stays in sync.
-    ammo = Math.max(0, ammo - 1);
-    setAmmo(ammo);
-    // Only your *last* shot disarms you: the crosshair (and the OS cursor's absence)
-    // lingers while you still have bullets, and vanishes once you're empty (§5).
-    if (ammo <= 0) setCrosshairVisible(false);
+    // Spend the round off the *server's* reply, not optimistically: a shot the server
+    // rejects (already dead, or a race against the ammo cap) replies `fired: false`, and
+    // counting that locally would desync the HUD from real ammo (#11).
+    channel.push("fire", { x: wx, y: wy }).receive("ok", (resp) => {
+      if (!resp || !resp.fired) return;
+      ammo = Math.max(0, ammo - 1);
+      setAmmo(ammo);
+      // Only your *last* shot disarms you: the crosshair (and the OS cursor's absence)
+      // lingers while you still have bullets, and vanishes once you're empty (§5).
+      if (ammo <= 0) setCrosshairVisible(false);
+    });
   });
 
   // --- Render loop: interpolate other entities toward the latest snapshot ---

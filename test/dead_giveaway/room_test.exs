@@ -364,6 +364,35 @@ defmodule DeadGiveaway.RoomTest do
       refute_receive :shot, 200
     end
 
+    test "a player whose body is dropped is privately told they're out (#11)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("out-1"))
+
+      {:ok, room} = Room.start_link(id: "out-1", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # alice is the only body; shooting her spot drops her. The room signals *her*
+      # by name so the channel can forward it to her alone — peers learn nothing (§5).
+      assert Room.fire(room, "alice", {0.0, 0.0}) == :fired
+      assert_receive {:player_out, "alice"}, 500
+    end
+
+    test "dropping a bot body knocks no player out — no one is signalled (#11)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("out-2"))
+
+      {:ok, room} = Room.start_link(id: "out-2", seed: 1, bots: 1)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      alice_row = :sys.get_state(room).world.slot_of["alice"]
+      bot_row = 1 - alice_row
+
+      # The shot drops the bot, not a human — so although a bullet is spent, no
+      # `:player_out` is emitted (the signal tracks human knock-outs, not kills).
+      assert Room.fire(room, "alice", {0.0, bot_row * World.row_spacing()}) == :fired
+      refute_receive {:player_out, _}, 200
+    end
+
     test "the host's bullet count reaches every lobby view" do
       Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("ammo-1"))
       {:ok, room} = Room.start_link(id: "ammo-1", seed: 1, bots: 0)
@@ -387,6 +416,67 @@ defmodule DeadGiveaway.RoomTest do
       assert_receive {:lobby, %{max_ammo: 6}}
       Room.set_max_ammo(room, 0)
       assert_receive {:lobby, %{max_ammo: 1}}
+    end
+  end
+
+  describe "lives (chances, DESIGN §7)" do
+    test "default to one and the host's count reaches every lobby view" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-1"))
+      {:ok, room} = Room.start_link(id: "lives-1", seed: 1, bots: 0)
+      # A fresh lobby defaults to one life — the original "shot = out" behaviour.
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{max_chances: 1}}
+
+      Room.set_max_chances(room, 3)
+      assert_receive {:lobby, %{max_chances: 3}}
+    end
+
+    test "the life count is clamped to a sane range" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-2"))
+      {:ok, room} = Room.start_link(id: "lives-2", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{max_chances: 1}}
+
+      Room.set_max_chances(room, 999)
+      assert_receive {:lobby, %{max_chances: 5}}
+      Room.set_max_chances(room, 0)
+      assert_receive {:lobby, %{max_chances: 1}}
+    end
+
+    test "the life count can't change mid-round" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-3"))
+      {:ok, room} = Room.start_link(id: "lives-3", seed: 1, bots: 0, finish_x: 100.0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # A live round keeps the lives it started with — set_max_chances is ignored.
+      Room.set_max_chances(room, 4)
+      refute_receive {:lobby, %{max_chances: 4}}
+    end
+
+    test "players are privately told their starting lives when a round begins" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-4"))
+      {:ok, room} = Room.start_link(id: "lives-4", seed: 1, bots: 2, max_chances: 3)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      assert_receive {:chances, "alice", 3}
+    end
+
+    test "taking over a bot keeps the player in and refreshes their lives, no 'out'" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-5"))
+      {:ok, room} = Room.start_link(id: "lives-5", seed: 1, bots: 3, max_chances: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+      assert_receive {:chances, "alice", 2}
+
+      # alice drops her own body; with a life to spare and free bots, she takes one over.
+      alice_row = :sys.get_state(room).world.slot_of["alice"]
+      assert Room.fire(room, "alice", {0.0, alice_row * World.row_spacing()}) == :fired
+
+      # She's not out — she got a fresh life count instead.
+      assert_receive {:chances, "alice", 1}
+      refute_receive {:player_out, "alice"}, 200
     end
   end
 
