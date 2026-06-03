@@ -97,46 +97,42 @@ if (document.getElementById("game")) {
 
 // Home page: bind the volume sliders (the game reads the persisted level at boot, so
 // changing it here carries into play) and loop the menu's background music.
-import { bindVolumeSliders, bindSoundToggle, loadVolume, sfxGain } from "./volume.mjs"
-import { createMusicLoop, MUSIC_GAIN } from "./music.mjs"
+import { getAudio } from "./audio-shell.mjs"
+import { bindVolumeSliders, bindSoundToggle } from "./volume.mjs"
 if (document.getElementById("vol-master")) {
-  const volume = loadVolume()
-  const music = createMusicLoop("/themes/neon/menu_loop.mp3")
-  // enabled × master scales the music (no dedicated music channel yet).
-  const musicVol = (v) => (v.enabled ? (v.master / 100) * MUSIC_GAIN : 0)
+  // The home sound card drives the shared menu loop directly — start/stop on the On/Off
+  // switch, re-gain on the sliders — rather than through the music director: the Off state
+  // must actually stop the loop, which the director's "stay silent when muted" model
+  // doesn't do. It's the same loop instance the in-game director later uses (one audio
+  // shell), so once navigation is client-side the menu music carries straight into the lobby.
+  const { volume, lobbyMusic, musicGain, playShot } = getAudio()
   // The On/Off switch starts or stops the loop (flipping it is a user gesture, so
   // autoplay is allowed); the sliders only re-gain the already-playing loop — they must
   // not restart it from the top on every drag.
-  bindSoundToggle((v) => (v.enabled ? music.start(musicVol(v)) : music.stop()), volume)
-  bindVolumeSliders((v) => music.setGain(musicVol(v)), volume)
+  bindSoundToggle((v) => (v.enabled ? lobbyMusic.start(musicGain()) : lobbyMusic.stop()), volume)
+  bindVolumeSliders(() => lobbyMusic.setGain(musicGain()), volume)
 
   // Preview the firing SFX at the chosen level so the user hears what they've set. On
-  // "change" (slider release), not "input", so it's one shot per adjustment rather than
-  // a machine-gun while dragging. (sfxGain is 0 when sound is off.)
-  const sfxPreview = new Audio("/sounds/gunshot.mp3")
-  sfxPreview.preload = "auto"
-  document.getElementById("vol-sfx")?.addEventListener("change", () => {
-    sfxPreview.currentTime = 0
-    sfxPreview.volume = sfxGain(volume) // master × sfx — matches in-game gain
-    sfxPreview.play().catch(() => {})
-  })
+  // "change" (slider release), not "input", so it's one shot per adjustment rather than a
+  // machine-gun while dragging. playShot reads the current sfx gain (0 when sound is off).
+  document.getElementById("vol-sfx")?.addEventListener("change", () => playShot())
 
   // If sound was left On from a previous visit, autoplay policy still needs a gesture
   // before the loop can sound — kick it off on the first interaction. (A fresh visit
   // starts Off, so this is a no-op until the player flips the switch above.)
   //
   // This must fire EXACTLY ONCE across both gesture types: start() is async (fetch +
-  // decode), so music.live stays false during the decode. Clicking into the lobby-code
-  // field (pointerdown) starts the load; the first keystroke (keydown) would then see
-  // live still false and call start() a second time — restarting the track. So one guard
-  // removes both listeners on the first gesture, rather than two independent `once`s.
+  // decode), so lobbyMusic.live stays false during the decode. Clicking into the
+  // lobby-code field (pointerdown) starts the load; the first keystroke (keydown) would
+  // then see live still false and call start() a second time — restarting the track. So
+  // one guard removes both listeners on the first gesture, not two independent `once`s.
   let started = false
   const startMusic = () => {
     if (started) return
     started = true
     window.removeEventListener("pointerdown", startMusic)
     window.removeEventListener("keydown", startMusic)
-    if (volume.enabled && !music.live) music.start(musicVol(volume))
+    if (volume.enabled && !lobbyMusic.live) lobbyMusic.start(musicGain())
   }
   window.addEventListener("pointerdown", startMusic)
   window.addEventListener("keydown", startMusic)

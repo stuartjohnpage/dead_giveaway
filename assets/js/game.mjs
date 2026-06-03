@@ -5,9 +5,7 @@
 import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from "pixi.js";
 import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
-import { loadVolume, sfxGain } from "./volume.mjs";
-import { createMusicLoop, createEscalatingLoop, audioRunning, MUSIC_GAIN } from "./music.mjs";
-import { createMusicDirector, createAudioPort } from "./music-director.mjs";
+import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES } from "./audio-shell.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -28,10 +26,8 @@ const FLOOR_H = DESIGN_H - 2 * FLOOR_TOP;
 // mapping (DESIGN §4, §9).
 const DEFAULT_THEME = "neon";
 const themeBase = (key) => `/themes/${key}`;
-// Fallbacks when a pack's manifest omits its audio (e.g. a new theme whose escalating
-// game stages aren't generated yet): reuse the default theme's tracks rather than go silent.
-const DEFAULT_MENU_LOOP = `${themeBase(DEFAULT_THEME)}/menu_loop.mp3`;
-const DEFAULT_GAME_STAGES = [1, 2, 3, 4].map((i) => `${themeBase(DEFAULT_THEME)}/game/stage${i}.mp3`);
+// The default theme's audio tracks (the fallback when a pack omits its own) live with the
+// rest of the audio in audio-shell.mjs; loadTheme imports them for that fallback.
 // Default cosmetic-variant count; a theme's manifest can override it.
 const VARIANTS = 12;
 const SPRITE_SCALE = 1.5; // 32px art → 48px on the field
@@ -151,53 +147,14 @@ export async function boot() {
     }
   };
 
-  // Audio volume is configured on the home page and kept in sessionStorage
-  // (volume.mjs); we read the stored level at boot and apply it to the SFX gain.
-  const volume = loadVolume();
-
-  // Two background tracks: the menu/lobby loop and the four-stage escalating in-game
-  // loop. The game loop covers both the live round AND the between-rounds "Play again?"
-  // card — we never drop back to the menu loop once a round has started, since the
-  // player now stays in the game. Both honour the master sound switch.
-  // Both loops are retargeted per theme by loadTheme (setUrl/setUrls); they start on the
-  // default theme's tracks. The escalating loop climbs stage1→stage4 over the round (one
-  // stage per 15s, holding at stage 4); a round opens on its chill stage-1 bed.
-  const lobbyMusic = createMusicLoop(DEFAULT_MENU_LOOP);
-  const gameMusic = createEscalatingLoop(DEFAULT_GAME_STAGES);
-  const musicGain = () => (volume.enabled ? (volume.master / 100) * MUSIC_GAIN : 0);
-
-  // All view-transition policy (which loop, when to replay, the prime-once/suspended-only
-  // unlock, boot-load vs live-swap) lives in the music director (music-director.mjs),
-  // driving the two loops through the production AudioPort adapter (start-one-stops-the-
-  // other, stay-silent-when-muted) — both built and tested there, so boot() just wires them.
-  const music = createMusicDirector(
-    createAudioPort({ lobbyMusic, gameMusic, audioRunning, gain: musicGain }),
-  );
-
-  // Autoplay policy re-arms on every page load, so the loop queued at boot can't sound
-  // until the first user gesture. prime() unlocks the shared AudioContext (replaying only
-  // while it's still suspended) and returns whether it consumed the gesture — true exactly
-  // once, across both gesture types — so we tear both listeners down on the first unlock.
-  const unlock = () => {
-    if (music.prime()) {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
-    }
-  };
-  window.addEventListener("pointerdown", unlock);
-  window.addEventListener("keydown", unlock);
-
-  // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
-  // Pixabay Content License, credited in priv/static/sounds/CREDITS.md.
-  const shotSfx = new Audio("/sounds/gunshot.mp3");
-  shotSfx.preload = "auto";
-  const playShot = () => {
-    // cloneNode lets overlapping shots both play — the server broadcasts every
-    // peer's fire, so several can land on the same tick.
-    const s = shotSfx.cloneNode();
-    s.volume = sfxGain(volume);
-    s.play().catch(() => {}); // browsers reject autoplay until first gesture — the click *is* the gesture, so this should always succeed here
-  };
+  // All audio — the two background loops, the music director that drives them (which loop,
+  // when to replay, the autoplay unlock, boot-load vs live theme swap), the firing SFX and
+  // the shared volume level — lives in the persistent audio shell (audio-shell.mjs), so it
+  // can outlive any single boot() once navigation is client-side (#20). The volume is
+  // configured on the home page and read fresh per transition. Arm the director's autoplay
+  // unlock: the menu loop is queued, awaiting the first user gesture to sound.
+  const { music, playShot, armUnlock } = getAudio();
+  armUnlock();
 
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
   // These all ship together in game_html/show.html.heex, so we resolve them
