@@ -160,6 +160,24 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_push "lobby", %{max_ammo: 4}, 500
   end
 
+  test "the host can set the life count and it reaches every client's lobby" do
+    {_reply, socket} = join_room("chan-lives", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"max_chances" => 3})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{max_chances: 3}, 500
+  end
+
+  test "a guest cannot change the life count" do
+    join_room("chan-lives-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-lives-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"max_chances" => 3})
+    assert_reply ref, :ok
+    refute_push "lobby", %{max_chances: 3}, 200
+  end
+
   test "a guest cannot change the bullet count" do
     join_room("chan-ammo-guest", %{"host" => true})
     {_reply, guest} = join_room("chan-ammo-guest", %{"host" => false})

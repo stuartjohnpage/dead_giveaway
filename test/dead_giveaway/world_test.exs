@@ -312,6 +312,111 @@ defmodule DeadGiveaway.WorldTest do
     end
   end
 
+  describe "chances and bot takeover (DESIGN §7)" do
+    test "chances default to a single life" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 2)
+      assert World.chances_left(world, "alice") == 1
+    end
+
+    test "with one life, a dropped player is out — no takeover" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 2, max_chances: 1)
+      alice_row = world.slot_of["alice"]
+
+      # alice shoots her own body (the nearest to her row at x=0).
+      {world, :killed} = World.fire(world, "alice", {0.0, alice_row * World.row_spacing()})
+
+      refute World.player_alive?(world, "alice")
+      assert World.chances_left(world, "alice") == 1
+      # Their slot still points at the dropped body — they didn't move into a bot.
+      assert world.slot_of["alice"] == alice_row
+    end
+
+    test "with two lives, a dropped player takes over a free bot and stays in" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 3, max_chances: 2)
+      alice_row = world.slot_of["alice"]
+
+      {world, :killed} = World.fire(world, "alice", {0.0, alice_row * World.row_spacing()})
+
+      # Still alive — but in a different body, with one life spent.
+      assert World.player_alive?(world, "alice")
+      assert World.chances_left(world, "alice") == 1
+      assert world.slot_of["alice"] != alice_row
+
+      # The old body is a corpse that no longer belongs to anyone.
+      old = world.entities[alice_row]
+      refute old.alive
+      refute old.human?
+      assert old.player == nil
+
+      # And the player can drive their new body.
+      world = world |> World.set_verb("alice", :walk) |> World.tick()
+      new_row = world.slot_of["alice"]
+      assert world.entities[new_row].x == World.walk_speed()
+    end
+
+    test "the taken-over body is the living bot furthest back" do
+      # Spread the bots out so 'furthest back' is well-defined, with alice held at x=0.
+      world =
+        World.new(seed: 4, humans: ["alice"], bots: 4, max_chances: 2)
+        |> tick_n(30)
+
+      alice_row = world.slot_of["alice"]
+
+      back_x =
+        world.entities
+        |> Map.values()
+        |> Enum.filter(&(&1.alive and not &1.human?))
+        |> Enum.map(& &1.x)
+        |> Enum.min()
+
+      {world, :killed} = World.fire(world, "alice", {0.0, alice_row * World.row_spacing()})
+
+      new_row = world.slot_of["alice"]
+      assert new_row != alice_row
+      assert world.entities[new_row].x == back_x
+    end
+
+    test "spending the last life puts you out, even with free bots left" do
+      # Two bullets so she can fire the two self-shots this exercise needs.
+      world = World.new(seed: 1, humans: ["alice"], bots: 4, max_ammo: 2, max_chances: 2)
+
+      # First drop: takeover (2 → 1 life).
+      arow = world.slot_of["alice"]
+      {world, :killed} = World.fire(world, "alice", {0.0, arow * World.row_spacing()})
+      assert World.player_alive?(world, "alice")
+
+      # Second drop: out of lives, so out for the round despite bots still being free.
+      arow2 = world.slot_of["alice"]
+      {world, :killed} = World.fire(world, "alice", {0.0, arow2 * World.row_spacing()})
+      refute World.player_alive?(world, "alice")
+    end
+
+    test "with lives left but no free bot, a dropped player is out (life not spent)" do
+      # Sole character is alice — there's no bot to inherit, so she's out for the round.
+      world = World.new(seed: 1, humans: ["alice"], bots: 0, max_chances: 3)
+
+      {world, :killed} = World.fire(world, "alice", {0.0, 0.0})
+
+      refute World.player_alive?(world, "alice")
+      # No takeover happened, so no life was spent.
+      assert World.chances_left(world, "alice") == 3
+    end
+
+    test "a taken-over player keeps their remaining ammo" do
+      # Two bullets, two lives: spend one bullet to drop her own first body, take over a
+      # bot, and she should still hold the second bullet in the new body.
+      world = World.new(seed: 1, humans: ["alice"], bots: 3, max_ammo: 2, max_chances: 2)
+      arow = world.slot_of["alice"]
+
+      assert World.ammo_left(world, "alice") == 2
+      {world, :killed} = World.fire(world, "alice", {0.0, arow * World.row_spacing()})
+
+      assert World.player_alive?(world, "alice")
+      assert World.ammo_left(world, "alice") == 1
+      assert World.armed?(world, "alice")
+    end
+  end
+
   defp positions(world) do
     for e <- World.snapshot(world).entities, into: %{}, do: {e.id, e.x}
   end

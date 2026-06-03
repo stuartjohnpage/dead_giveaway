@@ -115,6 +115,12 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, :ok, socket}
   end
 
+  # The lives-per-round knob (DESIGN §7), same host-only shape as the bullet count.
+  def handle_in("set_config", %{"max_chances" => n}, socket) when is_number(n) do
+    if socket.assigns.host, do: Room.set_max_chances(socket.assigns.room, trunc(n))
+    {:reply, :ok, socket}
+  end
+
   # The other host-only lobby knob: the room's cosmetic theme. The Room validates the
   # key against the catalogue and broadcasts the change so everyone's art/audio swaps.
   def handle_in("set_config", %{"theme" => theme}, socket) when is_binary(theme) do
@@ -174,6 +180,14 @@ defmodule DeadGiveawayWeb.RoomChannel do
   # drops its reticle and stops firing on this; peers' view is unchanged.
   def handle_info({:player_out, name}, socket) do
     if name == socket.assigns.name, do: push(socket, "out", %{})
+    {:noreply, socket}
+  end
+
+  # Private lives-remaining update for the HUD (DESIGN §7). Like "out", every channel
+  # sees the broadcast but only the named owner forwards it — a takeover (which spends a
+  # life but keeps you alive) never tips peers off (DESIGN §5).
+  def handle_info({:chances, name, n}, socket) do
+    if name == socket.assigns.name, do: push(socket, "chances", %{chances: n})
     {:noreply, socket}
   end
 

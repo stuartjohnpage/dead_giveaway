@@ -419,6 +419,67 @@ defmodule DeadGiveaway.RoomTest do
     end
   end
 
+  describe "lives (chances, DESIGN §7)" do
+    test "default to one and the host's count reaches every lobby view" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-1"))
+      {:ok, room} = Room.start_link(id: "lives-1", seed: 1, bots: 0)
+      # A fresh lobby defaults to one life — the original "shot = out" behaviour.
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{max_chances: 1}}
+
+      Room.set_max_chances(room, 3)
+      assert_receive {:lobby, %{max_chances: 3}}
+    end
+
+    test "the life count is clamped to a sane range" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-2"))
+      {:ok, room} = Room.start_link(id: "lives-2", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{max_chances: 1}}
+
+      Room.set_max_chances(room, 999)
+      assert_receive {:lobby, %{max_chances: 5}}
+      Room.set_max_chances(room, 0)
+      assert_receive {:lobby, %{max_chances: 1}}
+    end
+
+    test "the life count can't change mid-round" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-3"))
+      {:ok, room} = Room.start_link(id: "lives-3", seed: 1, bots: 0, finish_x: 100.0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # A live round keeps the lives it started with — set_max_chances is ignored.
+      Room.set_max_chances(room, 4)
+      refute_receive {:lobby, %{max_chances: 4}}
+    end
+
+    test "players are privately told their starting lives when a round begins" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-4"))
+      {:ok, room} = Room.start_link(id: "lives-4", seed: 1, bots: 2, max_chances: 3)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      assert_receive {:chances, "alice", 3}
+    end
+
+    test "taking over a bot keeps the player in and refreshes their lives, no 'out'" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("lives-5"))
+      {:ok, room} = Room.start_link(id: "lives-5", seed: 1, bots: 3, max_chances: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+      assert_receive {:chances, "alice", 2}
+
+      # alice drops her own body; with a life to spare and free bots, she takes one over.
+      alice_row = :sys.get_state(room).world.slot_of["alice"]
+      assert Room.fire(room, "alice", {0.0, alice_row * World.row_spacing()}) == :fired
+
+      # She's not out — she got a fresh life count instead.
+      assert_receive {:chances, "alice", 1}
+      refute_receive {:player_out, "alice"}, 200
+    end
+  end
+
   describe "the room's theme" do
     test "defaults to the catalogue head and the host's pick reaches every lobby view" do
       Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("theme-1"))

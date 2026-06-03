@@ -250,6 +250,7 @@ export async function boot() {
   const lobbyLeave = document.getElementById("lobby-leave");
   const goButton = document.getElementById("go");
   const ammoSelect = document.getElementById("ammo-select");
+  const chancesSelect = document.getElementById("chances-select");
   const themeSelect = document.getElementById("theme-select");
 
   // Bullets-per-round is the host's call: guests see a disabled select reflecting the
@@ -264,6 +265,19 @@ export async function boot() {
     if (typeof n !== "number") return;
     maxAmmo = n;
     ammoSelect.value = String(n);
+  };
+
+  // Lives-per-round is the other numeric host knob (same shape as the bullet count):
+  // 1 = "shot = out", above 1 a dropped player takes over a free bot body (DESIGN §7).
+  chancesSelect.addEventListener("change", () => {
+    channel.push("set_config", { max_chances: Number(chancesSelect.value) });
+  });
+  // Mirror the room's life count into the control (and our local maxChances) from a
+  // broadcast, so guests track the host's pick and the HUD knows whether to appear.
+  const applyMaxChances = (n) => {
+    if (typeof n !== "number") return;
+    maxChances = n;
+    chancesSelect.value = String(n);
   };
 
   // The theme is the other host-set knob (same shape as the bullet count): a guest's
@@ -309,6 +323,22 @@ export async function boot() {
     hudAmmo.hidden = !visible;
   };
 
+  // --- In-round lives HUD: your remaining lives this round (DESIGN §7) ---
+  const hudChances = document.getElementById("hud-chances");
+  const chancesCount = document.getElementById("chances-count");
+  // Lives the host grants per round (from the lobby broadcast) and how many remain. The
+  // room owns the truth and pushes a private "chances" update on every change (round
+  // start, and each bot takeover); we just reflect it. Single-life rounds hide the HUD
+  // entirely — there dying is simply "out", with nothing to count.
+  let maxChances = 1;
+  const setChances = (n) => {
+    chancesCount.textContent = String(n);
+  };
+  const showChances = (visible) => {
+    // Only meaningful when more than one life is in play; otherwise stay hidden.
+    hudChances.hidden = !(visible && maxChances > 1);
+  };
+
   // Backing out is destructive for the host (it closes the lobby for everyone); the
   // label (set by applyHostUI) says so, while a guest only leaves their own seat.
   lobbyLeave.addEventListener("click", () => {
@@ -321,6 +351,7 @@ export async function boot() {
   // roster whenever the host changes (e.g. the old host left and the room handed off).
   const applyHostUI = () => {
     ammoSelect.disabled = !isHost;
+    chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
     lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
   };
@@ -512,6 +543,7 @@ export async function boot() {
     isHost = !!myName && p.host === myName;
     applyHostUI();
     applyMaxAmmo(p.max_ammo);
+    applyMaxChances(p.max_chances);
     applyTheme(p.theme);
     if (!scores) banner = "Lobby";
     renderLobby();
@@ -535,12 +567,18 @@ export async function boot() {
     clearPeerCrosses(); // last round's reticles don't carry into this one
     setCrosshairVisible(true); // fresh round → fresh clip (DESIGN §5)
     showAmmo(true); // (re)load the ammo HUD to a full clip for the new round
+    showChances(true); // reveal the lives HUD (only when >1 life is in play, §7)
   });
   // The room privately told us our body dropped — we're out for the round (#11, §7).
   // Drop our reticle and stop firing/aiming; peers' view is unchanged (DESIGN §5).
   channel.on("out", () => {
     dead = true;
     setCrosshairVisible(false);
+  });
+  // Private lives update for our HUD (DESIGN §7): the room sends our starting count at
+  // round start and a fresh one each time we take over a bot. Peers never see this.
+  channel.on("chances", (p) => {
+    if (typeof p.chances === "number") setChances(p.chances);
   });
   channel.on("round_over", (p) => {
     // The winner is always set now — a player name, or "Bot" when a bot crossed first.
@@ -549,6 +587,7 @@ export async function boot() {
     clearPeerCrosses(); // the round's frozen — drop the peers' reticles with the card up
     setCrosshairVisible(false); // no firing while the card is up
     showAmmo(false); // the round's done — pull the HUD with the card up
+    showChances(false); // pull the lives HUD too
     // Stay in the game: float the card over the frozen final frame, and drop the music
     // back to its chill stage-1 bed (held, not climbing) so the next round ramps anew.
     toCardMusic();
