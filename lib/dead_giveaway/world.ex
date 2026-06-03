@@ -135,6 +135,19 @@ defmodule DeadGiveaway.World do
     world.max_ammo - Map.get(world.shots, player, 0)
   end
 
+  @doc """
+  Whether `player` should show a public crosshair: they're in this round and still
+  hold a bullet. Spending the last shot drops the reticle so everyone sees they're
+  now unarmed (DESIGN §5).
+
+  Deliberately *not* gated on the body being alive: a reticle vanishing the instant a
+  body dropped would betray that body as a (human) shooter's, and a kill must reveal
+  nothing — not who fired, nor whether the body was human or bot (DESIGN §5).
+  """
+  def armed?(%__MODULE__{} = world, player) do
+    Map.has_key?(world.slot_of, player) and ammo_left(world, player) > 0
+  end
+
   @doc "True once any living character has crossed the finish line."
   def finished?(%__MODULE__{} = world), do: crossers(world) != []
 

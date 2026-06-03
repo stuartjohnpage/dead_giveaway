@@ -4,9 +4,10 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   On join the channel finds-or-starts the room, joins the player into the lobby,
   and subscribes to the room's broadcasts. Inbound messages (`input`, `fire`,
-  `go`) are routed into the authoritative `Room`; outbound the channel forwards
-  the room's `lobby` / `round_start` / `snapshot` / `shot` / `round_over`
-  broadcasts.
+  `aim`, `go`) are routed into the authoritative `Room`; outbound the channel
+  forwards the room's `lobby` / `round_start` / `snapshot` / `shot` / `round_over`
+  broadcasts — anonymising the snapshot's crosshairs (which the room keys by name)
+  into a bare list of points so a reticle never betrays whose it is (DESIGN §5).
   """
 
   use Phoenix.Channel
@@ -89,6 +90,13 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, {:ok, encode_fire(event)}, socket}
   end
 
+  # Where this player's crosshair is hovering. High-frequency and fire-and-forget —
+  # no reply — since it only feeds the (anonymous) reticle stream, not game logic.
+  def handle_in("aim", %{"x" => x, "y" => y}, socket) when is_number(x) and is_number(y) do
+    Room.aim(socket.assigns.room, socket.assigns.name, {x * 1.0, y * 1.0})
+    {:noreply, socket}
+  end
+
   def handle_in("go", _payload, socket) do
     Room.go(socket.assigns.room)
     {:reply, :ok, socket}
@@ -135,7 +143,7 @@ defmodule DeadGiveawayWeb.RoomChannel do
   end
 
   def handle_info({:snapshot, snapshot}, socket) do
-    push(socket, "snapshot", snapshot)
+    push(socket, "snapshot", anonymize_crosshairs(snapshot, socket.assigns.name))
     {:noreply, socket}
   end
 
@@ -177,4 +185,21 @@ defmodule DeadGiveawayWeb.RoomChannel do
   defp encode_outcome({:winner, player}), do: %{winner: player}
   # A bot crossed first — the shared Bot opponent takes the round (no more "wash").
   defp encode_outcome(:wash), do: %{winner: Room.bot_name()}
+
+  # The room keys crosshairs by name (it's the trusted authority); a browser must
+  # never see that. Strip the recipient's own reticle — their client draws it live
+  # from the mouse — then drop the names entirely, leaving a bare list of points.
+  # Sorted by name so a given peer keeps a stable slot across snapshots (smooth
+  # client-side interpolation) without that order ever revealing who they are.
+  defp anonymize_crosshairs(%{crosshairs: crosshairs} = snapshot, me) do
+    points =
+      crosshairs
+      |> Enum.reject(fn {name, _point} -> name == me end)
+      |> Enum.sort_by(fn {name, _point} -> name end)
+      |> Enum.map(fn {_name, point} -> point end)
+
+    %{snapshot | crosshairs: points}
+  end
+
+  defp anonymize_crosshairs(snapshot, _me), do: snapshot
 end

@@ -130,6 +130,21 @@ export async function boot() {
   };
   setCrosshairVisible(false); // boot into the lobby: no reticle, normal cursor
 
+  // Everyone sees every crosshair (DESIGN §5): peers' reticles arrive (anonymised) on
+  // the snapshot stream as a bare list of world points. We pool one sprite per point
+  // and interpolate it toward its latest position, exactly like the body sprites, so
+  // the reticles glide rather than step at the 20Hz snapshot rate. They share myCross's
+  // texture — all reticles look identical, which is *why* you find your own by moving
+  // the mouse (DESIGN §5). Like myCross they live in screen space (added to the stage),
+  // so they stay the same on-screen size as your own regardless of the letterbox scale.
+  const peerCrosses = []; // pool of { sprite, cwx, cwy, twx, twy, live }
+  const clearPeerCrosses = () => {
+    for (const pc of peerCrosses) {
+      pc.sprite.visible = false;
+      pc.live = false; // next time this slot is used it snaps in, not flies from a stale spot
+    }
+  };
+
   // Audio volume is configured on the home page and kept in sessionStorage
   // (volume.mjs); we read the stored level at boot and apply it to the SFX gain.
   const volume = loadVolume();
@@ -490,6 +505,7 @@ export async function boot() {
     toRoundMusic(); // open on stage 1 and climb the ladder through the round
     hideCard();
     scores = null;
+    clearPeerCrosses(); // last round's reticles don't carry into this one
     setCrosshairVisible(true); // fresh round → fresh clip (DESIGN §5)
     showAmmo(true); // (re)load the ammo HUD to a full clip for the new round
   });
@@ -497,6 +513,7 @@ export async function boot() {
     // The winner is always set now — a player name, or "Bot" when a bot crossed first.
     banner = p.winner ? `🏁 ${p.winner} wins!` : "Round over";
     scores = p.scores || {};
+    clearPeerCrosses(); // the round's frozen — drop the peers' reticles with the card up
     setCrosshairVisible(false); // no firing while the card is up
     showAmmo(false); // the round's done — pull the HUD with the card up
     // Stay in the game: float the card over the frozen final frame, and drop the music
@@ -553,6 +570,35 @@ export async function boot() {
         sprites.delete(id);
       }
     }
+
+    updatePeerCrosses(snap.crosshairs || []);
+  }
+
+  // Retarget the peer-reticle pool from this snapshot's anonymous point list. The list
+  // is positional (the server keeps each peer in a stable slot), so slot i tracks the
+  // same reticle across snapshots — that's what lets us interpolate it. We grow the
+  // pool to fit and hide any slots beyond the current count (a peer who disarmed/left).
+  function updatePeerCrosses(points) {
+    while (peerCrosses.length < points.length) {
+      const sprite = new Sprite(myCross.texture);
+      sprite.anchor.set(0.5);
+      sprite.visible = false;
+      app.stage.addChild(sprite);
+      peerCrosses.push({ sprite, cwx: 0, cwy: 0, twx: 0, twy: 0, live: false });
+    }
+    for (let i = 0; i < peerCrosses.length; i++) {
+      const pc = peerCrosses[i];
+      if (i < points.length) {
+        pc.twx = points[i].x;
+        pc.twy = points[i].y;
+        if (!pc.live) (pc.cwx = pc.twx), (pc.cwy = pc.twy), (pc.live = true); // snap in, don't glide from origin
+        pc.sprite.texture = myCross.texture; // adopt the live theme's reticle
+        pc.sprite.visible = true;
+      } else if (pc.live) {
+        pc.sprite.visible = false;
+        pc.live = false;
+      }
+    }
   }
 
   // --- Input: hold to walk, Shift to run, release to stop (§3) ---
@@ -576,12 +622,32 @@ export async function boot() {
     const r = app.canvas.getBoundingClientRect();
     mouse = { x: ev.clientX - r.left, y: ev.clientY - r.top };
   });
-  app.canvas.addEventListener("click", () => {
-    if (!myCross.visible || ammo <= 0) return; // out of bullets — defenceless
-    // Undo the letterbox transform: canvas pixels → design space → world.
+  // Undo the letterbox transform on the current mouse: canvas pixels → design space → world.
+  const mouseToWorld = () => {
     const dx = (mouse.x - world.x) / world.scale.x;
     const dy = (mouse.y - world.y) / world.scale.y;
-    const { wx, wy } = screenToWorld(dx, dy, view);
+    return screenToWorld(dx, dy, view);
+  };
+
+  // Stream our reticle position to the room so peers can see it (DESIGN §5). Throttled
+  // to roughly the snapshot rate — that's all the reticle resolution anyone gets — and
+  // sent only when armed and actually moved. Once unarmed we stop: the server has already
+  // dropped our reticle (it gates on ammo), so peers see it vanish with our last shot.
+  let lastAimAt = 0;
+  let aimSent = { x: null, y: null };
+  const sendAim = () => {
+    if (!myCross.visible || ammo <= 0) return;
+    if (mouse.x === aimSent.x && mouse.y === aimSent.y) return;
+    const now = performance.now();
+    if (now - lastAimAt < 50) return;
+    lastAimAt = now;
+    aimSent = { x: mouse.x, y: mouse.y };
+    const { wx, wy } = mouseToWorld();
+    channel.push("aim", { x: wx, y: wy });
+  };
+  app.canvas.addEventListener("click", () => {
+    if (!myCross.visible || ammo <= 0) return; // out of bullets — defenceless
+    const { wx, wy } = mouseToWorld();
     // Firing reveals nothing about what you hit — only that you've spent a bullet (§5).
     // The SFX plays when the server broadcasts the shot back (the "shot" handler
     // above), so you hear the same crack as everyone else rather than a local one.
@@ -602,5 +668,18 @@ export async function boot() {
     }
     myCross.x = mouse.x;
     myCross.y = mouse.y;
+    // Glide each peer reticle toward its latest world point, then map that through the
+    // same letterbox transform a shot uses, so it lands where its owner is aiming.
+    for (const pc of peerCrosses) {
+      if (!pc.sprite.visible) continue;
+      pc.cwx += (pc.twx - pc.cwx) * 0.25;
+      pc.cwy += (pc.twy - pc.cwy) * 0.25;
+      const { sx, sy } = worldToScreen(pc.cwx, pc.cwy, view);
+      pc.sprite.x = world.x + sx * world.scale.x;
+      pc.sprite.y = world.y + sy * world.scale.y;
+    }
+    // Push our own reticle out on the same loop (self-throttling), so a parked mouse
+    // still reports its resting spot — peers need to see a reticle linger on a suspect.
+    sendAim();
   });
 }
