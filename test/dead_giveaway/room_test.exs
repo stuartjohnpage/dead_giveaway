@@ -37,6 +37,19 @@ defmodule DeadGiveaway.RoomTest do
       assert {:ok, 2, "guest (3)", _} = Room.join(room, "guest")
     end
 
+    test "redacts profanity in an explicit name before it reaches the roster" do
+      {:ok, room} = Room.start_link(id: "profanity-1")
+      # The offending span is starred out; the innocent remainder is kept and the
+      # redacted name is still the player's identity (disambiguated as normal).
+      assert {:ok, _, "****head", _} = Room.join(room, "shithead")
+    end
+
+    test "a name that is entirely profanity falls back to an auto-assigned Player N" do
+      {:ok, room} = Room.start_link(id: "profanity-2")
+      # "fuck" -> "****": nothing visible left, so it auto-names rather than showing stars.
+      assert {:ok, _, "Player 1", _} = Room.join(room, "fuck")
+    end
+
     test "auto-names reuse the lowest free number so the count doesn't climb on (re)joins" do
       {:ok, room} = Room.start_link(id: "rejoin-1")
       {:ok, _, "Player 1", _} = Room.join(room)

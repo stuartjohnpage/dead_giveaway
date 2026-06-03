@@ -18,7 +18,7 @@ defmodule DeadGiveaway.Room do
   # is NOT restarted by its supervisor; a genuine crash still is.
   use GenServer, restart: :transient
 
-  alias DeadGiveaway.{Themes, World}
+  alias DeadGiveaway.{Profanity, Themes, World}
 
   # A round can start with as few as this many players (the rest are bots).
   @min_players 1
@@ -310,7 +310,17 @@ defmodule DeadGiveaway.Room do
     |> Enum.find(&(not MapSet.member?(taken, &1)))
   end
 
-  defp player_name(name, players), do: uniquify(name, players)
+  # An explicit name is redacted of profanity first (it's shown to everyone in the
+  # roster/scoreboard), then disambiguated. A name that's *entirely* profanity — nothing
+  # but redaction stars left — falls back to an auto-assigned "Player N" rather than
+  # appearing as bare asterisks.
+  defp player_name(name, players) do
+    cleaned = Profanity.clean(name)
+    if visible?(cleaned), do: uniquify(cleaned, players), else: player_name(nil, players)
+  end
+
+  # Whether a (possibly redacted) name still has any letter or digit to show.
+  defp visible?(name), do: String.match?(name, ~r/[\p{L}\p{N}]/u)
 
   defp uniquify(name, players) do
     taken = MapSet.new(Map.values(players))
