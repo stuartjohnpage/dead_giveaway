@@ -50,8 +50,8 @@ export async function boot() {
   if (!mount) return;
 
   const room = mount.dataset.room;
-  // `data-host` (set by /play/new) only asks the server to *create* this room; a
-  // join-by-code requires it to already exist (the server replies "not_found"
+  // `data-host` (set server-side from the creator's session, not the URL) only asks
+  // the server to *create* this room; a join-by-code requires it to already exist (the server replies "not_found"
   // otherwise). It does NOT grant host privileges — the server assigns those to the
   // first player in and tells us via the lobby roster, so a crafted URL can't steal them.
   const wantsCreate = mount.dataset.host === "true";
