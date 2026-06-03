@@ -172,6 +172,7 @@ export async function boot() {
   const ammoSelect = document.getElementById("ammo-select");
   const chancesSelect = document.getElementById("chances-select");
   const themeSelect = document.getElementById("theme-select");
+  const paceSelect = document.getElementById("pace-select");
 
   // Bullets-per-round is the host's call: guests see a disabled select reflecting the
   // host's choice (kept current by the lobby broadcast). The host's changes push to the
@@ -212,6 +213,16 @@ export async function boot() {
     if (typeof key !== "string" || !key) return;
     themeSelect.value = key;
     loadTheme(key);
+  };
+
+  // Pace (#17): the round-tempo knob, same host-only shape as the others. A guest's select
+  // is disabled and just reflects the host's pick; pushing it lets the room validate +
+  // broadcast so every lobby shows the same value. It only affects the next round's bots.
+  paceSelect.addEventListener("change", () => {
+    channel.push("set_config", { pace: paceSelect.value });
+  });
+  const applyPace = (pace) => {
+    if (typeof pace === "string" && pace) paceSelect.value = pace;
   };
 
   // --- In-round ammo HUD: your bullets for the round (DESIGN §5) ---
@@ -274,6 +285,7 @@ export async function boot() {
     ammoSelect.disabled = !isHost;
     chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
+    paceSelect.disabled = !isHost;
     lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
     // The host's close is destructive (it ends the lobby for everyone), so make it
     // read dark red; a guest only leaves their own seat, so it stays neutral slate.
@@ -469,6 +481,7 @@ export async function boot() {
     applyMaxAmmo(p.max_ammo);
     applyMaxChances(p.max_chances);
     applyTheme(p.theme);
+    applyPace(p.pace);
     if (!scores) banner = "Lobby";
     renderLobby();
   });

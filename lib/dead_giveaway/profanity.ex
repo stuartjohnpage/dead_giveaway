@@ -42,17 +42,15 @@ defmodule DeadGiveaway.Profanity do
     norm = Enum.map(orig, &normalize/1)
 
     # A single innocent token that happens to contain a bad substring — leave it be.
-    if alnum(norm) in @allowlist do
-      name
-    else
-      masked = mask_indices(norm)
+    if alnum(norm) in @allowlist, do: name, else: apply_mask(orig, mask_indices(norm))
+  end
 
-      orig
-      |> Enum.with_index()
-      |> Enum.map(fn {c, i} -> if MapSet.member?(masked, i), do: ?*, else: c end)
-      |> List.to_charlist()
-      |> List.to_string()
-    end
+  # Replace the codepoints at `masked` indices with `*`, leaving the rest as typed.
+  defp apply_mask(orig, masked) do
+    orig
+    |> Enum.with_index()
+    |> Enum.map(fn {c, i} -> if MapSet.member?(masked, i), do: ?*, else: c end)
+    |> List.to_string()
   end
 
   # Fold one codepoint: ASCII upper→lower, then the leet map; everything else untouched.
@@ -64,19 +62,25 @@ defmodule DeadGiveaway.Profanity do
   # The set of character indices covered by any wordlist match in the normalised name.
   defp mask_indices(norm) do
     n = length(norm)
-
-    Enum.reduce(@words, MapSet.new(), fn word, acc ->
-      len = length(word)
-
-      Enum.reduce(0..max(n - len, 0), acc, fn i, acc ->
-        if i + len <= n and Enum.slice(norm, i, len) == word do
-          Enum.reduce(i..(i + len - 1), acc, &MapSet.put(&2, &1))
-        else
-          acc
-        end
-      end)
-    end)
+    Enum.reduce(@words, MapSet.new(), &add_word_matches(&2, norm, &1, n))
   end
+
+  # Fold every occurrence of `word` in `norm` into `acc` as covered index ranges.
+  defp add_word_matches(acc, norm, word, n) do
+    len = length(word)
+
+    norm
+    |> match_starts(word, len, n)
+    |> Enum.reduce(acc, fn i, acc -> cover(acc, i, len) end)
+  end
+
+  defp match_starts(_norm, _word, len, n) when len > n, do: []
+
+  defp match_starts(norm, word, len, n) do
+    Enum.filter(0..(n - len), fn i -> Enum.slice(norm, i, len) == word end)
+  end
+
+  defp cover(set, start, len), do: Enum.reduce(start..(start + len - 1), set, &MapSet.put(&2, &1))
 
   # The normalised name reduced to its a–z/0–9 run, for the allowlist comparison.
   defp alnum(norm) do

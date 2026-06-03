@@ -128,6 +128,13 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, :ok, socket}
   end
 
+  # The round-tempo knob (#17), same host-only shape. The Room validates the value
+  # ("slow"/"medium"/"fast") and broadcasts it to every lobby.
+  def handle_in("set_config", %{"pace" => pace}, socket) when is_binary(pace) do
+    if socket.assigns.host, do: Room.set_pace(socket.assigns.room, pace)
+    {:reply, :ok, socket}
+  end
+
   # Backing out of the lobby. The host tears the whole room down (everyone is sent
   # `closed`); a guest just frees their own slot and heads home on their own.
   def handle_in("leave", _payload, socket) do

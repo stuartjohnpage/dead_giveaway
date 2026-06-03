@@ -133,6 +133,21 @@
           >
             <option :for={t <- @themes} value={t.key}>{t.display}</option>
           </select>
+
+          <%!-- Round pace (DESIGN §4, #17): the bot move:stop ratio, i.e. how long a round
+                runs. Default "fast" is today's tempo. game.mjs disables this for guests and
+                pushes a host's change to the room, which broadcasts it back. --%>
+          <label for="pace-select" class="text-right uppercase tracking-wider text-slate-400">
+            Pace
+          </label>
+          <select
+            id="pace-select"
+            class="w-40 rounded-lg bg-[#0b1020] px-3 py-1 text-white ring-1 ring-white/10 transition disabled:opacity-60"
+          >
+            <option value="slow">Slow</option>
+            <option value="medium">Medium</option>
+            <option value="fast" selected>Fast</option>
+          </select>
         </div>
       </div>
     </div>

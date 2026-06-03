@@ -16,7 +16,9 @@ defmodule DeadGiveaway.World do
             slot_of: %{},
             max_ammo: 1,
             shots: %{},
-            chances: %{}
+            chances: %{},
+            # {move_ticks, stop_ticks} ranges for this round's pace (#17).
+            pace_ticks: nil
 
   # Movement speeds, in world units per tick (dev values).
   @walk_speed 1.25
@@ -29,9 +31,20 @@ defmodule DeadGiveaway.World do
   # Each bot cycles move → stop → move on its OWN timing, with the duration of
   # each phase re-rolled when it begins. That desynchronises the crowd (no
   # waves, no jiggle) and the stop phases keep overall progress in check (§4).
-  # Tunable: a lower move:stop ratio = less ground covered across the field.
-  @bot_move_ticks 12..28
-  @bot_stop_ticks 18..40
+  #
+  # Pace (#17) is the lobby-leader's round-tempo dial: it sets the bot move:stop tick
+  # ranges, i.e. how much of the time the crowd spends MOVING — NOT how fast a moving
+  # body goes. @bot_speed stays pinned to @walk_speed regardless, so a moving bot always
+  # looks exactly like a walking human (DESIGN §3/§6); pace can never become a tell. A
+  # lower move:stop ratio = less ground covered per tick = a slower race overall. Approx
+  # share of time moving: fast ~40%, medium ~30%, slow ~20%. Tuned by feel — `fast` is the
+  # original tempo. `:fast` is the default (and the fallback for an unknown value).
+  @pace_ticks %{
+    fast: {12..28, 18..40},
+    medium: {12..28, 30..60},
+    slow: {10..22, 45..80}
+  }
+  @default_pace :fast
 
   # Vertical distance between adjacent rows, so the crosshair (a continuous x/y
   # point) can pick the nearest body across rows.
@@ -52,6 +65,11 @@ defmodule DeadGiveaway.World do
   def bot_max_speed, do: @bot_speed
   def row_spacing, do: @row_spacing
 
+  @doc "The valid pace keys (#17), so callers validate against one source of truth."
+  def paces, do: Map.keys(@pace_ticks)
+  @doc "The default pace when none (or an unknown one) is given."
+  def default_pace, do: @default_pace
+
   @doc """
   Build a fresh world. Options:
 
@@ -63,6 +81,8 @@ defmodule DeadGiveaway.World do
     * `:max_chances` — lives each player gets for the round (default 1, i.e. one
       life: when your body drops you're out. >1 lets you take over a free bot body
       on death instead, spending a life — DESIGN §7)
+    * `:pace` — round tempo `:slow | :medium | :fast` (#17), setting the bot move:stop
+      ratio (default `:fast`, the original tempo; an unknown value falls back to it)
   """
   def new(opts) do
     seed = Keyword.fetch!(opts, :seed)
@@ -71,6 +91,9 @@ defmodule DeadGiveaway.World do
     finish_x = Keyword.get(opts, :finish_x, 1000.0)
     max_ammo = Keyword.get(opts, :max_ammo, 1)
     max_chances = Keyword.get(opts, :max_chances, 1)
+
+    pace_ticks =
+      Map.get(@pace_ticks, Keyword.get(opts, :pace, @default_pace), @pace_ticks[@default_pace])
 
     total = length(humans) + bot_count
     rng = :rand.seed_s(:exsss, {seed, seed, seed})
@@ -94,7 +117,7 @@ defmodule DeadGiveaway.World do
 
     # Give each bot a random starting phase so the crowd is already desynced on
     # tick 1 rather than all flipping move/stop together.
-    {entities, rng} = seed_bot_phases(entities, rng)
+    {entities, rng} = seed_bot_phases(entities, pace_ticks, rng)
 
     # Every human starts the round with `max_chances` lives (DESIGN §7).
     chances = for p <- humans, into: %{}, do: {p, max_chances}
@@ -105,7 +128,8 @@ defmodule DeadGiveaway.World do
       rng: rng,
       slot_of: slot_of,
       max_ammo: max_ammo,
-      chances: chances
+      chances: chances,
+      pace_ticks: pace_ticks
     }
   end
 
@@ -130,7 +154,7 @@ defmodule DeadGiveaway.World do
       world.entities
       |> Enum.sort_by(fn {row, _} -> row end)
       |> Enum.reduce({%{}, world.rng}, fn {row, e}, {acc, rng} ->
-        {e, rng} = step_entity(e, rng)
+        {e, rng} = step_entity(e, world.pace_ticks, rng)
         {Map.put(acc, row, e), rng}
       end)
 
@@ -355,26 +379,27 @@ defmodule DeadGiveaway.World do
   end
 
   # Dead characters are out for the round — frozen, can't win, can't be re-shot.
-  defp step_entity(%{alive: false} = e, rng), do: {e, rng}
+  defp step_entity(%{alive: false} = e, _ticks, rng), do: {e, rng}
 
   # Humans move by their player-set verb; their verb is never auto-changed.
-  defp step_entity(%{human?: true} = e, rng), do: {advance(e), rng}
+  defp step_entity(%{human?: true} = e, _ticks, rng), do: {advance(e), rng}
 
   # A bot counts down its current phase; when it elapses it flips move↔stop and
-  # rolls a fresh duration for the new phase. Steady speed within a phase = no
-  # jiggle; per-bot durations = a desynced crowd. A bot never runs (§4).
-  defp step_entity(%{human?: false} = e, rng) do
-    {e, rng} = advance_phase(e, rng)
+  # rolls a fresh duration (from this round's pace ranges) for the new phase. Steady
+  # speed within a phase = no jiggle; per-bot durations = a desynced crowd. A bot never
+  # runs (§4).
+  defp step_entity(%{human?: false} = e, ticks, rng) do
+    {e, rng} = advance_phase(e, ticks, rng)
     {advance(e), rng}
   end
 
-  defp advance_phase(%{phase_left: n} = e, rng) when n > 1 do
+  defp advance_phase(%{phase_left: n} = e, _ticks, rng) when n > 1 do
     {%{e | phase_left: n - 1}, rng}
   end
 
-  defp advance_phase(e, rng) do
+  defp advance_phase(e, ticks, rng) do
     next = if e.phase == :moving, do: :stopped, else: :moving
-    {phase_left, rng} = roll_phase_ticks(next, rng)
+    {phase_left, rng} = roll_phase_ticks(next, ticks, rng)
     {set_phase(e, next, phase_left), rng}
   end
 
@@ -384,8 +409,8 @@ defmodule DeadGiveaway.World do
   defp set_phase(e, :stopped, phase_left),
     do: %{e | phase: :stopped, phase_left: phase_left, verb: :stop, speed: 0.0}
 
-  defp roll_phase_ticks(:moving, rng), do: roll_in(@bot_move_ticks, rng)
-  defp roll_phase_ticks(:stopped, rng), do: roll_in(@bot_stop_ticks, rng)
+  defp roll_phase_ticks(:moving, {move_ticks, _stop_ticks}, rng), do: roll_in(move_ticks, rng)
+  defp roll_phase_ticks(:stopped, {_move_ticks, stop_ticks}, rng), do: roll_in(stop_ticks, rng)
 
   defp roll_in(min..max//_, rng) do
     {i, rng} = :rand.uniform_s(max - min + 1, rng)
@@ -394,7 +419,7 @@ defmodule DeadGiveaway.World do
 
   # Seed each bot mid-cycle with a random phase + duration so the field starts
   # desynchronised (humans keep the default idle phase, which they never use).
-  defp seed_bot_phases(entities, rng) do
+  defp seed_bot_phases(entities, ticks, rng) do
     Enum.reduce(entities, {%{}, rng}, fn
       {row, %{human?: true} = e}, {acc, rng} ->
         {Map.put(acc, row, e), rng}
@@ -402,7 +427,7 @@ defmodule DeadGiveaway.World do
       {row, e}, {acc, rng} ->
         {roll, rng} = :rand.uniform_s(rng)
         phase = if roll < 0.5, do: :moving, else: :stopped
-        {phase_left, rng} = roll_phase_ticks(phase, rng)
+        {phase_left, rng} = roll_phase_ticks(phase, ticks, rng)
         {Map.put(acc, row, set_phase(e, phase, phase_left)), rng}
     end)
   end

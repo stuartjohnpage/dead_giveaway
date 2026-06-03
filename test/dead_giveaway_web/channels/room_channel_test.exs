@@ -174,6 +174,24 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_push "lobby", %{max_chances: 3}, 500
   end
 
+  test "the host can set the pace and it reaches every client's lobby (#17)" do
+    {_reply, socket} = join_room("chan-pace", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"pace" => "slow"})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{pace: :slow}, 500
+  end
+
+  test "a guest cannot change the pace (#17)" do
+    join_room("chan-pace-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-pace-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"pace" => "slow"})
+    assert_reply ref, :ok
+    refute_push "lobby", %{pace: :slow}, 200
+  end
+
   test "a guest cannot change the life count" do
     join_room("chan-lives-guest", %{"host" => true})
     {_reply, guest} = join_room("chan-lives-guest", %{"host" => false})
