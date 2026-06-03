@@ -1,6 +1,6 @@
 // Gapless looping background music via WebAudio. decodeAudioData yields PCM with none
 // of the mp3 encoder padding that makes an `<audio loop>` click on repeat, so the loop
-// is seamless from the mp3 alone (see priv/static/sounds/music/README.md).
+// is seamless from the mp3 alone (see tools/asset-gen/MUSIC.md).
 //
 // Browser autoplay policy means start() must first run from a user gesture. start()
 // (re)starts the loop from the top, so moving between views (lobby↔round) simply stops

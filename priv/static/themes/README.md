@@ -9,10 +9,13 @@ see the identity note below.
 
 ## Layout
 
+The generators that produce these packs live OUTSIDE the web-served tree, in
+`tools/asset-gen/` (so `mix phx.digest` doesn't bundle them): `gen_pack.py` (sprites +
+backgrounds + manifest), `gen_bullet.py` (ammo icon), and `gen_music*.py` /
+`gen_game_music*.py` (music), plus `stems/` (raw layers for future WebAudio mixing).
+
 ```
 themes/
-  gen_pack.py            # palette-driven sprite/background generator (no art skills needed)
-  gen_bullet.py          # palette-driven bullet/ammo-icon generator
   README.md              # this file
   SD_RECIPES.md          # prompts + setup for upgrading to Stable Diffusion art
   neon/
@@ -73,21 +76,23 @@ scaling (`texture.source.scaleMode = "nearest"`) to keep pixels crisp.
 
 ## Adding a new theme
 
-1. Open `gen_pack.py`, copy the `"neon"` block in `THEMES`, rename the key, and change the
-   colours (`floor`, `accent`, `shirts`, `hairs`, `skins`, `wall`, `finish`). Then:
+1. Open `tools/asset-gen/gen_pack.py`, copy the `"neon"` block in `THEMES`, rename the key,
+   and change the colours (`floor`, `accent`, `shirts`, `hairs`, `skins`, `wall`, `finish`,
+   and the `bullet`/`reticle` UI hints). Then, from the repo root:
 
    ```bash
-   python3 priv/static/themes/gen_pack.py . <your_key>
+   python3 tools/asset-gen/gen_pack.py . <your_key>     # writes priv/static/themes/<your_key>/
+   python3 tools/asset-gen/gen_bullet.py priv/static/themes/<your_key> - cartridge
    ```
 
-   That regenerates the art half of the pack — atlas, backgrounds, manifest — in the
-   matching style. Generate the bullet with `gen_bullet.py`, and add `menu_loop.mp3`
-   (+ optionally `game/stage1..4.mp3`) under the folder.
+   That generates the atlas, backgrounds, bullet, and `theme.json`. Add `menu_loop.mp3`
+   (+ optionally `game/stage1..4.mp3`) under the folder with the `gen_music*.py` scripts.
+   `gen_pack.py` writes the manifest's `assets`/`ui` keys, and the `audio` keys for any
+   music it finds already in the folder — so generate art first, then music, then re-run
+   `gen_pack.py` (or hand-add `audio`) once the tracks exist. A pack that declares no
+   `audio.gameStages` falls back to the default theme's stages client-side.
 
-2. Fill in the manifest's `audio` (`menuLoop`, optional `gameStages`) and `ui`
-   (`bullet`, `reticle`) keys with paths relative to the folder.
-
-3. **Register the key** in `lib/dead_giveaway/themes.ex` (`@catalog`) — its display name
+2. **Register the key** in `lib/dead_giveaway/themes.ex` (`@catalog`) — its display name
    there is what shows in the lobby's theme picker, and the server validates a host's pick
    against this list. This is the only code change needed to light a new pack up.
 

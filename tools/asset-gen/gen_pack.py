@@ -41,6 +41,9 @@ THEMES = {
         "skins":  [(245,205,170),(225,175,135),(200,150,110),(165,115,80),(120,80,55)],
         "pants":  (35,33,48),
         "outline":(8,6,14),
+        # ammo icon (in this folder) + reticle tint — emitted into theme.json's "ui".
+        "bullet": "bullet.png",
+        "reticle": "#ff5577",
     },
     "western": {
         "display": "Dead Man's Gulch",
@@ -63,6 +66,9 @@ THEMES = {
         # presence of "hats" switches the head to a cowboy hat
         "hats":   [(92,62,36),(70,48,28),(120,92,58),(45,32,22),(140,110,72),(60,40,26),
                    (30,24,18),(100,72,44),(150,120,80),(80,55,32),(55,42,30),(110,85,52)],
+        # ammo icon (in this folder) + reticle tint — emitted into theme.json's "ui".
+        "bullet": "bullet_flat.png",
+        "reticle": "#e0963c",
     },
 }
 
@@ -388,7 +394,8 @@ def main():
     repo = sys.argv[1] if len(sys.argv) > 1 else "."
     theme_key = sys.argv[2] if len(sys.argv) > 2 else "neon"
     pal = THEMES[theme_key]
-    base = os.path.join(repo, "priv", "static", "images", "themes", theme_key)
+    # Each theme is one self-contained folder under priv/static/themes/<key>/.
+    base = os.path.join(repo, "priv", "static", "themes", theme_key)
     os.makedirs(base, exist_ok=True)
 
     sheet, atlas = build_atlas(pal, theme_key)
@@ -418,12 +425,30 @@ def main():
             "menuBackground": "menu_bg.png",
             "lobbyBackground": "lobby_bg.png",
         },
+        # The ammo icon + reticle tint the client loads (paths relative to this folder).
+        "ui": {
+            "bullet": pal.get("bullet", "bullet.png"),
+            "reticle": pal.get("reticle", "#ff5577"),
+        },
         "palette": {
             "wall": pal["wall"], "floor": pal["floor"], "accent": pal["accent"],
         },
         "note": "Cosmetic variants are NOT correlated with human/bot identity. "
                 "Assign a random variant per character at spawn, server-side.",
     }
+
+    # Audio lives in this folder too, but is generated separately (see tools/asset-gen).
+    # Only reference tracks that actually exist so a fresh art-only pack falls back to the
+    # default theme's music client-side rather than 404ing to silence.
+    audio = {}
+    if os.path.exists(os.path.join(base, "menu_loop.mp3")):
+        audio["menuLoop"] = "menu_loop.mp3"
+    stages = [f"game/stage{i}.mp3" for i in range(1, 5)]
+    if all(os.path.exists(os.path.join(base, s)) for s in stages):
+        audio["gameStages"] = stages
+    if audio:
+        manifest["audio"] = audio
+
     with open(os.path.join(base, "theme.json"), "w") as f:
         json.dump(manifest, f, indent=2)
 

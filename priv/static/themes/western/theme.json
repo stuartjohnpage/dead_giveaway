@@ -23,7 +23,13 @@
     "lobbyBackground": "lobby_bg.png"
   },
   "audio": {
-    "menuLoop": "menu_loop.mp3"
+    "menuLoop": "menu_loop.mp3",
+    "gameStages": [
+      "game/stage1.mp3",
+      "game/stage2.mp3",
+      "game/stage3.mp3",
+      "game/stage4.mp3"
+    ]
   },
   "ui": {
     "bullet": "bullet_flat.png",

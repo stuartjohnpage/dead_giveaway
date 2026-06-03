@@ -1,7 +1,8 @@
 # In-game escalating music
 
-> **Note:** the shipped Neon stage loops now live at `priv/static/themes/neon/game/stage1..4.mp3`
-> (each theme owns its own in-round music). This directory keeps the generator, stems, and demo.
+> **Note:** the shipped Neon stage loops live at `priv/static/themes/neon/game/stage1..4.mp3`
+> (each theme owns its own in-round music). This `tools/asset-gen/` directory (outside the
+> web-served tree) keeps the generator and the raw `stems/`.
 
 Neon Concourse, in-round. Four 15-second seamless loops at rising urgency on the same
 key/tempo grid (A-minor + phrygian tension, 128 BPM). The game advances one stage every
@@ -42,7 +43,7 @@ boundary. Because the stages share the grid, fading mid-loop still sounds musica
 
 ```js
 const STAGES = [1,2,3,4].map(i => {
-  const a = new Audio(`/sounds/music/game/stage${i}.mp3`);
+  const a = new Audio(`/themes/neon/game/stage${i}.mp3`);
   a.loop = true; a.volume = 0; a.preload = "auto";
   return a;
 });
@@ -92,6 +93,6 @@ the lobby/menu track when the round starts and bring this in.
   rather than wall-clock seconds, so the music tracks how close the round is to ending.
 - Regenerate/tune in `../gen_game_music.py` (chord `PROG`, `BPM`, per-layer gains).
 ```
-python3 priv/static/sounds/music/gen_game_music.py out/ && \
+python3 tools/asset-gen/gen_game_music.py out/ && \
   for i in 1 2 3 4; do ffmpeg -y -i out/stage$i.wav -b:a 160k stage$i.mp3; done
 ```

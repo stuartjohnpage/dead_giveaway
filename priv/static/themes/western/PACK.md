@@ -28,10 +28,11 @@ the in-round stages are generated, add them under `game/` here and list them in
                           "game/stage3.mp3", "game/stage4.mp3"] }
 ```
 
-Regenerate (paths relative to this folder):
-- Visuals: `python3 ../gen_pack.py . western`
-- Bullet: `python3 ../gen_bullet.py . ./ cartridge`
-- Menu loop: `python3 ../../sounds/music/western/gen_music_western.py western_loop.wav`,
-  encode to mp3, place here as `menu_loop.mp3`.
-- Game stages: `python3 ../../sounds/music/western/gen_game_music_western.py out/`,
-  encode each to mp3, place under `game/` as `stage1..4.mp3`.
+Regenerate (generators live in `tools/asset-gen/`; run from the repo root):
+- Visuals + manifest: `python3 tools/asset-gen/gen_pack.py . western`
+- Bullet: `python3 tools/asset-gen/gen_bullet.py priv/static/themes/western - cartridge`
+- Menu loop: `python3 tools/asset-gen/gen_music_western.py menu_loop.wav`, encode to mp3,
+  place here as `menu_loop.mp3`.
+- Game stages: `python3 tools/asset-gen/gen_game_music_western.py out/`, encode each to
+  mp3, place under `game/` as `stage1..4.mp3`. Re-run `gen_pack.py` afterward so the
+  manifest's `audio.gameStages` picks them up.

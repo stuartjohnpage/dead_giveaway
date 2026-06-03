@@ -1,9 +1,10 @@
 # Background music
 
-> **Note:** the *shipped* loops now live with their theme packs under
+> **Note:** the *shipped* loops live with their theme packs under
 > `priv/static/themes/<key>/` (`menu_loop.mp3` and `game/stage1..4.mp3`), so switching a
-> lobby's theme swaps its music too. This directory keeps the music *generators* and
-> stems/demos — generate here, then place the encoded mp3s in the theme folder.
+> lobby's theme swaps its music too. This `tools/asset-gen/` directory (outside the
+> web-served tree) holds the music *generators* and the raw `stems/` — generate here, then
+> place the encoded mp3 in the theme folder as `menu_loop.mp3`.
 
 `neon_loop` — chill / hypnotic synthwave, matched to the Neon Concourse theme.
 ~46s seamless loop, A minor, 84 BPM. Generated procedurally (`gen_music.py`), free, no
@@ -24,7 +25,7 @@ the MP3 will have a tiny gap. Two ways to avoid it:
 
    ```js
    const ctx = new AudioContext();
-   const res = await fetch("/sounds/music/neon_loop.ogg");
+   const res = await fetch("/themes/neon/menu_loop.ogg");
    const buf = await ctx.decodeAudioData(await res.arrayBuffer());
    const src = ctx.createBufferSource();
    src.buffer = buf; src.loop = true;
@@ -42,10 +43,10 @@ SFX (the bullet, footsteps) cut through.
 ## Regenerating / tuning
 
 ```bash
-python3 priv/static/sounds/music/gen_music.py neon_loop.wav
-# then re-encode:
+python3 tools/asset-gen/gen_music.py neon_loop.wav
+# then re-encode and place the mp3 in the theme folder:
 ffmpeg -y -i neon_loop.wav -c:a libvorbis -qscale:a 5 neon_loop.ogg
-ffmpeg -y -i neon_loop.wav -c:a libmp3lame -b:a 160k neon_loop.mp3
+ffmpeg -y -i neon_loop.wav -c:a libmp3lame -b:a 160k priv/static/themes/neon/menu_loop.mp3
 ```
 
 Knobs in `gen_music.py`: `BPM`, `BARS`, the `PROG` chord progression, and per-voice
