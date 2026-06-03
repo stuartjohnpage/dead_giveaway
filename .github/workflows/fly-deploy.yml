@@ -1,0 +1,23 @@
+# Deploy to Fly.io on every push to main (the live app is dead-giveaway-game.fly.dev).
+# Auth is a deploy-scoped token stored as the FLY_API_TOKEN repo secret; rotate it with
+#   fly tokens create deploy | gh secret set FLY_API_TOKEN
+name: Fly Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy app
+    runs-on: ubuntu-latest
+    # Serialise deploys so two quick pushes can't race onto the same app.
+    concurrency: deploy-group
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # --remote-only builds the image on Fly's builders, so the runner needs no Docker.
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
