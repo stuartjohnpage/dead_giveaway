@@ -227,6 +227,44 @@ defmodule DeadGiveaway.RoomTest do
     end
   end
 
+  describe "crosshairs riding the snapshot (DESIGN §5)" do
+    test "a player's aim shows up in the snapshot while they're armed" do
+      {:ok, room} = Room.start_link(id: "aim-1", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.join(room, "bob")
+      Room.go(room)
+
+      Room.aim(room, "alice", {3.0, 4.0})
+      {:ok, snap} = Room.tick(room)
+
+      assert snap.crosshairs["alice"] == %{x: 3.0, y: 4.0}
+    end
+
+    test "a crosshair disappears once its owner spends their last bullet" do
+      {:ok, room} = Room.start_link(id: "aim-2", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      Room.aim(room, "alice", {0.0, 0.0})
+      {:ok, snap} = Room.tick(room)
+      assert Map.has_key?(snap.crosshairs, "alice")
+
+      # Her one bullet spent (the sole body is her own), she's unarmed — reticle gone.
+      Room.fire(room, "alice", {0.0, 0.0})
+      {:ok, snap2} = Room.tick(room)
+      refute Map.has_key?(snap2.crosshairs, "alice")
+    end
+
+    test "an aim sent outside a live round is dropped, not stashed" do
+      {:ok, room} = Room.start_link(id: "aim-3", seed: 1, bots: 0)
+      Room.join(room, "alice")
+
+      # No Go — the world is nil, so a stray lobby aim doesn't accumulate.
+      Room.aim(room, "alice", {1.0, 2.0})
+      assert :sys.get_state(room).crosshairs == %{}
+    end
+  end
+
   describe "firing" do
     test "a spent bullet broadcasts an anonymous shot to the room" do
       Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("shot-1"))

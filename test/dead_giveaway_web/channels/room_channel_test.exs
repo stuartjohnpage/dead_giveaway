@@ -103,6 +103,22 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_push "shot", %{}
   end
 
+  test "a peer's crosshair reaches you as an anonymous point, and never your own" do
+    {_r1, host} = join_room("chan-aim", %{"host" => true})
+    {_r2, guest} = join_room("chan-aim", %{"host" => false})
+
+    go = push(host, "go", %{})
+    assert_reply go, :ok
+
+    # Both players aim somewhere; the guest's view should carry the host's reticle
+    # as a bare point (no name) and omit the guest's own (drawn locally from the mouse).
+    push(host, "aim", %{"x" => 7.0, "y" => 3.0})
+    push(guest, "aim", %{"x" => 1.0, "y" => 1.0})
+
+    # Snapshots stream at the tick rate; wait for one carrying the host's point.
+    assert_push "snapshot", %{crosshairs: [%{x: 7.0, y: 3.0}]}, 500
+  end
+
   test "the host can set the bullet count and it reaches every client's lobby" do
     {_reply, socket} = join_room("chan-ammo", %{"host" => true})
 

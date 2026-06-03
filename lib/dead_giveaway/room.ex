@@ -83,6 +83,14 @@ defmodule DeadGiveaway.Room do
   def set_verb(room, player, verb), do: GenServer.call(room, {:set_verb, player, verb})
 
   @doc """
+  Record where a player's crosshair is hovering (world coords `{x, y}`). Everyone
+  sees every crosshair, so this last-aimed point rides the snapshot stream out to
+  the room (DESIGN §5). Fire-and-forget (a `cast`) since the mouse fires constantly
+  and the reticle only needs to be roughly current, not acknowledged.
+  """
+  def aim(room, player, {_x, _y} = crosshair), do: GenServer.cast(room, {:aim, player, crosshair})
+
+  @doc """
   Fire a player's bullet at crosshair `{x, y}`. Returns `:fired` once the shot
   is spent or `:no_shot` if the player has no bullet / no body. The shot's
   outcome (who or what it hit) is deliberately never revealed — firing tells
@@ -132,6 +140,9 @@ defmodule DeadGiveaway.Room do
       # after a `leave` would silently overwrite a still-present player.
       next_slot: 0,
       world: nil,
+      # Last-aimed crosshair point per player name, for the round in progress; the
+      # snapshot carries the still-armed ones out. Cleared at every round boundary.
+      crosshairs: %{},
       scores: %{}
     }
 
@@ -236,6 +247,15 @@ defmodule DeadGiveaway.Room do
     {:reply, Map.get(state.scores, player, 0), state}
   end
 
+  # Crosshair updates only mean something during a live round; drop any that arrive
+  # in the lobby (e.g. a client still moving the mouse over the field after a finish).
+  @impl true
+  def handle_cast({:aim, _player, _crosshair}, %{world: nil} = state), do: {:noreply, state}
+
+  def handle_cast({:aim, player, crosshair}, state) do
+    {:noreply, put_in(state.crosshairs[player], crosshair)}
+  end
+
   @impl true
   def handle_info(:tick, state) do
     {state, _snapshot} = do_tick(state)
@@ -284,7 +304,8 @@ defmodule DeadGiveaway.Room do
 
     # Tell clients the round is live so they can clear the lobby and re-arm.
     broadcast(state.id, :round_start)
-    %{state | world: state.world_mod.new(opts)}
+    # Fresh round → fresh reticles; last round's aim points don't carry over.
+    %{state | world: state.world_mod.new(opts), crosshairs: %{}}
   end
 
   # Advance one tick: step the world, broadcast the snapshot, and on a finish
@@ -293,12 +314,23 @@ defmodule DeadGiveaway.Room do
 
   defp do_tick(state) do
     world = state.world_mod.tick(state.world)
-    snapshot = state.world_mod.snapshot(world)
+    snapshot = Map.put(state.world_mod.snapshot(world), :crosshairs, visible_crosshairs(state, world))
     broadcast(state.id, {:snapshot, snapshot})
     state = %{state | world: world}
 
     state = if state.world_mod.finished?(world), do: finish_round(state), else: state
     {state, snapshot}
+  end
+
+  # The crosshairs to ship with this snapshot: each still-armed player's last-aimed
+  # point, keyed by name. The channel anonymises this before it reaches any browser —
+  # drops the names and the recipient's own — so a reticle never reveals whose it is
+  # or which body it sits on (DESIGN §5).
+  defp visible_crosshairs(state, world) do
+    for {name, {x, y}} <- state.crosshairs,
+        state.world_mod.armed?(world, name),
+        into: %{},
+        do: {name, %{x: x, y: y}}
   end
 
   defp finish_round(state) do
@@ -333,7 +365,7 @@ defmodule DeadGiveaway.Room do
   # Drop back to the lobby: re-seed and tear down the world. The next round
   # won't start until a player hits Go (§8).
   defp reset_round(state) do
-    state = %{state | seed: state.seed + 1, world: nil}
+    state = %{state | seed: state.seed + 1, world: nil, crosshairs: %{}}
     broadcast_lobby(state)
     state
   end

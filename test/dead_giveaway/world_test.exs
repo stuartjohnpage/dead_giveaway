@@ -276,6 +276,38 @@ defmodule DeadGiveaway.WorldTest do
     end
   end
 
+  describe "armed? (who shows a crosshair, DESIGN §5)" do
+    test "a player in the round with a bullet is armed" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 0)
+      assert World.armed?(world, "alice")
+    end
+
+    test "a player not in the round is never armed" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 0)
+      refute World.armed?(world, "stranger")
+    end
+
+    test "spending the last bullet disarms — the reticle drops" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 1)
+      bot_row = 1 - world.slot_of["alice"]
+
+      {world, {:killed, :bot}} = World.fire(world, "alice", {0.0, bot_row * World.row_spacing()})
+      refute World.armed?(world, "alice")
+    end
+
+    test "a player whose body was shot stays armed while holding a bullet" do
+      # Otherwise a reticle vanishing the instant a body dropped would betray that
+      # body as the human's — a kill must reveal nothing (DESIGN §5).
+      world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
+      alice_row = world.slot_of["alice"]
+
+      {world, {:killed, :human}} = World.fire(world, "bob", {0.0, alice_row * World.row_spacing()})
+
+      refute World.snapshot(world).entities |> Enum.find(&(&1.row == alice_row)) |> Map.fetch!(:alive)
+      assert World.armed?(world, "alice")
+    end
+  end
+
   defp positions(world) do
     for e <- World.snapshot(world).entities, into: %{}, do: {e.id, e.x}
   end
