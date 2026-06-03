@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createMusicDirector } from "./music-director.mjs";
+import { createMusicDirector, createAudioPort } from "./music-director.mjs";
 
 // An in-memory recording adapter — the entire boundary to WebAudio, faked. Every command
 // the director issues is appended to `calls`; the test drives `audioRunning`/`gain`. No
@@ -127,9 +127,70 @@ test("gain is read fresh per transition, so a mid-game mute lands and the adapte
   audio.setGain(0); // master muted between transitions
   music.toCard();
   // The director faithfully passes the current gain; a gain-0 play is the adapter's cue
-  // to issue nothing (asserted against the production adapter / the gain>0 contract).
+  // to issue nothing — the gain>0 silence guard is exercised directly below.
   assert.deepEqual(audio.plays(), [
     { op: "play", name: "game", gain: 0.4, escalate: true },
     { op: "play", name: "game", gain: 0, escalate: false },
   ]);
+});
+
+// --- The production AudioPort adapter (createAudioPort) over fake loops ---
+
+// Record start/stop/setUrl(s) on a fake loop so we can assert the adapter's mechanics.
+function fakeLoop() {
+  const calls = [];
+  return {
+    calls,
+    start: (g, opts) => calls.push({ op: "start", g, ...(opts || {}) }),
+    stop: () => calls.push({ op: "stop" }),
+    setUrl: (u) => calls.push({ op: "setUrl", u }),
+    setUrls: (u) => calls.push({ op: "setUrls", u }),
+  };
+}
+
+function fakePort({ gain = 0.4, running = false } = {}) {
+  const lobbyMusic = fakeLoop();
+  const gameMusic = fakeLoop();
+  const port = createAudioPort({ lobbyMusic, gameMusic, audioRunning: () => running, gain: () => gain });
+  return { port, lobbyMusic, gameMusic };
+}
+
+test("adapter: play('lobby') stops game music and starts lobby at the given gain", () => {
+  const { port, lobbyMusic, gameMusic } = fakePort();
+  port.play("lobby", { gain: 0.4 });
+  assert.deepEqual(gameMusic.calls, [{ op: "stop" }]);
+  assert.deepEqual(lobbyMusic.calls, [{ op: "start", g: 0.4 }]);
+});
+
+test("adapter: play('game') stops lobby music and starts game with escalate", () => {
+  const { port, lobbyMusic, gameMusic } = fakePort();
+  port.play("game", { gain: 0.4, escalate: true });
+  assert.deepEqual(lobbyMusic.calls, [{ op: "stop" }]);
+  assert.deepEqual(gameMusic.calls, [{ op: "start", g: 0.4, escalate: true }]);
+});
+
+test("adapter: a gain-0 play still stops the other loop but starts nothing (silence guard)", () => {
+  const { port, lobbyMusic, gameMusic } = fakePort();
+  port.play("lobby", { gain: 0 });
+  // The other loop is always stopped; the muted loop is not started.
+  assert.deepEqual(gameMusic.calls, [{ op: "stop" }]);
+  assert.deepEqual(lobbyMusic.calls, []);
+
+  port.play("game", { gain: 0, escalate: true });
+  assert.deepEqual(lobbyMusic.calls, [{ op: "stop" }]);
+  assert.deepEqual(gameMusic.calls, [{ op: "stop" }]); // stop from the lobby play above only
+});
+
+test("adapter: retarget points the named loop at new track(s) without starting it", () => {
+  const { port, lobbyMusic, gameMusic } = fakePort();
+  port.retarget("lobby", "/m.mp3");
+  port.retarget("game", ["/g1.mp3", "/g2.mp3"]);
+  assert.deepEqual(lobbyMusic.calls, [{ op: "setUrl", u: "/m.mp3" }]);
+  assert.deepEqual(gameMusic.calls, [{ op: "setUrls", u: ["/g1.mp3", "/g2.mp3"] }]);
+});
+
+test("adapter: gain and audioRunning pass through to the injected getters", () => {
+  const { port } = fakePort({ gain: 0.25, running: true });
+  assert.equal(port.gain(), 0.25);
+  assert.equal(port.audioRunning(), true);
 });

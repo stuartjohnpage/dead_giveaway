@@ -124,3 +124,38 @@ export function createMusicDirector(audio) {
     },
   };
 }
+
+/**
+ * The production {@link AudioPort}: a dumb adapter over the two music loops, owning the
+ * mechanical concerns the director shouldn't — starting one loop stops the other, and a
+ * gain-0 (muted) play sounds nothing — so the director stays pure policy. Exported so this
+ * boundary logic (notably the gain-0 silence guard) is testable with fake loops rather
+ * than buried in boot().
+ *
+ * @param {{
+ *   lobbyMusic: {start: (g: number) => void, stop: () => void, setUrl: (u: string) => void},
+ *   gameMusic: {start: (g: number, opts: {escalate?: boolean}) => void, stop: () => void, setUrls: (u: string[]) => void},
+ *   audioRunning: () => boolean,
+ *   gain: () => number,
+ * }} deps
+ * @returns {AudioPort}
+ */
+export function createAudioPort({ lobbyMusic, gameMusic, audioRunning, gain }) {
+  return {
+    play(name, { gain: g, escalate }) {
+      if (name === "lobby") {
+        gameMusic.stop();
+        if (g > 0) lobbyMusic.start(g);
+      } else {
+        lobbyMusic.stop();
+        if (g > 0) gameMusic.start(g, { escalate });
+      }
+    },
+    gain,
+    audioRunning,
+    retarget(name, urls) {
+      if (name === "lobby") lobbyMusic.setUrl(urls);
+      else gameMusic.setUrls(urls);
+    },
+  };
+}

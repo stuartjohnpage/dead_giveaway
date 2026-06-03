@@ -7,7 +7,7 @@ import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { loadVolume, sfxGain } from "./volume.mjs";
 import { createMusicLoop, createEscalatingLoop, audioRunning, MUSIC_GAIN } from "./music.mjs";
-import { createMusicDirector } from "./music-director.mjs";
+import { createMusicDirector, createAudioPort } from "./music-director.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -167,27 +167,12 @@ export async function boot() {
   const musicGain = () => (volume.enabled ? (volume.master / 100) * MUSIC_GAIN : 0);
 
   // All view-transition policy (which loop, when to replay, the prime-once/suspended-only
-  // unlock, boot-load vs live-swap) lives in the music director (music-director.mjs). This
-  // is its sole adapter: a dumb literal owning the mechanical concerns — start one loop
-  // stops the other, and stay silent when muted (gain 0) — so the director stays pure.
-  const audioPort = {
-    play(name, { gain, escalate }) {
-      if (name === "lobby") {
-        gameMusic.stop();
-        if (gain > 0) lobbyMusic.start(gain);
-      } else {
-        lobbyMusic.stop();
-        if (gain > 0) gameMusic.start(gain, { escalate });
-      }
-    },
-    gain: musicGain,
-    audioRunning,
-    retarget(name, urls) {
-      if (name === "lobby") lobbyMusic.setUrl(urls);
-      else gameMusic.setUrls(urls);
-    },
-  };
-  const music = createMusicDirector(audioPort);
+  // unlock, boot-load vs live-swap) lives in the music director (music-director.mjs),
+  // driving the two loops through the production AudioPort adapter (start-one-stops-the-
+  // other, stay-silent-when-muted) — both built and tested there, so boot() just wires them.
+  const music = createMusicDirector(
+    createAudioPort({ lobbyMusic, gameMusic, audioRunning, gain: musicGain }),
+  );
 
   // Autoplay policy re-arms on every page load, so the loop queued at boot can't sound
   // until the first user gesture. prime() unlocks the shared AudioContext (replaying only
