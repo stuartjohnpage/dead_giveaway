@@ -94,6 +94,13 @@ defmodule DeadGiveaway.Room do
   """
   def set_theme(room, theme), do: GenServer.call(room, {:set_theme, theme})
 
+  @doc """
+  Set the round's pace `slow | medium | fast` (#17) — the bot move:stop ratio. Like the
+  other lobby knobs it's host-set, takes effect from the next Go (ignored mid-round), and
+  is broadcast to every lobby view. An unknown value keeps the current pace.
+  """
+  def set_pace(room, pace), do: GenServer.call(room, {:set_pace, pace})
+
   @doc "Round status: `:waiting` until a round is running, then `:running`."
   def status(room), do: GenServer.call(room, :status)
 
@@ -146,6 +153,9 @@ defmodule DeadGiveaway.Room do
       max_chances: clamp(Keyword.get(opts, :max_chances, 1), @min_chances, @max_chances),
       # Host-configurable cosmetic theme (DESIGN §9); defaults to the catalogue head.
       theme: validate_theme(Keyword.get(opts, :theme, Themes.default()), Themes.default()),
+      # Host-configurable round tempo (#17): the bot move:stop ratio. Defaults to :fast
+      # (the original tempo); see DeadGiveaway.World for the presets.
+      pace: validate_pace(Keyword.get(opts, :pace, World.default_pace()), World.default_pace()),
       # Optional persistence sink (a module with `record_win/1`, e.g.
       # DeadGiveaway.Accounts). Off by default so the sim has no DB dependency.
       stats_mod: Keyword.get(opts, :stats),
@@ -258,6 +268,16 @@ defmodule DeadGiveaway.Room do
 
   def handle_call({:set_theme, _theme}, _from, state), do: {:reply, :ok, state}
 
+  # Pace changes the next round's tempo, so like the other knobs it only applies between
+  # rounds — a live race keeps the pace it started with.
+  def handle_call({:set_pace, pace}, _from, %{world: nil} = state) do
+    state = %{state | pace: validate_pace(pace, state.pace)}
+    broadcast_lobby(state)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_pace, _pace}, _from, state), do: {:reply, :ok, state}
+
   def handle_call({:set_verb, player, verb}, _from, state) do
     {:reply, :ok, update_world(state, &state.world_mod.set_verb(&1, player, verb))}
   end
@@ -276,8 +296,9 @@ defmodule DeadGiveaway.Room do
     state = %{state | world: world}
     # The world resolves *which body* dies (it ghosts in the next snapshot), but
     # we never surface whether it was human or bot — to the shooter or anyone
-    # else. A shot is a pure gamble (DESIGN §5).
-    spent? = event == :killed
+    # else. A shot is a pure gamble (DESIGN §5). Both a hit (:killed) and a miss
+    # (:spent) consume the bullet; only :no_shot leaves it in hand (#12).
+    spent? = event in [:killed, :spent]
 
     # A spent bullet cracks out a shot everyone in the room hears, but the
     # broadcast stays anonymous — no shooter, position, or outcome — so firing
@@ -357,7 +378,8 @@ defmodule DeadGiveaway.Room do
         humans: Session.names(state.session),
         bots: state.bots,
         max_ammo: state.max_ammo,
-        max_chances: state.max_chances
+        max_chances: state.max_chances,
+        pace: state.pace
       ]
       |> put_unless_nil(:finish_x, state.finish_x)
 
@@ -511,7 +533,8 @@ defmodule DeadGiveaway.Room do
          host: state.host,
          max_ammo: state.max_ammo,
          max_chances: state.max_chances,
-         theme: state.theme
+         theme: state.theme,
+         pace: state.pace
        }}
     )
   end
@@ -525,6 +548,17 @@ defmodule DeadGiveaway.Room do
   # Keep `theme` a known key; anything else (a stale or hand-crafted client value)
   # falls back to `current` so a bad pick can't leave the room on a missing pack.
   defp validate_theme(theme, current), do: if(Themes.valid?(theme), do: theme, else: current)
+
+  # Accept a pace as an atom (config/tests) or a string (the client sends "slow" etc.),
+  # keeping the current pace for anything unknown. Compares against World.paces() by string
+  # rather than String.to_atom, so a crafted payload can't mint arbitrary atoms.
+  defp validate_pace(pace, _current) when pace in [:slow, :medium, :fast], do: pace
+
+  defp validate_pace(pace, current) when is_binary(pace) do
+    Enum.find(World.paces(), current, fn p -> Atom.to_string(p) == pace end)
+  end
+
+  defp validate_pace(_pace, current), do: current
 
   defp put_unless_nil(opts, _key, nil), do: opts
   defp put_unless_nil(opts, key, value), do: Keyword.put(opts, key, value)

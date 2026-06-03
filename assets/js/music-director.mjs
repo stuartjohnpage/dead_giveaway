@@ -71,6 +71,16 @@ export function createMusicDirector(audio) {
     playLobby();
   };
 
+  // Adopt an already-playing lobby loop as the current view WITHOUT (re)playing it. Used
+  // when the menu loop has been started elsewhere and is still sounding — the home splash,
+  // whose music carries into the lobby across client-side navigation (#20) — so arriving
+  // in the lobby doesn't cut the track by restarting it. Sets the same state toLobby would
+  // (so a later prime()/setTheme replays the lobby loop) but issues no play.
+  const adoptLobby = () => {
+    inGame = false;
+    replay = playLobby;
+  };
+
   // Open a round on the climbing game track (stage 1, ramping up).
   const toRound = () => {
     inGame = true;
@@ -114,6 +124,7 @@ export function createMusicDirector(audio) {
 
   return {
     toLobby,
+    adoptLobby,
     toRound,
     toCard,
     ensureInGame,

@@ -54,6 +54,11 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert reply2.name == "Player 2"
   end
 
+  test "a profane chosen name is redacted server-side before it's assigned (#13)" do
+    {reply, _s} = join_room("chan-clean", %{"name" => "ShitLord"})
+    assert reply.name == "****Lord"
+  end
+
   test "clients receive the lobby roster" do
     join_room("chan-lobby")
     join_room("chan-lobby")
@@ -169,6 +174,24 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_push "lobby", %{max_chances: 3}, 500
   end
 
+  test "the host can set the pace and it reaches every client's lobby (#17)" do
+    {_reply, socket} = join_room("chan-pace", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"pace" => "slow"})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{pace: :slow}, 500
+  end
+
+  test "a guest cannot change the pace (#17)" do
+    join_room("chan-pace-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-pace-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"pace" => "slow"})
+    assert_reply ref, :ok
+    refute_push "lobby", %{pace: :slow}, 200
+  end
+
   test "a guest cannot change the life count" do
     join_room("chan-lives-guest", %{"host" => true})
     {_reply, guest} = join_room("chan-lives-guest", %{"host" => false})
@@ -191,7 +214,7 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
   test "a second joiner claiming host=true in the payload cannot seize the lobby" do
     # The real host opens the room...
     {_r, host} = join_room("chan-steal", %{"host" => true})
-    # ...then an interloper joins forging host=true (as a crafted ?host=true URL would).
+    # ...then an interloper joins forging host=true (as a crafted websocket payload would).
     {_r2, thief} = join_room("chan-steal", %{"host" => true})
     room = Rooms.whereis("chan-steal")
 

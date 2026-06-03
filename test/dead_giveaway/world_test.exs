@@ -165,6 +165,40 @@ defmodule DeadGiveaway.WorldTest do
     end
   end
 
+  describe "pace (#17)" do
+    # Total ground the crowd has covered — pace is about how far the field gets, not how
+    # fast any single body looks (that's fixed).
+    defp total_x(world),
+      do: world |> World.snapshot() |> Map.fetch!(:entities) |> Enum.map(& &1.x) |> Enum.sum()
+
+    test "a slower pace moves the crowd less ground over the same ticks" do
+      # Same seed, same bots — only the move:stop ratio differs.
+      fast = World.new(seed: 7, bots: 12, pace: :fast) |> tick_n(80)
+      medium = World.new(seed: 7, bots: 12, pace: :medium) |> tick_n(80)
+      slow = World.new(seed: 7, bots: 12, pace: :slow) |> tick_n(80)
+
+      assert total_x(slow) < total_x(medium)
+      assert total_x(medium) < total_x(fast)
+    end
+
+    test "an unknown pace falls back to the default (:fast), so behaviour is unchanged" do
+      bogus = World.new(seed: 7, bots: 12, pace: :nonsense) |> tick_n(80)
+      fast = World.new(seed: 7, bots: 12, pace: :fast) |> tick_n(80)
+      assert total_x(bogus) == total_x(fast)
+    end
+
+    test "pace never changes how fast a moving bot goes — only how often it moves" do
+      # A moving bot must look exactly like a walking human at every pace (DESIGN §3/§6),
+      # so the per-tick speed of any moving body is always the walk speed, never scaled.
+      for pace <- [:slow, :medium, :fast] do
+        world = World.new(seed: 3, bots: 12, pace: pace) |> tick_n(5)
+        moving = world.entities |> Map.values() |> Enum.filter(&(&1.verb == :walk))
+        assert moving != []
+        assert Enum.all?(moving, &(&1.speed == World.walk_speed()))
+      end
+    end
+  end
+
   describe "firing" do
     test "kills the character nearest the crosshair" do
       world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
@@ -175,6 +209,19 @@ defmodule DeadGiveaway.WorldTest do
       snap = World.snapshot(world)
       refute Enum.find(snap.entities, &(&1.row == 0)).alive
       assert Enum.find(snap.entities, &(&1.row == 1)).alive
+    end
+
+    test "a shot far from any body misses: the bullet's spent but nothing drops (#12)" do
+      world = World.new(seed: 1, humans: ["alice", "bob"], bots: 0)
+      before = living_count(world)
+
+      # Bodies sit at x=0; aim way off down the field, out of every body's hit radius.
+      {world, event} = World.fire(world, "alice", {200.0, 0.0})
+
+      assert event == :spent
+      assert living_count(world) == before
+      # The miss still cost alice her one bullet — she's now unarmed.
+      refute World.armed?(world, "alice")
     end
 
     test "a player has only one bullet — a second shot does nothing" do

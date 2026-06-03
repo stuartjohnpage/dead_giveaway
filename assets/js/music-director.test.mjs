@@ -30,6 +30,29 @@ test("toLobby starts the lobby loop at the current gain", () => {
   assert.equal(music.inGame, false);
 });
 
+test("adoptLobby takes the lobby view WITHOUT replaying (the carried-over splash loop)", () => {
+  const audio = fakeAudio();
+  const music = createMusicDirector(audio);
+  music.adoptLobby();
+  // No play: the menu loop is already sounding (started on the splash) and must not restart.
+  assert.deepEqual(audio.plays(), []);
+  assert.equal(music.inGame, false);
+
+  // It still set the replay target to the lobby loop: an unlock gesture (suspended ctx)
+  // now (re)plays the lobby, exactly as a toLobby would have.
+  assert.equal(music.prime(), true);
+  assert.deepEqual(audio.plays(), [{ op: "play", name: "lobby", gain: 0.4 }]);
+});
+
+test("after adoptLobby, the first round still climbs the game loop", () => {
+  const audio = fakeAudio();
+  const music = createMusicDirector(audio);
+  music.adoptLobby();
+  music.toRound();
+  assert.deepEqual(audio.plays(), [{ op: "play", name: "game", gain: 0.4, escalate: true }]);
+  assert.equal(music.inGame, true);
+});
+
 test("a snapshot before round_start starts the game loop exactly once (idempotent ensureInGame)", () => {
   const audio = fakeAudio();
   const music = createMusicDirector(audio);

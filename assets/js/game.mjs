@@ -5,9 +5,8 @@
 import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from "pixi.js";
 import { Socket } from "phoenix";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
-import { loadVolume, sfxGain } from "./volume.mjs";
-import { createMusicLoop, createEscalatingLoop, audioRunning, MUSIC_GAIN } from "./music.mjs";
-import { createMusicDirector, createAudioPort } from "./music-director.mjs";
+import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES } from "./audio-shell.mjs";
+import { navigate } from "./router.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -28,10 +27,8 @@ const FLOOR_H = DESIGN_H - 2 * FLOOR_TOP;
 // mapping (DESIGN §4, §9).
 const DEFAULT_THEME = "neon";
 const themeBase = (key) => `/themes/${key}`;
-// Fallbacks when a pack's manifest omits its audio (e.g. a new theme whose escalating
-// game stages aren't generated yet): reuse the default theme's tracks rather than go silent.
-const DEFAULT_MENU_LOOP = `${themeBase(DEFAULT_THEME)}/menu_loop.mp3`;
-const DEFAULT_GAME_STAGES = [1, 2, 3, 4].map((i) => `${themeBase(DEFAULT_THEME)}/game/stage${i}.mp3`);
+// The default theme's audio tracks (the fallback when a pack omits its own) live with the
+// rest of the audio in audio-shell.mjs; loadTheme imports them for that fallback.
 // Default cosmetic-variant count; a theme's manifest can override it.
 const VARIANTS = 12;
 const SPRITE_SCALE = 1.5; // 32px art → 48px on the field
@@ -50,8 +47,8 @@ export async function boot() {
   if (!mount) return;
 
   const room = mount.dataset.room;
-  // `data-host` (set by /play/new) only asks the server to *create* this room; a
-  // join-by-code requires it to already exist (the server replies "not_found"
+  // `data-host` (set server-side from the creator's session, not the URL) only asks
+  // the server to *create* this room; a join-by-code requires it to already exist (the server replies "not_found"
   // otherwise). It does NOT grant host privileges — the server assigns those to the
   // first player in and tells us via the lobby roster, so a crafted URL can't steal them.
   const wantsCreate = mount.dataset.host === "true";
@@ -64,7 +61,17 @@ export async function boot() {
   const app = new Application();
   // The canvas tracks the window; the world container (below) is letterbox-scaled to
   // fit it. antialias off + nearest-neighbour scaling keeps the pixel art crisp.
-  await app.init({ resizeTo: window, background: "#0b1020", antialias: false });
+  // Render at the device pixel ratio (autoDensity sizes the canvas in CSS pixels while
+  // backing it at native resolution) so the scene is sharp on HiDPI/retina screens
+  // instead of upscaled and soft (#24). app.screen stays in CSS pixels, so the letterbox
+  // math and the mouse→world mapping are unaffected.
+  await app.init({
+    resizeTo: window,
+    background: "#0b1020",
+    antialias: false,
+    resolution: window.devicePixelRatio || 1,
+    autoDensity: true,
+  });
   mount.appendChild(app.canvas);
 
   // The sprite atlas (cosmetic variants × idle/walk/run/dropped) and backdrop art are
@@ -151,53 +158,14 @@ export async function boot() {
     }
   };
 
-  // Audio volume is configured on the home page and kept in sessionStorage
-  // (volume.mjs); we read the stored level at boot and apply it to the SFX gain.
-  const volume = loadVolume();
-
-  // Two background tracks: the menu/lobby loop and the four-stage escalating in-game
-  // loop. The game loop covers both the live round AND the between-rounds "Play again?"
-  // card — we never drop back to the menu loop once a round has started, since the
-  // player now stays in the game. Both honour the master sound switch.
-  // Both loops are retargeted per theme by loadTheme (setUrl/setUrls); they start on the
-  // default theme's tracks. The escalating loop climbs stage1→stage4 over the round (one
-  // stage per 15s, holding at stage 4); a round opens on its chill stage-1 bed.
-  const lobbyMusic = createMusicLoop(DEFAULT_MENU_LOOP);
-  const gameMusic = createEscalatingLoop(DEFAULT_GAME_STAGES);
-  const musicGain = () => (volume.enabled ? (volume.master / 100) * MUSIC_GAIN : 0);
-
-  // All view-transition policy (which loop, when to replay, the prime-once/suspended-only
-  // unlock, boot-load vs live-swap) lives in the music director (music-director.mjs),
-  // driving the two loops through the production AudioPort adapter (start-one-stops-the-
-  // other, stay-silent-when-muted) — both built and tested there, so boot() just wires them.
-  const music = createMusicDirector(
-    createAudioPort({ lobbyMusic, gameMusic, audioRunning, gain: musicGain }),
-  );
-
-  // Autoplay policy re-arms on every page load, so the loop queued at boot can't sound
-  // until the first user gesture. prime() unlocks the shared AudioContext (replaying only
-  // while it's still suspended) and returns whether it consumed the gesture — true exactly
-  // once, across both gesture types — so we tear both listeners down on the first unlock.
-  const unlock = () => {
-    if (music.prime()) {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
-    }
-  };
-  window.addEventListener("pointerdown", unlock);
-  window.addEventListener("keydown", unlock);
-
-  // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
-  // Pixabay Content License, credited in priv/static/sounds/CREDITS.md.
-  const shotSfx = new Audio("/sounds/gunshot.mp3");
-  shotSfx.preload = "auto";
-  const playShot = () => {
-    // cloneNode lets overlapping shots both play — the server broadcasts every
-    // peer's fire, so several can land on the same tick.
-    const s = shotSfx.cloneNode();
-    s.volume = sfxGain(volume);
-    s.play().catch(() => {}); // browsers reject autoplay until first gesture — the click *is* the gesture, so this should always succeed here
-  };
+  // All audio — the two background loops, the music director that drives them (which loop,
+  // when to replay, the autoplay unlock, boot-load vs live theme swap), the firing SFX and
+  // the shared volume level — lives in the persistent audio shell (audio-shell.mjs), so it
+  // can outlive any single boot() once navigation is client-side (#20). The volume is
+  // configured on the home page and read fresh per transition. Arm the director's autoplay
+  // unlock: the menu loop is queued, awaiting the first user gesture to sound.
+  const { music, playShot, armUnlock, lobbyMusic } = getAudio();
+  armUnlock();
 
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
   // These all ship together in game_html/show.html.heex, so we resolve them
@@ -214,6 +182,7 @@ export async function boot() {
   const ammoSelect = document.getElementById("ammo-select");
   const chancesSelect = document.getElementById("chances-select");
   const themeSelect = document.getElementById("theme-select");
+  const paceSelect = document.getElementById("pace-select");
 
   // Bullets-per-round is the host's call: guests see a disabled select reflecting the
   // host's choice (kept current by the lobby broadcast). The host's changes push to the
@@ -254,6 +223,16 @@ export async function boot() {
     if (typeof key !== "string" || !key) return;
     themeSelect.value = key;
     loadTheme(key);
+  };
+
+  // Pace (#17): the round-tempo knob, same host-only shape as the others. A guest's select
+  // is disabled and just reflects the host's pick; pushing it lets the room validate +
+  // broadcast so every lobby shows the same value. It only affects the next round's bots.
+  paceSelect.addEventListener("change", () => {
+    channel.push("set_config", { pace: paceSelect.value });
+  });
+  const applyPace = (pace) => {
+    if (typeof pace === "string" && pace) paceSelect.value = pace;
   };
 
   // --- In-round ammo HUD: your bullets for the round (DESIGN §5) ---
@@ -304,7 +283,9 @@ export async function boot() {
   // label (set by applyHostUI) says so, while a guest only leaves their own seat.
   lobbyLeave.addEventListener("click", () => {
     channel.push("leave", {});
-    window.location.href = "/";
+    // Client-navigate home so the menu music carries straight back (#20); the router runs
+    // boot()'s teardown (below), which leaves the channel and tears the canvas/socket down.
+    navigate("/");
   });
 
   // Reflect our server-assigned host status in the lobby controls: only the host can
@@ -314,7 +295,14 @@ export async function boot() {
     ammoSelect.disabled = !isHost;
     chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
+    paceSelect.disabled = !isHost;
     lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
+    // The host's close is destructive (it ends the lobby for everyone), so make it
+    // read dark red; a guest only leaves their own seat, so it stays neutral slate.
+    lobbyLeave.classList.toggle("bg-red-800", isHost);
+    lobbyLeave.classList.toggle("hover:bg-red-700", isHost);
+    lobbyLeave.classList.toggle("bg-slate-700", !isHost);
+    lobbyLeave.classList.toggle("hover:bg-slate-600", !isHost);
   };
   applyHostUI();
 
@@ -503,12 +491,13 @@ export async function boot() {
     applyMaxAmmo(p.max_ammo);
     applyMaxChances(p.max_chances);
     applyTheme(p.theme);
+    applyPace(p.pace);
     if (!scores) banner = "Lobby";
     renderLobby();
   });
   // The host closed the lobby — everyone still in it gets dropped back home.
   channel.on("closed", () => {
-    window.location.href = "/";
+    navigate("/");
   });
   channel.on("snapshot", (snap) => {
     music.ensureInGame();
@@ -552,8 +541,12 @@ export async function boot() {
     showCard(true);
   });
 
-  // Start out in the pre-game lobby (full backdrop), waiting to hit Go.
-  music.toLobby();
+  // Start out in the pre-game lobby (full backdrop), waiting to hit Go. If the menu loop
+  // is already playing — carried over from the splash through the shared audio shell when
+  // we arrived here via client-side navigation (#20) — adopt it without a restart so the
+  // music doesn't skip; otherwise (a direct load, or sound was off) start it fresh.
+  if (lobbyMusic.live) music.adoptLobby();
+  else music.toLobby();
   showCard(false);
 
   function updateWorld(snap) {
@@ -637,14 +630,16 @@ export async function boot() {
   const verb = () => (running ? "run" : walking ? "walk" : "stop");
   const sendVerb = () => channel.push("input", { verb: verb() });
 
-  window.addEventListener("keydown", (ev) => {
+  const onKeyDown = (ev) => {
     if (ev.key === "Shift" && !running) (running = true), sendVerb();
     else if (ev.code === "Space" && !walking) (walking = true), sendVerb();
-  });
-  window.addEventListener("keyup", (ev) => {
+  };
+  const onKeyUp = (ev) => {
     if (ev.key === "Shift") (running = false), sendVerb();
     else if (ev.code === "Space") (walking = false), sendVerb();
-  });
+  };
+  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keyup", onKeyUp);
 
   // --- Mouse aim + the one bullet (§5) ---
   let mouse = { x: app.screen.width / 2, y: app.screen.height / 2 };
@@ -716,4 +711,30 @@ export async function boot() {
     // still reports its resting spot — peers need to see a reticle linger on a suspect.
     sendAim();
   });
+
+  // Teardown for client-side navigation away from the game (#20): leave the room, drop the
+  // socket, and destroy the Pixi app (which removes its canvas, ticker and canvas-bound
+  // listeners). The window-level listeners we added are removed explicitly. The audio shell
+  // is deliberately NOT torn down — its loop keeps playing across the hop, which is the point.
+  // Lobby/HUD DOM listeners aren't removed: those elements are replaced wholesale by the
+  // router's content swap, so they're collected with the old DOM.
+  return () => {
+    window.removeEventListener("resize", layout);
+    window.removeEventListener("keydown", onKeyDown);
+    window.removeEventListener("keyup", onKeyUp);
+    // Destroy the Pixi app first: its render loop pushes "aim" over the channel, so stop
+    // the ticker before we leave the room. `removeView` drops the canvas (the router's
+    // content swap would discard it anyway, but don't rely on that here).
+    try {
+      app.destroy({ removeView: true }, { children: true });
+    } catch {
+      /* already destroyed */
+    }
+    try {
+      channel.leave();
+      socket.disconnect();
+    } catch {
+      /* already gone */
+    }
+  };
 }

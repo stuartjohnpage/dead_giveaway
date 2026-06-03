@@ -40,5 +40,64 @@
     </script>
   </head>
 
-  <body>{@inner_content}</body>
+  <body>
+    {@inner_content}
+
+    <%!-- Always-accessible audio settings (#19): a transparent gear fixed top-right on
+          every screen (home, lobby, gameplay). The gear toggles the panel; app.js
+          (mountAudioSettings) wires these controls to the shared audio shell, so a change
+          takes effect live — including mid-round. The On/Off + sliders use the ids
+          volume.mjs binds to; this is the single entry point (the old homepage Sound card
+          is gone). --%>
+    <div class="fixed right-4 top-4 z-30">
+      <button
+        id="audio-gear"
+        type="button"
+        aria-label="Audio settings"
+        class="flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-slate-300/70 transition hover:bg-white/10 hover:text-white"
+      >
+        <.icon name="hero-cog-6-tooth" class="h-6 w-6" />
+      </button>
+
+      <div
+        id="audio-panel"
+        hidden
+        class="absolute right-0 mt-2 w-64 rounded-xl bg-[#10162e]/95 p-4 text-left shadow-2xl ring-1 ring-white/10 backdrop-blur-sm"
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+            Sound
+          </span>
+          <div class="flex items-center gap-3 text-sm text-slate-300">
+            <label class="flex items-center gap-1">
+              <input type="radio" name="sound" value="on" class="accent-emerald-500" /> On
+            </label>
+            <label class="flex items-center gap-1">
+              <input type="radio" name="sound" value="off" class="accent-emerald-500" checked />
+              Off
+            </label>
+          </div>
+        </div>
+
+        <div id="vol-sliders" class="space-y-2">
+          <label class="flex items-center gap-2 text-xs text-slate-400">
+            <span class="w-12 shrink-0">Master</span>
+            <input
+              id="vol-master"
+              type="range"
+              min="0"
+              max="100"
+              class="w-full accent-emerald-500"
+            />
+            <span id="vol-master-val" class="w-8 text-right tabular-nums text-slate-500"></span>
+          </label>
+          <label class="flex items-center gap-2 text-xs text-slate-400">
+            <span class="w-12 shrink-0">SFX</span>
+            <input id="vol-sfx" type="range" min="0" max="100" class="w-full accent-emerald-500" />
+            <span id="vol-sfx-val" class="w-8 text-right tabular-nums text-slate-500"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </body>
 </html>

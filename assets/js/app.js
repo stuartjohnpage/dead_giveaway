@@ -82,62 +82,66 @@ import "phoenix_html"
 // }
 
 
-// Handle flash close
-document.querySelectorAll("[role=alert][data-flash]").forEach((el) => {
-  el.addEventListener("click", () => {
-    el.setAttribute("hidden", "")
-  })
-})
-
-// Boot the Dead Giveaway client on the game page (identified by the #game element).
 import { boot } from "./game.mjs"
-if (document.getElementById("game")) {
-  boot()
-}
+import { getAudio } from "./audio-shell.mjs"
+import { bindVolumeSliders, bindSoundToggle } from "./volume.mjs"
+import { initRouter } from "./router.mjs"
 
-// Home page: bind the volume sliders (the game reads the persisted level at boot, so
-// changing it here carries into play) and loop the menu's background music.
-import { bindVolumeSliders, bindSoundToggle, loadVolume, sfxGain } from "./volume.mjs"
-import { createMusicLoop, MUSIC_GAIN } from "./music.mjs"
-if (document.getElementById("vol-master")) {
-  const volume = loadVolume()
-  const music = createMusicLoop("/themes/neon/menu_loop.mp3")
-  // enabled × master scales the music (no dedicated music channel yet).
-  const musicVol = (v) => (v.enabled ? (v.master / 100) * MUSIC_GAIN : 0)
-  // The On/Off switch starts or stops the loop (flipping it is a user gesture, so
-  // autoplay is allowed); the sliders only re-gain the already-playing loop — they must
-  // not restart it from the top on every drag.
-  bindSoundToggle((v) => (v.enabled ? music.start(musicVol(v)) : music.stop()), volume)
-  bindVolumeSliders((v) => music.setGain(musicVol(v)), volume)
-
-  // Preview the firing SFX at the chosen level so the user hears what they've set. On
-  // "change" (slider release), not "input", so it's one shot per adjustment rather than
-  // a machine-gun while dragging. (sfxGain is 0 when sound is off.)
-  const sfxPreview = new Audio("/sounds/gunshot.mp3")
-  sfxPreview.preload = "auto"
-  document.getElementById("vol-sfx")?.addEventListener("change", () => {
-    sfxPreview.currentTime = 0
-    sfxPreview.volume = sfxGain(volume) // master × sfx — matches in-game gain
-    sfxPreview.play().catch(() => {})
+// Mount the current page in place. Called once for the server-rendered page at load and
+// again by the router after each client-side content swap, so all per-page setup must be
+// re-runnable here (top-level init wouldn't run after a swap). Returns a teardown the
+// router calls before navigating away, or nothing for a page that needs no cleanup.
+async function mount() {
+  // Flash banners — re-bound each page (their elements are replaced on every swap).
+  document.querySelectorAll("[role=alert][data-flash]").forEach((el) => {
+    el.addEventListener("click", () => el.setAttribute("hidden", ""))
   })
 
-  // If sound was left On from a previous visit, autoplay policy still needs a gesture
-  // before the loop can sound — kick it off on the first interaction. (A fresh visit
-  // starts Off, so this is a no-op until the player flips the switch above.)
-  //
-  // This must fire EXACTLY ONCE across both gesture types: start() is async (fetch +
-  // decode), so music.live stays false during the decode. Clicking into the lobby-code
-  // field (pointerdown) starts the load; the first keystroke (keydown) would then see
-  // live still false and call start() a second time — restarting the track. So one guard
-  // removes both listeners on the first gesture, rather than two independent `once`s.
-  let started = false
-  const startMusic = () => {
-    if (started) return
-    started = true
-    window.removeEventListener("pointerdown", startMusic)
-    window.removeEventListener("keydown", startMusic)
-    if (volume.enabled && !music.live) music.start(musicVol(volume))
-  }
-  window.addEventListener("pointerdown", startMusic)
-  window.addEventListener("keydown", startMusic)
+  // The audio-settings gear lives in the root layout, so it's on every page — wire it
+  // (and its controls) to the shared shell each mount.
+  mountAudioSettings()
+
+  // The game page mounts the Pixi/socket client (and owns its own audio playback).
+  if (document.getElementById("game")) return boot()
+
+  // The home splash plays the menu music; the gear above controls its volume.
+  if (document.getElementById("create-form")) mountHome()
 }
+
+// Wire the always-accessible audio gear (#19): toggle the panel, and bind its On/Off +
+// sliders to the shared audio shell so a change takes effect live on any screen — the
+// sliders re-gain whatever loop is playing, and the On/Off ducks/boosts it (muting is a
+// gain-0 duck, not a stop). Present on every page (root layout), so this runs each mount;
+// its listeners are all on swapped-away DOM, so there's nothing to tear down.
+function mountAudioSettings() {
+  const gear = document.getElementById("audio-gear")
+  const panel = document.getElementById("audio-panel")
+  if (!gear || !panel) return
+
+  gear.addEventListener("click", () => (panel.hidden = !panel.hidden))
+
+  const { volume, applyMusicGain, resumeMusic, playShot } = getAudio()
+  bindSoundToggle((v) => {
+    applyMusicGain() // duck to silence when off, or restore the live loop's level when on
+    if (v.enabled) resumeMusic() // and start the current view's loop if it never began
+  }, volume)
+  bindVolumeSliders(() => applyMusicGain(), volume)
+
+  // Preview the firing SFX at the chosen level on slider release (change, not input, so
+  // it's one shot per adjustment). playShot reads the current sfx gain (0 when off).
+  document.getElementById("vol-sfx")?.addEventListener("change", () => playShot())
+}
+
+// Home splash: put the director in the menu/lobby view so the menu loop plays, and arm
+// the autoplay unlock so it sounds on the first gesture (the same path boot() uses for the
+// game). enterMenu adopts an already-playing loop without a restart, so arriving here from
+// a lobby is seamless, and resets off a left-over game loop otherwise (#20).
+function mountHome() {
+  const audio = getAudio()
+  audio.enterMenu()
+  audio.armUnlock()
+}
+
+// Take over the home↔play navigations (and mount the initial page). Everything degrades to
+// ordinary full-page loads if JS is off or this throws (the forms/links keep working).
+initRouter(mount)
