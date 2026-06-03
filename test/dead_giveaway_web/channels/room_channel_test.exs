@@ -1,7 +1,7 @@
 defmodule DeadGiveawayWeb.RoomChannelTest do
   use DeadGiveawayWeb.ChannelCase, async: true
 
-  alias DeadGiveaway.Rooms
+  alias DeadGiveaway.{Rooms, Session}
   alias DeadGiveawayWeb.{RoomChannel, UserSocket}
 
   defp join_room(id, payload \\ %{}) do
@@ -205,7 +205,7 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     ref = push(thief, "leave", %{})
     assert_reply ref, :ok
     assert Rooms.whereis("chan-steal")
-    assert "Player 1" in Map.values(:sys.get_state(room).players)
+    assert "Player 1" in Session.names(:sys.get_state(room).session)
 
     # The genuine host still holds the privilege.
     ref = push(host, "set_config", %{"max_ammo" => 4})
@@ -263,14 +263,14 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     {_reply, socket} = join_room("chan-guest-leave", %{"host" => false})
 
     room = Rooms.whereis("chan-guest-leave")
-    assert map_size(:sys.get_state(room).players) == 2
+    assert Session.count(:sys.get_state(room).session) == 2
 
     ref = push(socket, "leave", %{})
     assert_reply ref, :ok
 
     # The room is still live for the remaining (host) player.
     assert Rooms.whereis("chan-guest-leave")
-    assert map_size(:sys.get_state(room).players) == 1
+    assert Session.count(:sys.get_state(room).session) == 1
   end
 
   test "the host's leave message closes the lobby for everyone" do
@@ -296,7 +296,7 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     {_reply, socket} = join_room("chan-leave")
 
     room = Rooms.whereis("chan-leave")
-    assert map_size(:sys.get_state(room).players) == 2
+    assert Session.count(:sys.get_state(room).session) == 2
 
     # Closing the channel runs terminate/2 (a synchronous Room.leave), so once
     # the channel process is down the room has already dropped the player.
@@ -307,9 +307,9 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert_reply ref, :ok
     assert_receive {:DOWN, ^ref_down, :process, ^chan, _}
 
-    players = :sys.get_state(room).players
-    assert map_size(players) == 1
-    assert "Player 2" not in Map.values(players)
-    assert "Player 1" in Map.values(players)
+    names = Session.names(:sys.get_state(room).session)
+    assert length(names) == 1
+    assert "Player 2" not in names
+    assert "Player 1" in names
   end
 end

@@ -2,6 +2,7 @@ defmodule DeadGiveaway.RoomTest do
   use ExUnit.Case, async: true
 
   alias DeadGiveaway.Room
+  alias DeadGiveaway.Session
   alias DeadGiveaway.World
 
   describe "starting a room" do
@@ -119,9 +120,9 @@ defmodule DeadGiveaway.RoomTest do
       :ok = Room.leave(room, "bob")
       # bob no longer occupies a slot, so he won't pad the headcount or be
       # re-spawned as an inert ghost on the next round.
-      players = :sys.get_state(room).players
-      assert map_size(players) == 1
-      assert Map.values(players) == ["alice"]
+      session = :sys.get_state(room).session
+      assert Session.count(session) == 1
+      assert Session.names(session) == ["alice"]
     end
 
     test "a freed slot is never reassigned to a still-present player" do
