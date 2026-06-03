@@ -316,50 +316,128 @@ def arena_bg(pal):
     img = _vignette(img, pal["vignette"])
     return img
 
-def _scatter_crowd(img, pal, n, y0, y1, seed):
-    """Paste tiny silhouettes for menu/lobby flavor."""
+def _vgradient(W, H, top, bottom):
+    """A vertical top→bottom colour ramp as an opaque RGBA image."""
+    img = Image.new("RGBA", (W, H))
+    px = img.load()
+    for y in range(H):
+        c = blend(top, bottom, y / max(1, H - 1))
+        row = c + (255,)
+        for x in range(W):
+            px[x, y] = row
+    return img
+
+def _silhouette(fr, body, rim):
+    """Recolour a drawn agent frame into a backlit silhouette: its shape filled with a
+    flat dark `body`, plus a 1px accent `rim` light around the edge (the glow behind it)."""
+    a = fr.split()[3]
+    mask = a.point(lambda v: 255 if v > 40 else 0)
+    sil = Image.new("RGBA", fr.size, (0, 0, 0, 0))
+    sil.paste(Image.new("RGBA", fr.size, body + (255,)), (0, 0), mask)
+    grown = a.filter(ImageFilter.MaxFilter(3))
+    px_s, px_a, px_g = sil.load(), a.load(), grown.load()
+    w, h = fr.size
+    for y in range(h):
+        for x in range(w):
+            if px_g[x, y] > 40 and px_a[x, y] <= 40:
+                px_s[x, y] = rim + (255,)
+    return sil
+
+def _crowd_layer(img, pal, n, baseline, scale, body, rim, seed):
+    """Scatter `n` backlit silhouettes standing with their feet at `baseline` (so a layer
+    placed below the canvas edge is cropped into a foreground rank). `scale` sets depth;
+    each figure varies a little in height so the crowd isn't a flat row of clones."""
     rnd = random.Random(seed)
     for _ in range(n):
         v = rnd.randrange(N_VARIANTS)
-        fr = draw_agent(pal, v, "walk", rnd.randrange(ANIM["walk"]))
-        sc = rnd.choice([2, 2, 3])
-        fr = fr.resize((FW*sc, FH*sc), Image.NEAREST)
-        x = rnd.randrange(0, img.width - FW*sc)
-        y = rnd.randrange(y0, y1)
-        img.paste(fr, (x, y), fr)
+        sc = scale + rnd.choice([0, 0, 1])
+        fr = draw_agent(pal, v, rnd.choice(["idle", "walk"]), rnd.randrange(ANIM["walk"]))
+        fr = _silhouette(fr, body, rim).resize((FW * sc, FH * sc), Image.NEAREST)
+        x = rnd.randrange(-FW, img.width)
+        img.alpha_composite(fr, (x, baseline - FH * sc))
     return img
 
+def _bloom(W, H, draw_fn, radius):
+    """Render onto a transparent layer via draw_fn(ImageDraw), then blur it for a glow."""
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw_fn(ImageDraw.Draw(layer))
+    return layer.filter(ImageFilter.GaussianBlur(radius))
+
 def menu_bg(pal):
-    # Atmospheric only — game renders the title/UI text on top in Pixi/HTML.
+    # Atmospheric only — the game renders the title/UI text on top in Pixi/HTML. A lit back
+    # wall with bloomed neon signage, a glowing horizon, a reflective floor, and a two-layer
+    # backlit crowd give it depth instead of the old near-black void.
     W, H = 320, 180
-    img = Image.new("RGBA", (W, H), pal["wall"] + (255,))
-    d = ImageDraw.Draw(img, "RGBA")
-    # backdrop neon glow bands behind the crowd
-    for i, c in enumerate(pal["accent"]):
-        y = H - 30 - i * 7
-        d.rectangle([0, y, W, y + 2], fill=blend(pal["wall"], c, 0.35))
-    img = _scatter_crowd(img, pal, 10, H-70, H-34, seed=21)
+    wall = pal["wall"]
+    accent = pal["accent"]
+    horizon = H - 54
+
+    img = _vgradient(W, H, shade(wall, 0.7), blend(wall, accent[2], 0.10))
+
+    # Back-wall neon signage: fat bars bloomed for glow, with a brighter crisp core.
+    def signage(gd):
+        for i, c in enumerate(accent):
+            x = 26 + i * 96
+            gd.rectangle([x, 22, x + 11, horizon - 16], fill=c + (255,))
+            gd.rectangle([x - 16, 30 + i * 12, x + 52, 34 + i * 12], fill=c + (170,))
+    img.alpha_composite(_bloom(W, H, signage, 5))
+    dcore = ImageDraw.Draw(img, "RGBA")
+    for i, c in enumerate(accent):
+        x = 26 + i * 96
+        dcore.rectangle([x + 4, 22, x + 7, horizon - 16], fill=blend(c, (255, 255, 255), 0.35) + (255,))
+
+    # Glowing horizon where the wall meets the floor.
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle([0, horizon - 2, W, horizon + 2], fill=accent[0] + (210,)), 6))
+
+    # Reflective floor: its own dimmer gradient, with faint vertical reflections of the signs.
+    floor = _vgradient(W, H - horizon, blend(wall, accent[0], 0.07), shade(wall, 0.45))
+
+    def reflections(gd):
+        for i, c in enumerate(accent):
+            gd.rectangle([26 + i * 96, 0, 37 + i * 96, H - horizon], fill=c + (60,))
+
+    floor.alpha_composite(_bloom(W, H - horizon, reflections, 7))
+    img.paste(floor, (0, horizon))
+
+    # Two crowd layers, both standing on the floor: a dense, small, dimly back-lit rank far
+    # off, and a larger near rank cropped by the bottom edge. Rims are dim (blended toward
+    # the wall) so they read as a backlit crowd, not bright outlines.
+    img = _crowd_layer(img, pal, n=20, baseline=H - 2, scale=2, body=shade(wall, 0.5), rim=blend(wall, accent[2], 0.3), seed=7)
+    img = _crowd_layer(img, pal, n=11, baseline=H + 34, scale=3, body=shade(wall, 0.22), rim=blend(wall, accent[0], 0.45), seed=21)
+
     img = up(img)
     img = _vignette(img, pal["vignette"])
     return img
 
 def lobby_bg(pal):
+    # The waiting room: same lit back wall as the menu, a neon-trimmed tiled floor, and a
+    # rim-lit line of idle agents waiting at the start.
     W, H = 320, 180
-    img = Image.new("RGBA", (W, H), shade(pal["wall"], 1.4) + (255,))
-    d = ImageDraw.Draw(img, "RGBA")
+    wall = pal["wall"]
+    accent = pal["accent"]
+    floor_top = H - 46
+
+    img = _vgradient(W, H, shade(wall, 0.8), blend(wall, accent[2], 0.08))
+
+    # Soft back glow so the card's scrim has something richer than flat dark behind it.
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse([W * 0.2, -H * 0.3, W * 0.8, H * 0.5], fill=blend(wall, accent[2], 0.5) + (120,)), 24))
+
+    # Tiled floor band with a glowing trim rail at its lip.
     tile = floor_tile(pal)
     for tx in range(0, W, tile.width):
-        img.paste(tile, (tx, H-40))
-    d.rectangle([0, H-44, W, H-41], fill=pal["accent"][2])
-    # a waiting line of agents (idle)
+        img.paste(tile, (tx, floor_top))
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle([0, floor_top - 3, W, floor_top], fill=accent[2] + (220,)), 4))
+
+    # A waiting line of rim-lit idle agents at the start.
     rnd = random.Random(5)
-    x = 20
-    while x < W-30:
+    x = 16
+    while x < W - 28:
         v = rnd.randrange(N_VARIANTS)
         fr = draw_agent(pal, v, "idle", rnd.randrange(ANIM["idle"]))
-        fr = fr.resize((FW*2, FH*2), Image.NEAREST)
-        img.paste(fr, (x, H-40-50), fr)
+        fr = _silhouette(fr, shade(wall, 0.3), accent[0]).resize((FW * 2, FH * 2), Image.NEAREST)
+        img.alpha_composite(fr, (x, floor_top - FH * 2 + 6))
         x += rnd.choice([26, 30, 34])
+
     img = up(img)
     img = _vignette(img, pal["vignette"])
     return img
