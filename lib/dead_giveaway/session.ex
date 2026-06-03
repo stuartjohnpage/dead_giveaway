@@ -59,25 +59,25 @@ defmodule DeadGiveaway.Session do
           clock: clock()
         }
 
+  # The seam fields default to today's exact behaviour here in the struct (not only in
+  # new/1), so even a bare `%Session{}` literal is fully wired and join/2 can't hit a nil
+  # namer/clock. Remote captures, so they resolve at runtime (no forward-reference issue).
   defstruct players: %{},
             next_slot: 0,
             scores: %{},
             bot_name: "Bot",
-            namer: nil,
-            clock: nil
+            namer: &__MODULE__.default_namer/3,
+            clock: &System.monotonic_time/0
 
   @doc """
   A fresh, empty session. Every option defaults to today's behaviour: the `"Bot"`
   opponent label, the lowest-free `"Player N"` / collision-disambiguating namer,
-  and the monotonic clock — so `new/0` has no external dependency.
+  and the monotonic clock — so `new/0` has no external dependency. Unprovided options
+  fall back to the struct defaults above.
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
-    %__MODULE__{
-      bot_name: Keyword.get(opts, :bot_name, "Bot"),
-      namer: Keyword.get(opts, :namer, &default_namer/3),
-      clock: Keyword.get(opts, :clock, &System.monotonic_time/0)
-    }
+    struct(__MODULE__, Keyword.take(opts, [:bot_name, :namer, :clock]))
   end
 
   # --- Roster mutation ---
@@ -127,6 +127,11 @@ defmodule DeadGiveaway.Session do
   @doc "Every seated player, in slot order (earliest joiner first)."
   @spec players(t()) :: [Player.t()]
   def players(%__MODULE__{} = session) do
+    # Explicitly slot-sorted. Room previously shipped `Map.values/1` of a `%{slot => name}`
+    # map; for the ≤32 entries a real lobby ever holds, Erlang's small-map order is already
+    # slot order, so this is identical in practice — and a deliberate tightening above that
+    # (a >32-player room had hash-ordered, non-deterministic values), which seeds World.new's
+    # body assignment, so a stable slot order is the safe choice.
     session.players |> Map.values() |> Enum.sort_by(& &1.slot)
   end
 
@@ -193,15 +198,18 @@ defmodule DeadGiveaway.Session do
 
   # --- Default seams (today's exact behaviour) ---
 
-  # No name → the lowest free "Player N"; an explicit name kept unless taken, then
+  @doc false
+  # The default naming policy. Public only so the `namer` struct default can capture it
+  # remotely (`&__MODULE__.default_namer/3`); not part of the intended API — go through
+  # join/2. No name → the lowest free "Player N"; an explicit name kept unless taken, then
   # "name (2)", "name (3)", … — the first number that isn't already in use.
-  defp default_namer(nil, _slot, taken) do
+  def default_namer(nil, _slot, taken) do
     Stream.iterate(1, &(&1 + 1))
     |> Stream.map(&"Player #{&1}")
     |> Enum.find(&(&1 not in taken))
   end
 
-  defp default_namer(name, _slot, taken) do
+  def default_namer(name, _slot, taken) do
     if name in taken do
       Stream.iterate(2, &(&1 + 1))
       |> Stream.map(&"#{name} (#{&1})")

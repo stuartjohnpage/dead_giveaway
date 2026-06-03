@@ -152,5 +152,12 @@ defmodule DeadGiveaway.SessionTest do
       {0, "P0", s} = Session.join(Session.new(namer: namer))
       {1, "P1", _s} = Session.join(s)
     end
+
+    test "a bare %Session{} literal is fully wired (struct defaults match new/0)" do
+      # Bypassing new/0 must not hit a nil namer/clock — join still names and stamps.
+      {0, "Player 1", s} = Session.join(%Session{})
+      assert Session.bot_name(s) == "Bot"
+      assert is_integer(Session.player_at(s, 0).joined_at)
+    end
   end
 end
