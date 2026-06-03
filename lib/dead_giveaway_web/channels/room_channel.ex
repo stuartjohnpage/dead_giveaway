@@ -12,7 +12,7 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   use Phoenix.Channel
 
-  alias DeadGiveaway.{Room, Rooms}
+  alias DeadGiveaway.{Profanity, Room, Rooms}
 
   # Production room shape; overridable via `config :dead_giveaway, :room, ...`
   # (tests use a tiny tick and no bots for determinism).
@@ -197,12 +197,14 @@ defmodule DeadGiveawayWeb.RoomChannel do
     Keyword.merge(@default_room_opts, Application.get_env(:dead_giveaway, :room, []))
   end
 
-  # A chosen name from the client: trimmed and length-capped, blank → nil (the
-  # room then auto-names the player "Player N").
+  # A chosen name from the client: trimmed, length-capped, then profanity-redacted (#13);
+  # blank → nil (the room then auto-names the player "Player N"). This is the single
+  # server-side chokepoint for the only free text players control, so a crafted payload
+  # can't bypass the filter.
   defp normalize_name(name) do
     case name |> to_string() |> String.trim() |> String.slice(0, 16) do
       "" -> nil
-      n -> n
+      n -> Profanity.redact(n)
     end
   end
 

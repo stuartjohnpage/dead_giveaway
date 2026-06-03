@@ -54,6 +54,11 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert reply2.name == "Player 2"
   end
 
+  test "a profane chosen name is redacted server-side before it's assigned (#13)" do
+    {reply, _s} = join_room("chan-clean", %{"name" => "ShitLord"})
+    assert reply.name == "****Lord"
+  end
+
   test "clients receive the lobby roster" do
     join_room("chan-lobby")
     join_room("chan-lobby")
