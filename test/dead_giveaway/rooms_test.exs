@@ -20,7 +20,7 @@ defmodule DeadGiveaway.RoomsTest do
   test "a room found by id can be joined" do
     {:ok, _pid} = Rooms.find_or_start("game-c")
 
-    assert {:ok, 0, "alice"} = Room.join(Rooms.whereis("game-c"), "alice")
+    assert {:ok, 0, "alice", _host?} = Room.join(Rooms.whereis("game-c"), "alice")
   end
 
   test "rooms are supervised — a crashed room is restarted under the same id" do

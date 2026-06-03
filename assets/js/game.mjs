@@ -49,9 +49,14 @@ export async function boot() {
   if (!mount) return;
 
   const room = mount.dataset.room;
-  // The host (from /play/new) starts the room; a join-by-code requires it to
-  // already exist (the server replies "not_found" otherwise).
-  const isHost = mount.dataset.host === "true";
+  // `data-host` (set by /play/new) only asks the server to *create* this room; a
+  // join-by-code requires it to already exist (the server replies "not_found"
+  // otherwise). It does NOT grant host privileges — the server assigns those to the
+  // first player in and tells us via the lobby roster, so a crafted URL can't steal them.
+  const wantsCreate = mount.dataset.host === "true";
+  // Whether *we* host (enable the config knobs, close the lobby on leave). Server-set:
+  // false until the first lobby roster names the host, then kept current as it changes.
+  let isHost = false;
   // The name the player chose on the splash (empty → the room auto-names us).
   const playerName = mount.dataset.name || "";
 
@@ -249,8 +254,8 @@ export async function boot() {
 
   // Bullets-per-round is the host's call: guests see a disabled select reflecting the
   // host's choice (kept current by the lobby broadcast). The host's changes push to the
-  // room, which clamps and re-broadcasts the value to everyone.
-  ammoSelect.disabled = !isHost;
+  // room, which clamps and re-broadcasts the value to everyone. The disabled state is
+  // driven by applyHostUI (below), since who hosts can change.
   ammoSelect.addEventListener("change", () => {
     channel.push("set_config", { max_ammo: Number(ammoSelect.value) });
   });
@@ -264,7 +269,6 @@ export async function boot() {
   // The theme is the other host-set knob (same shape as the bullet count): a guest's
   // select is disabled and just reflects the host's pick. Pushing it lets the room
   // validate + broadcast, so every client's loadTheme runs off the same value.
-  themeSelect.disabled = !isHost;
   themeSelect.addEventListener("change", () => {
     channel.push("set_config", { theme: themeSelect.value });
   });
@@ -300,13 +304,22 @@ export async function boot() {
     hudAmmo.hidden = !visible;
   };
 
-  // Backing out is destructive for the host (it closes the lobby for everyone),
-  // so the label says so; a guest only leaves their own seat.
-  lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
+  // Backing out is destructive for the host (it closes the lobby for everyone); the
+  // label (set by applyHostUI) says so, while a guest only leaves their own seat.
   lobbyLeave.addEventListener("click", () => {
     channel.push("leave", {});
     window.location.href = "/";
   });
+
+  // Reflect our server-assigned host status in the lobby controls: only the host can
+  // change the bullet count / theme or close the whole lobby. Re-run from the lobby
+  // roster whenever the host changes (e.g. the old host left and the room handed off).
+  const applyHostUI = () => {
+    ammoSelect.disabled = !isHost;
+    themeSelect.disabled = !isHost;
+    lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
+  };
+  applyHostUI();
 
   // Show the shareable code so the host can pass it to friends.
   lobbyCode.textContent = `Code: ${room}`;
@@ -463,7 +476,7 @@ export async function boot() {
   // --- Socket / channel ---
   const socket = new Socket("/socket", {});
   socket.connect();
-  const channel = socket.channel("room:" + room, { host: isHost, name: playerName });
+  const channel = socket.channel("room:" + room, { host: wantsCreate, name: playerName });
   channel
     .join()
     .receive("ok", (resp) => {
@@ -485,6 +498,10 @@ export async function boot() {
 
   channel.on("lobby", (p) => {
     roster = p.players || [];
+    // Host is whatever the server says (by name) — never the URL. Refresh the lobby
+    // controls when it changes (first roster, or a hand-off after the host leaves).
+    isHost = !!myName && p.host === myName;
+    applyHostUI();
     applyMaxAmmo(p.max_ammo);
     applyTheme(p.theme);
     if (!scores) banner = "Lobby";

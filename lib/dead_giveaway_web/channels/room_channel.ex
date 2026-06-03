@@ -35,13 +35,14 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
         # The player's chosen name (from the splash) is their identity for all
         # subsequent input/fire; the room uniquifies it and returns the canonical
-        # form. A blank name falls back to an auto-assigned "Player N".
-        {:ok, _slot, name} = Room.join(room, normalize_name(payload["name"]))
+        # form. A blank name falls back to an auto-assigned "Player N". The room also
+        # tells us whether we're the host — assigned server-side to the first joiner,
+        # never taken from the client's `host` flag, so a crafted URL can't seize it.
+        {:ok, _slot, name, host?} = Room.join(room, normalize_name(payload["name"]))
 
-        # Remember whether this client is the host (host=true) — only the host can
-        # close the lobby out from under everyone when they back out.
-        {:ok, %{name: name},
-         assign(socket, room: room, name: name, host: payload["host"] == true)}
+        # Track host status (only the host may reconfigure or close the lobby). We
+        # keep it current from the lobby broadcast too, since the host can change.
+        {:ok, %{name: name}, assign(socket, room: room, name: name, host: host?)}
 
       :error ->
         # The join-by-code path (host=false) hit a code with no live room behind
@@ -50,9 +51,11 @@ defmodule DeadGiveawayWeb.RoomChannel do
     end
   end
 
-  # A join-by-code (host=false) must land on a room that already exists; the host
-  # (host=true) starts it. With no flag at all we stay lenient and find-or-start,
-  # which keeps direct URL navigation and the channel tests working.
+  # The payload `host` flag is only a *create-intent* signal, not a privilege grant
+  # (the Room assigns the host server-side): a join-by-code (host=false) must land on a
+  # room that already exists, while host=true starts it. With no flag at all we stay
+  # lenient and find-or-start, which keeps direct URL navigation and the channel tests
+  # working.
   defp resolve_room(id, %{"host" => false}) do
     case Rooms.whereis(id) do
       nil -> :error
@@ -127,6 +130,10 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   @impl true
   def handle_info({:lobby, roster}, socket) do
+    # The Room is the authority on who hosts; refresh our flag from each roster (it
+    # shifts if the host leaves and the room hands off) before forwarding the roster,
+    # whose `host` name lets the client tell whether it's the host.
+    socket = assign(socket, host: roster.host == socket.assigns.name)
     push(socket, "lobby", roster)
     {:noreply, socket}
   end

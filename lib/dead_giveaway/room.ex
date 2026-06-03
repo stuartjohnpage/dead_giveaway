@@ -42,10 +42,14 @@ defmodule DeadGiveaway.Room do
   end
 
   @doc """
-  Join the room's lobby. Returns `{:ok, slot, name}`: the assigned slot and the
-  player's name. Pass `nil` to be auto-named `"Player N"` (the default); an
-  explicit name is kept but disambiguated if already taken, since the name is
-  also the player's identity and two players must never collapse onto one body.
+  Join the room's lobby. Returns `{:ok, slot, name, host?}`: the assigned slot, the
+  player's name, and whether this player is the room's host. Pass `nil` to be
+  auto-named `"Player N"` (the default) — the lowest free number, so a slot freed by
+  a leaver is reused rather than the count climbing forever; an explicit name is kept
+  but disambiguated if already taken, since the name is also the player's identity and
+  two players must never collapse onto one body. The first player to join is the host
+  (DESIGN §9): the privilege is assigned here, server-side, never claimed by the
+  client, so a hand-crafted URL can't seize a lobby out from under its owner.
   """
   def join(room, player \\ nil), do: GenServer.call(room, {:join, player})
 
@@ -136,6 +140,11 @@ defmodule DeadGiveaway.Room do
       empty_after_ms: Keyword.get(opts, :empty_after_ms),
       expire_ref: nil,
       players: %{},
+      # The host's name (DESIGN §9): the first player to join, reassigned to the
+      # earliest remaining joiner if the host leaves, `nil` while the room is empty.
+      # Only the host may reconfigure or close the lobby — and it's tracked here, not
+      # taken from the client, so a crafted URL can't grant it.
+      host: nil,
       # Monotonic so a freed slot is never handed out again — reusing a slot key
       # after a `leave` would silently overwrite a still-present player.
       next_slot: 0,
@@ -155,23 +164,31 @@ defmodule DeadGiveaway.Room do
   @impl true
   def handle_call({:join, player}, _from, state) do
     slot = state.next_slot
-    name = player_name(player, slot, state.players)
+    name = player_name(player, state.players)
+    # The first player in owns the room; everyone after joins as a guest.
+    host = state.host || name
 
     # Joining only places you in the lobby — a round starts when someone hits Go.
     # A join means the room is no longer empty, so cancel any pending expiry.
     state =
-      %{state | next_slot: slot + 1}
+      %{state | next_slot: slot + 1, host: host}
       |> put_in([:players, slot], name)
       |> cancel_expiry()
 
     broadcast_lobby(state)
-    {:reply, {:ok, slot, name}, state}
+    {:reply, {:ok, slot, name, name == host}, state}
   end
 
   def handle_call({:leave, player}, _from, state) do
     players = state.players |> Enum.reject(fn {_slot, name} -> name == player end) |> Map.new()
-    # If that was the last player, start the countdown to shut the room down.
-    state = %{state | players: players} |> maybe_schedule_expiry()
+    # If the host left, hand the room to the earliest remaining joiner so the lobby
+    # is never left without an owner. If that was the last player, start the
+    # countdown to shut the room down.
+    state =
+      %{state | players: players}
+      |> reassign_host(player)
+      |> maybe_schedule_expiry()
+
     broadcast_lobby(state)
     {:reply, :ok, state}
   end
@@ -274,11 +291,21 @@ defmodule DeadGiveaway.Room do
 
   # --- Internals ---
 
-  # No name given → auto-name by slot ("Player 1", "Player 2", …). An explicit
-  # name is kept, but disambiguated since the name is also the player's identity
-  # and two players must never collapse onto one body/bullet.
-  defp player_name(nil, slot, _players), do: "Player #{slot + 1}"
-  defp player_name(name, _slot, players), do: uniquify(name, players)
+  # No name given → the lowest free "Player N" among those present ("Player 1",
+  # "Player 2", …). Naming by the smallest open number rather than a monotonic slot
+  # means a number freed by a leaver is handed back out, so the count tracks the room
+  # instead of climbing on every (re)join. An explicit name is kept, but disambiguated
+  # since the name is also the player's identity and two players must never collapse
+  # onto one body/bullet.
+  defp player_name(nil, players) do
+    taken = MapSet.new(Map.values(players))
+
+    Stream.iterate(1, &(&1 + 1))
+    |> Stream.map(&"Player #{&1}")
+    |> Enum.find(&(not MapSet.member?(taken, &1)))
+  end
+
+  defp player_name(name, players), do: uniquify(name, players)
 
   defp uniquify(name, players) do
     taken = MapSet.new(Map.values(players))
@@ -290,6 +317,21 @@ defmodule DeadGiveaway.Room do
     else
       name
     end
+  end
+
+  # Host hand-off on a leave: only matters if the leaver *was* the host. The room
+  # then passes to the remaining player with the lowest slot — the earliest joiner
+  # still present — or to nobody once the room is empty.
+  defp reassign_host(%{host: host} = state, left) when host != left, do: state
+
+  defp reassign_host(state, _left) do
+    new_host =
+      case Enum.sort(Map.keys(state.players)) do
+        [slot | _] -> Map.fetch!(state.players, slot)
+        [] -> nil
+      end
+
+    %{state | host: new_host}
   end
 
   defp start_round(state) do
@@ -399,13 +441,20 @@ defmodule DeadGiveaway.Room do
     Phoenix.PubSub.broadcast(DeadGiveaway.PubSub, topic(id), message)
   end
 
-  # The lobby roster — who's currently waiting to play — plus the room config the
-  # lobby UI reflects (the host-set bullet count and theme).
+  # The lobby roster — who's currently waiting to play, and who hosts — plus the room
+  # config the lobby UI reflects (the host-set bullet count and theme). Carrying the
+  # host's name lets every client tell whether it's the host (and keep up if that
+  # changes), so host privilege is read from the server, never from the URL.
   defp broadcast_lobby(state) do
     broadcast(
       state.id,
       {:lobby,
-       %{players: Map.values(state.players), max_ammo: state.max_ammo, theme: state.theme}}
+       %{
+         players: Map.values(state.players),
+         host: state.host,
+         max_ammo: state.max_ammo,
+         theme: state.theme
+       }}
     )
   end
 
