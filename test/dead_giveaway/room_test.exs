@@ -14,27 +14,97 @@ defmodule DeadGiveaway.RoomTest do
   describe "joining" do
     test "assigns the first player slot 0" do
       {:ok, room} = Room.start_link(id: "r1")
-      assert {:ok, 0, "alice"} = Room.join(room, "alice")
+      assert {:ok, 0, "alice", _host?} = Room.join(room, "alice")
     end
 
     test "assigns sequential slots to subsequent players" do
       {:ok, room} = Room.start_link(id: "r1")
-      assert {:ok, 0, "alice"} = Room.join(room, "alice")
-      assert {:ok, 1, "bob"} = Room.join(room, "bob")
-      assert {:ok, 2, "carol"} = Room.join(room, "carol")
+      assert {:ok, 0, "alice", _} = Room.join(room, "alice")
+      assert {:ok, 1, "bob", _} = Room.join(room, "bob")
+      assert {:ok, 2, "carol", _} = Room.join(room, "carol")
     end
 
     test "auto-names players Player N when no name is given" do
       {:ok, room} = Room.start_link(id: "r1")
-      assert {:ok, 0, "Player 1"} = Room.join(room)
-      assert {:ok, 1, "Player 2"} = Room.join(room)
+      assert {:ok, 0, "Player 1", _} = Room.join(room)
+      assert {:ok, 1, "Player 2", _} = Room.join(room)
     end
 
     test "disambiguates an explicit name already taken so two players never collapse" do
       {:ok, room} = Room.start_link(id: "r1")
-      assert {:ok, 0, "guest"} = Room.join(room, "guest")
-      assert {:ok, 1, "guest (2)"} = Room.join(room, "guest")
-      assert {:ok, 2, "guest (3)"} = Room.join(room, "guest")
+      assert {:ok, 0, "guest", _} = Room.join(room, "guest")
+      assert {:ok, 1, "guest (2)", _} = Room.join(room, "guest")
+      assert {:ok, 2, "guest (3)", _} = Room.join(room, "guest")
+    end
+
+    test "auto-names reuse the lowest free number so the count doesn't climb on (re)joins" do
+      {:ok, room} = Room.start_link(id: "rejoin-1")
+      {:ok, _, "Player 1", _} = Room.join(room)
+      {:ok, _, "Player 2", _} = Room.join(room)
+      {:ok, _, "Player 3", _} = Room.join(room)
+
+      # Player 2 leaves, freeing the number 2. The next auto-named joiner takes it
+      # back rather than becoming "Player 4" — so refreshes don't ratchet the count up.
+      :ok = Room.leave(room, "Player 2")
+      assert {:ok, _, "Player 2", _} = Room.join(room)
+    end
+  end
+
+  describe "the host" do
+    test "is the first player to join; everyone after is a guest" do
+      {:ok, room} = Room.start_link(id: "host-1")
+      assert {:ok, _, "alice", true} = Room.join(room, "alice")
+      assert {:ok, _, "bob", false} = Room.join(room, "bob")
+      assert {:ok, _, "carol", false} = Room.join(room, "carol")
+    end
+
+    test "hands off to the earliest remaining joiner when the host leaves" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("host-2"))
+      {:ok, room} = Room.start_link(id: "host-2")
+      {:ok, _, "alice", true} = Room.join(room, "alice")
+      {:ok, _, "bob", false} = Room.join(room, "bob")
+      {:ok, _, "carol", false} = Room.join(room, "carol")
+
+      # The host leaving promotes bob (the next-lowest slot), broadcast to everyone.
+      :ok = Room.leave(room, "alice")
+      assert_receive {:lobby, %{host: "bob"}}
+      assert :sys.get_state(room).host == "bob"
+    end
+
+    test "a leaver's win tally is cleared so a reused name doesn't inherit it" do
+      {:ok, room} =
+        Room.start_link(id: "score-reuse", seed: 1, bots: 0, finish_x: 2 * World.run_speed())
+
+      {:ok, _, "Player 1", _} = Room.join(room)
+      {:ok, _, "Player 2", _} = Room.join(room)
+      Room.go(room)
+      # Player 1 runs across the finish (two run-ticks away) and banks a win.
+      Room.set_verb(room, "Player 1", :run)
+      Room.tick(room)
+      Room.tick(room)
+      assert Room.score(room, "Player 1") == 1
+
+      # Player 1 leaves; the freed "Player 1" number is handed to the next joiner, who
+      # must start from zero rather than inheriting the departed player's win.
+      :ok = Room.leave(room, "Player 1")
+      {:ok, _, "Player 1", _} = Room.join(room)
+      assert Room.score(room, "Player 1") == 0
+    end
+
+    test "a guest leaving never changes who hosts" do
+      {:ok, room} = Room.start_link(id: "host-3")
+      Room.join(room, "alice")
+      Room.join(room, "bob")
+
+      :ok = Room.leave(room, "bob")
+      assert :sys.get_state(room).host == "alice"
+    end
+
+    test "is cleared once the room empties" do
+      {:ok, room} = Room.start_link(id: "host-4")
+      Room.join(room, "alice")
+      :ok = Room.leave(room, "alice")
+      assert :sys.get_state(room).host == nil
     end
   end
 
@@ -56,12 +126,12 @@ defmodule DeadGiveaway.RoomTest do
 
     test "a freed slot is never reassigned to a still-present player" do
       {:ok, room} = Room.start_link(id: "leave-2")
-      {:ok, 0, _} = Room.join(room, "alice")
-      {:ok, 1, _} = Room.join(room, "bob")
+      {:ok, 0, _, _} = Room.join(room, "alice")
+      {:ok, 1, _, _} = Room.join(room, "bob")
       :ok = Room.leave(room, "alice")
       # Next joiner must not reuse slot 0 (alice's old slot is gone) AND must not
       # land on bob's slot 1.
-      assert {:ok, 2, "carol"} = Room.join(room, "carol")
+      assert {:ok, 2, "carol", _} = Room.join(room, "carol")
     end
   end
 
@@ -83,7 +153,7 @@ defmodule DeadGiveaway.RoomTest do
       :ok = Room.leave(room, "alice")
 
       # Rejoin well within the window — the pending shutdown must be cancelled.
-      {:ok, _, "bob"} = Room.join(room, "bob")
+      {:ok, _, "bob", _} = Room.join(room, "bob")
       ref = Process.monitor(room)
       refute_receive {:DOWN, ^ref, :process, ^room, _}, 120
     end
@@ -108,7 +178,7 @@ defmodule DeadGiveaway.RoomTest do
       assert Room.status(room) == :running
 
       # carol joins after the round started — she has no body this round (§8).
-      {:ok, _, "carol"} = Room.join(room, "carol")
+      {:ok, _, "carol", _} = Room.join(room, "carol")
       ref = Process.monitor(room)
 
       # Her input must be ignored, not crash the room (and everyone in it).

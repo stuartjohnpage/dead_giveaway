@@ -138,6 +138,49 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     refute_push "lobby", %{max_ammo: 4}, 200
   end
 
+  test "a second joiner claiming host=true in the payload cannot seize the lobby" do
+    # The real host opens the room...
+    {_r, host} = join_room("chan-steal", %{"host" => true})
+    # ...then an interloper joins forging host=true (as a crafted ?host=true URL would).
+    {_r2, thief} = join_room("chan-steal", %{"host" => true})
+    room = Rooms.whereis("chan-steal")
+
+    # The room assigns host server-side to the first player, so the forged flag is
+    # ignored: the thief's config push is dropped, and their "leave" only frees their
+    # own slot rather than closing the room out from under the real host.
+    ref = push(thief, "set_config", %{"max_ammo" => 4})
+    assert_reply ref, :ok
+    refute_push "lobby", %{max_ammo: 4}, 200
+
+    ref = push(thief, "leave", %{})
+    assert_reply ref, :ok
+    assert Rooms.whereis("chan-steal")
+    assert "Player 1" in Map.values(:sys.get_state(room).players)
+
+    # The genuine host still holds the privilege.
+    ref = push(host, "set_config", %{"max_ammo" => 4})
+    assert_reply ref, :ok
+    assert_push "lobby", %{max_ammo: 4}, 500
+  end
+
+  test "host hands off to the remaining player when the original host disconnects" do
+    {_r, host} = join_room("chan-handoff", %{"host" => true})
+    {_r2, guest} = join_room("chan-handoff", %{"host" => false})
+
+    # The original host's channel closes (a disconnect, not the "Close lobby" button),
+    # so terminate/2 frees their slot and the room hands host off to the guest.
+    chan = host.channel_pid
+    ref_down = Process.monitor(chan)
+    Process.unlink(chan)
+    leave(host)
+    assert_receive {:DOWN, ^ref_down, :process, ^chan, _}
+
+    # The promoted guest can now reconfigure the lobby — proof the privilege moved.
+    ref = push(guest, "set_config", %{"max_ammo" => 5})
+    assert_reply ref, :ok
+    assert_push "lobby", %{max_ammo: 5}, 500
+  end
+
   test "the host can set the theme and it reaches every client's lobby" do
     {_reply, socket} = join_room("chan-theme", %{"host" => true})
 
