@@ -296,6 +296,13 @@ export async function boot() {
     chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
     paceSelect.disabled = !isHost;
+    // Only the host starts the round (the server enforces this too); a guest's Go is
+    // disabled and a hint tells them they're waiting on the lobby leader. Skip the hint
+    // while a round is starting ("starting…") so we don't stomp that transient message.
+    goButton.disabled = !isHost;
+    if (!isHost && lobbyHint.textContent !== "starting…") {
+      lobbyHint.textContent = "Waiting for the host to start…";
+    }
     lobbyLeave.textContent = isHost ? "Close lobby" : "Leave lobby";
     // The host's close is destructive (it ends the lobby for everyone), so make it
     // read dark red; a guest only leaves their own seat, so it stays neutral slate.
@@ -343,8 +350,11 @@ export async function boot() {
   // here, since this is also called redundantly (every snapshot calls hideCard).
   const showCard = (overlay) => {
     renderLobby();
+    // Reset the start control to its resting state, then let applyHostUI re-gate it:
+    // the host gets an enabled Go/Play-again, a guest a disabled button + waiting hint.
     goButton.disabled = false;
     lobbyHint.textContent = "";
+    applyHostUI();
     lobbyScrim.style.display = overlay ? "none" : "";
     lobbyShowingFull = !overlay;
     // Overlay: transparent so the frozen game shows behind the card. Full lobby: the

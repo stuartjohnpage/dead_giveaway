@@ -68,34 +68,44 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
   end
 
   test "world snapshots are pushed to clients once a round is running" do
+    {_reply, host} = join_room("chan-b", %{"host" => true})
     join_room("chan-b")
-    {_reply, socket} = join_room("chan-b")
-    push(socket, "go", %{})
+    push(host, "go", %{})
 
     assert_push "snapshot", %{entities: entities}, 500
     assert is_list(entities)
   end
 
   test "clients are told when a round starts" do
+    {_reply, host} = join_room("chan-start", %{"host" => true})
     join_room("chan-start")
-    {_reply, socket} = join_room("chan-start")
-    push(socket, "go", %{})
+    push(host, "go", %{})
 
     assert_push "round_start", %{}, 500
   end
 
-  test "a go message is accepted and acknowledged" do
-    {_reply, socket} = join_room("chan-go")
+  test "a host's go is accepted and acknowledged" do
+    {_reply, host} = join_room("chan-go", %{"host" => true})
 
-    ref = push(socket, "go", %{})
+    ref = push(host, "go", %{})
     assert_reply ref, :ok
   end
 
+  test "a guest's go is ignored — only the host starts the round" do
+    join_room("chan-go-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-go-guest", %{"host" => false})
+
+    # The push is still acknowledged, but the round never starts on a guest's say-so.
+    ref = push(guest, "go", %{})
+    assert_reply ref, :ok
+    refute_push "round_start", %{}, 200
+  end
+
   test "a fire message spends the shot without revealing what it hit" do
-    join_room("chan-c")
+    {_reply, host} = join_room("chan-c", %{"host" => true})
     {_reply, socket} = join_room("chan-c")
 
-    go = push(socket, "go", %{})
+    go = push(host, "go", %{})
     assert_reply go, :ok
 
     ref = push(socket, "fire", %{"x" => 0.0, "y" => 0.0})
