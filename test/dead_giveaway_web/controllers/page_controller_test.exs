@@ -5,7 +5,9 @@ defmodule DeadGiveawayWeb.PageControllerTest do
     conn = get(conn, ~p"/")
     body = html_response(conn, 200)
 
-    assert body =~ "DEAD GIVEAWAY"
+    # The hero title is split across spans ("Dead" / "Giveaway") and upper-cased in CSS,
+    # so the literal "DEAD GIVEAWAY" isn't in the HTML — assert the distinctive brand word.
+    assert body =~ "Giveaway"
     assert body =~ ~s(action="/play/new")
     assert body =~ ~s(action="/join")
     # The name field that feeds both create and join (skribbl-style centre block).

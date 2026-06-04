@@ -53,9 +53,12 @@
 <%!-- The themed lobby backdrop is set by game.mjs (loadTheme) as an inline
       background-image, so it swaps with the room's theme; only the cover/center
       framing lives here. --%>
+<%!-- flex-col + the card's my-auto centres the card when it fits and, when the window
+      is too short, lets the overlay scroll the whole card into reach (no justify-center:
+      that would clip the card's top on overflow). --%>
 <div
   id="lobby"
-  class="fixed inset-0 z-10 flex items-center justify-center bg-[#0b1020] bg-cover bg-center"
+  class="fixed inset-0 z-10 flex flex-col items-center overflow-y-auto bg-[#0b1020] bg-cover bg-center p-4"
 >
   <%!-- Dark scrim over the themed backdrop so the card's text stays legible. game.mjs
         hides it (and clears the backdrop) for the post-round card, which floats over
@@ -66,7 +69,10 @@
     class="dg-scanlines absolute inset-0 bg-black/65 backdrop-blur-[2px]"
   >
   </div>
-  <div class="dg-reticle dg-reticle--lime relative max-h-[90dvh] w-full max-w-lg overflow-y-auto border border-[var(--dg-lime)]/15 bg-[#0a0f22]/90 p-6 text-center font-display shadow-[0_0_70px_-20px_rgba(182,255,61,0.5)] backdrop-blur-sm sm:p-8">
+  <%!-- The card sizes to its content; the scroll safety-net lives on #lobby (above)
+        so very short windows scroll the whole overlay instead of the card growing a
+        1px phantom scrollbar. my-auto keeps it centred but scroll-to-top-able. --%>
+  <div class="dg-reticle dg-reticle--lime relative my-auto w-full max-w-lg border border-[var(--dg-lime)]/15 bg-[#0a0f22]/90 p-6 text-center font-display shadow-[0_0_70px_-20px_rgba(182,255,61,0.5)] backdrop-blur-sm sm:p-8">
     <h2 id="lobby-banner" class="text-2xl font-bold uppercase tracking-[0.04em] text-white">
       Dead Giveaway
     </h2>
