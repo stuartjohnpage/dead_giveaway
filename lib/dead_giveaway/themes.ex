@@ -13,7 +13,8 @@ defmodule DeadGiveaway.Themes do
   # Order is the order shown in the picker; the head is the default for a new room.
   @catalog [
     %{key: "neon", display: "Neon Concourse"},
-    %{key: "western", display: "Dead Man's Gulch"}
+    %{key: "western", display: "Dead Man's Gulch"},
+    %{key: "station", display: "Derelict Orbital"}
   ]
 
   @doc "Every theme as `%{key, display}`, in picker order."

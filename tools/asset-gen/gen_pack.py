@@ -16,7 +16,7 @@ Palette-driven. Produces, for one theme:
 Add a new lobby theme = add a THEMES entry. No art skills required.
 """
 import json, math, os, sys, random
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageChops
 
 # ----------------------------------------------------------------------------
 # Theme definitions. Everything cosmetic flows from here.
@@ -70,6 +70,32 @@ THEMES = {
         "bullet": "bullet_flat.png",
         "reticle": "#e0963c",
     },
+    "station": {
+        "display": "Derelict Orbital",
+        "blurb": "A powered-down orbital station: gunmetal grating, flickering hazard strips, a starboard airlock at the line.",
+        "floor": [(44, 50, 60), (36, 42, 52)],       # gunmetal grate two-tone
+        "grid_line": (72, 82, 96),                   # panel seams
+        "accent": [(255, 150, 50), (232, 72, 58), (96, 190, 220)],  # hazard amber / alert red / signal blue
+        "wall": (16, 20, 30),
+        "vignette": (4, 6, 12),
+        "finish": [(228, 234, 244), (30, 36, 48)],   # white / dark-steel airlock stripe
+        "shirts": [(220,120,40),(70,110,150),(184,188,196),(80,160,150),(204,200,90),
+                   (160,64,58),(108,118,134),(60,92,134),(176,116,64),(96,172,184),
+                   (206,212,222),(126,96,156)],
+        "hairs":  [(30,28,40),(80,40,30),(20,20,25),(110,80,40),(200,180,120),
+                   (40,30,60),(150,30,40),(25,25,35),(90,60,30),(210,210,220),
+                   (60,40,30),(35,30,45)],
+        "skins":  [(245,205,170),(225,175,135),(200,150,110),(165,115,80),(120,80,55)],
+        "pants":  (50,55,68),
+        "outline":(10,12,20),
+        # presence of "helmets" switches the head to an EVA helmet (shell + accent visor)
+        "helmets":[(212,217,226),(190,196,206),(170,178,190),(202,207,216),(150,160,176),
+                   (206,211,221),(182,190,200),(162,170,184),(196,202,214),(176,184,196),
+                   (210,214,224),(166,174,188)],
+        # ammo icon (in this folder) + reticle tint — emitted into theme.json's "ui".
+        "bullet": "bullet.png",
+        "reticle": "#5fc0e0",
+    },
 }
 
 FW = FH = 32                      # frame size
@@ -105,6 +131,13 @@ def shade(c, f):
 def blend(base, col, f):
     """Opaque blend of col onto base by factor f (0..1). Avoids alpha-hole artifacts."""
     return tuple(max(0, min(255, int(base[i]*(1-f) + col[i]*f))) for i in range(3))
+
+def vivify(c):
+    """Push a colour to full value (brightest channel = 255) while keeping its hue. Lifts
+    muted palettes (western's amber/red) to neon brightness; near no-op for already-bright
+    colours (neon cyan). Lets one brightness work across every theme's accents."""
+    m = max(c)
+    return c if m == 0 else tuple(min(255, round(v * 255 / m)) for v in c)
 
 # ----------------------------------------------------------------------------
 # character drawing  (3/4 side view, facing RIGHT)
@@ -193,6 +226,16 @@ def draw_agent(pal, variant, pose, t):
         d.rounded_rectangle([bx-2, top-2, bx+3, top+3], radius=1, fill=hat)  # crown
         d.rectangle([bx-2, top+2, bx+3, top+3], fill=shade(band, .9))   # hat band
         d.line([(bx-2, top-2), (bx+2, top-2)], fill=shade(hat, 1.2))    # crown highlight
+    elif pal.get("helmets"):
+        # EVA helmet (3/4 side, facing right): a rounded shell dome over the head with a
+        # glassy accent visor on the front, plus a bright crown sheen and a back rivet.
+        shell = pal["helmets"][variant % len(pal["helmets"])]
+        visor = pal["accent"][variant % len(pal["accent"])]
+        d.ellipse([bx-4, top-2, bx+5, top+8], fill=shell)                       # dome shell
+        d.rounded_rectangle([bx-1, top+1, bx+4, top+6], radius=2, fill=shade(visor, .85))  # visor glass
+        d.line([(bx+1, top+2), (bx+3, top+2)], fill=blend(visor, (255,255,255), 0.55))     # visor glare
+        d.line([(bx-2, top-2), (bx+1, top-2)], fill=shade(shell, 1.25))         # crown sheen
+        d.point((bx-3, top+3), fill=shade(shell, .8))                           # back rivet
     else:
         # hair cap
         d.chord([bx-4, top-1, bx+5, top+6], 180, 360, fill=hair)
@@ -363,6 +406,19 @@ def _bloom(W, H, draw_fn, radius):
     draw_fn(ImageDraw.Draw(layer))
     return layer.filter(ImageFilter.GaussianBlur(radius))
 
+def _vfade_alpha(layer, top_a, bot_a):
+    """Scale a layer's alpha by a vertical ramp (top_a..bot_a, each 0..1) so it fades from
+    one opacity at the top edge to another at the bottom. Mutates and returns `layer`."""
+    w, h = layer.size
+    ramp = Image.new("L", (1, h))
+    rpx = ramp.load()
+    for y in range(h):
+        f = top_a + (bot_a - top_a) * (y / max(1, h - 1))
+        rpx[0, y] = max(0, min(255, int(255 * f)))
+    ramp = ramp.resize((w, h))
+    layer.putalpha(ImageChops.multiply(layer.split()[3], ramp))
+    return layer
+
 def menu_bg(pal):
     # Atmospheric only — the game renders the title/UI text on top in Pixi/HTML. A lit back
     # wall with bloomed neon signage, a glowing horizon, a reflective floor, and a two-layer
@@ -410,36 +466,48 @@ def menu_bg(pal):
     return img
 
 def lobby_bg(pal):
-    # The waiting room: same lit back wall as the menu, a neon-trimmed tiled floor, and a
-    # rim-lit line of idle agents waiting at the start.
+    # The waiting room as a sleek one-point-perspective light corridor: clean concentric
+    # frames receding to a glowing vanishing point dead centre, with guide lines running
+    # from the corners through every frame corner. It fills the frame edge-to-edge with
+    # quiet geometry and leaves the centre luminous, so the card sits in the lit doorway at
+    # the end of the hall. Palette-driven: each theme keeps its own accent identity.
     W, H = 320, 180
     wall = pal["wall"]
     accent = pal["accent"]
-    floor_top = H - 46
+    cx, cy = W // 2, H // 2
 
-    img = _vgradient(W, H, shade(wall, 0.8), blend(wall, accent[2], 0.08))
+    # Deep gradient: lighter at the vanishing centre is faked by a soft bloom below, so the
+    # base ramp just darkens toward the floor for grounding.
+    img = _vgradient(W, H, shade(wall, 0.62), shade(wall, 0.92))
 
-    # Soft back glow so the card's scrim has something richer than flat dark behind it.
-    img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse([W * 0.2, -H * 0.3, W * 0.8, H * 0.5], fill=blend(wall, accent[2], 0.5) + (120,)), 24))
+    # The light at the end of the corridor — a soft cool bloom the card will sit over.
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
+        [cx - 30, cy - 30, cx + 30, cy + 30], fill=blend(wall, vivify(accent[2]), 0.85) + (150,)), 20))
 
-    # Tiled floor band with a glowing trim rail at its lip.
-    tile = floor_tile(pal)
-    for tx in range(0, W, tile.width):
-        img.paste(tile, (tx, floor_top))
-    img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle([0, floor_top - 3, W, floor_top], fill=accent[2] + (220,)), 4))
+    vacc = [vivify(c) for c in accent]   # brightness-equalised accents, so every theme reads
 
-    # A waiting line of rim-lit idle agents at the start. The line runs full-bleed: it
-    # starts half off the left edge and continues until it runs off the right, so the
-    # crowd is balanced edge-to-edge rather than anchored to a left margin. That keeps it
-    # centred under bg-cover at any viewport aspect (the sides crop evenly).
-    rnd = random.Random(5)
-    x = -18
-    while x < W:
-        v = rnd.randrange(N_VARIANTS)
-        fr = draw_agent(pal, v, "idle", rnd.randrange(ANIM["idle"]))
-        fr = _silhouette(fr, shade(wall, 0.3), accent[0]).resize((FW * 2, FH * 2), Image.NEAREST)
-        img.alpha_composite(fr, (x, floor_top - FH * 2 + 6))
-        x += rnd.choice([26, 30, 34])
+    def corridor(gd):
+        # Guide lines from each corner to the vanishing point. Because every frame is the
+        # full frame scaled about the centre, these pass cleanly through all frame corners.
+        for corner in [(0, 0), (W, 0), (0, H), (W, H)]:
+            gd.line([corner, (cx, cy)], fill=blend(wall, vacc[2], 0.7) + (90,), width=1)
+        # Concentric frames from the vanishing point outward; the nearer (larger) a frame,
+        # the brighter and more opaque, so the corridor reads as coming toward the viewer.
+        steps = 8
+        for i in range(steps):
+            f = 0.13 + (1.0 - 0.13) * (i / (steps - 1))   # 0→point, 1→full frame
+            hw, hh = f * (W / 2), f * (H / 2)
+            a = int(80 + 175 * f)
+            gd.rectangle([cx - hw, cy - hh, cx + hw, cy + hh], outline=vacc[i % len(vacc)] + (a,), width=1)
+
+    # Draw the corridor once, crisp; use a dimmed blurred copy underneath as the glow and lay
+    # the crisp lines on top at full strength so they read hard-edged rather than fuzzy.
+    sharp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    corridor(ImageDraw.Draw(sharp))
+    glow = sharp.filter(ImageFilter.GaussianBlur(2))
+    glow.putalpha(glow.split()[3].point(lambda v: int(v * 0.55)))
+    img.alpha_composite(glow)
+    img.alpha_composite(sharp)
 
     img = up(img)
     img = _vignette(img, pal["vignette"])
