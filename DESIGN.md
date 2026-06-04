@@ -30,8 +30,8 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 
 - **One axis: RIGHT only.** No up, no down, no left, no backward.
 - Verbs: **stop / walk-right / run-right**.
-- **Controls:** hold to walk, hold **Shift** to run, release to stop. Mouse aims;
-  click fires. Rapid tapping = the near-useless "jitter" panic-dodge.
+- **Controls:** hold **Space** to walk, hold **Shift** to run, release to stop. Mouse
+  aims; click fires.
 - **Run is faster than any bot ever moves. Bots cannot run.** So *running is always an
   unmistakable human tell* — a pure last resort.
 - Pace / being at the front of the pack is a *soft, fuzzy* tell, not a hard one.
@@ -40,16 +40,22 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 
 - Headcount scales with players (~6 bots per human, cap ~100). MVP target ~30.
 - Characters are scattered at fixed vertical rows and draw from a **shared pool of ~12
-  cosmetic sprite variants** (each with idle / walk / run animations). The variant is
-  assigned **randomly per character at spawn, server-side, and is NEVER correlated with
-  who is human** — it is pure decoration so the crowd reads as a crowd, not a row of
-  clones. The same variant can be a human in one round and a bot in the next; cosmetics
-  leak no identity. Per-theme art lives in `priv/static/images/themes/<theme>/`.
+  cosmetic sprite variants** (each with idle / walk / run animations). Each character's
+  variant is derived **client-side from a deterministic hash of its entity id** — so every
+  client shows a given character the same way, the look is **NEVER correlated with who is
+  human**, and no variant data need ride the snapshot. It is pure decoration so the crowd
+  reads as a crowd, not a row of clones. Because identity is re-rolled each round (humans
+  take random bodies), the same variant can be a human in one round and a bot in the next;
+  cosmetics leak no identity. Per-theme art lives in `priv/static/themes/<theme>/`.
 - Each bot independently **moves or stops in alternating phases**, the duration of each
   phase re-rolled per cycle on its own timing — so the crowd is desynced (no "waves") with
   no mid-phase jitter. A moving bot moves at **exactly the human walk speed**, so pace
   never distinguishes a walking human from a moving bot; only *running* (which no bot can
   do) is a hard tell. Longer stop phases keep overall progress in check.
+- The **round tempo** (`slow | medium | fast`) is a host-set lobby knob that tunes the
+  bots' move:stop *ratio* — how much of the time the crowd spends moving, and so how fast
+  the race runs overall — **not** how fast a moving body goes (that stays pinned to the
+  walk speed, so tempo can never become a tell).
 - Bots **race toward the finish** (they can and do cross it).
 - **No bot "noise" for v1** (no fake flinches/pauses/etc.). A `botNoise` dial may be
   added later to introduce false positives.
@@ -62,8 +68,10 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
   you which character its owner is. But *where* a reticle hovers is intel (a reticle
   parked on someone = that someone is suspected).
 - **One bullet per player per round** by default — the lobby host can raise the count
-  (up to a handful) before a round. Hitscan: each shot kills the character **nearest to
-  the crosshair**.
+  (up to a handful) before a round. Hitscan **with a hit radius**: a shot kills the living
+  character nearest the crosshair, but **only if one is within a small radius** — otherwise
+  the bullet cracks out over empty ground and hits nothing (a miss). A hit and a miss
+  **both spend the shot**; only being out of ammo (or out of the round) costs you nothing.
 - **Firing reveals nothing about who fired.** Its only costs:
   1. You've spent your one and only shot (now defenseless), and
   2. **Your crosshair disappears** — so everyone can see you are now unarmed.
@@ -108,12 +116,19 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 ## 8. Session / match structure
 
 - **Endless rounds** with a between-rounds **lobby**: a finish drops everyone out and shows
-  the standings; the next round only starts once **≥ 2 players opt back in** ("Play again").
-  Players join/leave freely.
+  the standings, and the **host** starts the next round from there ("Play again"). Players
+  join/leave freely.
 - **Cumulative scoreboard** across the session. **Wins only score** (kills are tactics,
   not points).
-- A round needs **≥ 2 humans** to start; mid-round joiners **spectate until next round**.
+- A round can start with **as few as one player** (a lone player races the bots); the
+  **host** alone starts it. Mid-round joiners **spectate until the next round**.
 - Bots fill remaining slots up to the target headcount.
+- **Lobbies are addressed by a short shareable code.** Creating one mints the code and makes
+  that creator the **host**; others join by typing the code. Host privilege is assigned
+  **server-side** (never from the URL), hands off to the earliest remaining player if the
+  host leaves, and is what gates **starting a round** and **changing the lobby knobs**
+  (bullets, lives, tempo, theme). The host can **close** the lobby for everyone; an empty
+  lobby **expires** on its own shortly after the last player leaves, freeing its code.
 
 ## 9. Technical architecture
 
@@ -129,6 +144,10 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
   **predict** their own input, reconciling against snapshots. (Delta compression is a
   later optimization, not needed for MVP.)
 - **Client renderer:** **Pixi.js / WebGL** canvas.
+- **Cosmetic themes:** a room wears a host-set **theme** (art + audio), chosen in the lobby
+  and broadcast so every client swaps together; it can be hot-swapped between rounds. Each
+  theme is a self-contained pack under `priv/static/themes/<key>/` with a `theme.json`
+  manifest, and is **purely cosmetic** — never correlated with identity.
 - **Persistence:** **Ecto + Postgres** for accounts + stats/leaderboards.
 - **Auth / onboarding:** **guest play allowed** (name only, jump straight in); optional
   account to persist stats. Stats are only tracked for logged-in players.

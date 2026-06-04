@@ -43,11 +43,12 @@ in-round music is generated); the client then falls back to the default theme's 
 `idle` (4 frames), `walk` (4), `run` (6), `dropped` (1, the ghosted body after a kill).
 Frame size is **32×32**.
 
-**Assign a variant to each character randomly at spawn, server-side, and never tie it to
-identity.** A variant is decoration only: the same look can be a human this round and a
-bot the next. This is what makes the crowd feel like a crowd instead of a row of clones,
-without leaking who is who. (Running is still the only hard tell — a speed difference,
-not a visual one.)
+**Each character's variant is derived client-side from a deterministic hash of its entity
+id — never tied to identity.** Every client therefore shows a given character the same way
+with no variant data on the wire, and a variant is decoration only: the same look can be a
+human this round and a bot the next (identity is re-rolled per round). This is what makes
+the crowd feel like a crowd instead of a row of clones, without leaking who is who.
+(Running is still the only hard tell — a speed difference, not a visual one.)
 
 ## Loading in Pixi
 
@@ -59,7 +60,7 @@ import { Assets, AnimatedSprite } from "pixi.js";
 
 const sheet = await Assets.load("/themes/neon/agents.json");
 
-// pick a random cosmetic variant for a character (server tells you which)
+// derive the variant from the entity id (deterministic, identity-independent)
 const v = String(variantIndex).padStart(2, "0");      // e.g. "07"
 const sprite = new AnimatedSprite(sheet.animations[`v${v}_walk`]);
 sprite.animationSpeed = 0.15;   // run uses ~0.28; idle ~0.05
