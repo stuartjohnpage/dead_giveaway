@@ -102,8 +102,11 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:noreply, socket}
   end
 
+  # Starting a round ("Go" / "Play again") is host-only, like the config knobs below:
+  # only the lobby leader launches the game. A guest's Go is acknowledged but ignored,
+  # and it's gated server-side, never on the client, so a crafted push can't start it.
   def handle_in("go", _payload, socket) do
-    Room.go(socket.assigns.room)
+    if socket.assigns.host, do: Room.go(socket.assigns.room)
     {:reply, :ok, socket}
   end
 
