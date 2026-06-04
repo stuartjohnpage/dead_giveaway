@@ -1,28 +1,71 @@
 <Layouts.flash_group flash={@flash} />
-<div class="relative min-h-dvh overflow-hidden bg-[#0b1020] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat text-slate-100">
-  <%!-- Soft racing-stripe glow behind the title/play card. --%>
+<%!-- "Target Acquired" home screen: a surveillance/targeting monitor. The crowd art
+      (neon theme menu_bg) sits behind heavy darkening, scanlines, a slow scan-sweep
+      and grain; the neon reticle motif frames the play card so it reads as a lock
+      acquired on *you*. Cosmetic only — the create/join forms keep their ids, names,
+      actions and methods (router.mjs intercepts both on submit). --%>
+<div class="dg-scanlines relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat font-display text-slate-100">
+  <%!-- Darken + vignette the crowd so the neon UI reads cleanly on top of it. Grain
+        rides this overlay's ::before (its own free pseudo) rather than the root's —
+        the root's ::before/::after are already the scanline texture + scan-sweep, and
+        an element only has one of each, so the two effects must live on separate nodes. --%>
   <div
     aria-hidden="true"
-    class="pointer-events-none absolute inset-0 opacity-60 [background:radial-gradient(60rem_40rem_at_50%_-10%,#1e2a55_0%,transparent_60%)]"
+    class="dg-grain pointer-events-none absolute inset-0 bg-[var(--dg-ink)]/82 [background-image:radial-gradient(80rem_60rem_at_50%_-20%,rgba(56,225,255,0.12),transparent_60%),radial-gradient(60rem_50rem_at_50%_120%,rgba(6,7,14,0.95),transparent_55%)]"
   >
   </div>
 
-  <main class="relative z-10 mx-auto flex min-h-dvh max-w-5xl flex-col px-6 py-12">
-    <%!-- Title up top, skribbl-style. --%>
+  <%!-- Top status strip — the monitor's chrome. Pure flavour. --%>
+  <div class="relative z-10 flex items-center justify-between px-6 py-4 font-mono text-[0.65rem] uppercase tracking-[0.3em] text-cyan-300/70 sm:px-10">
+    <span class="flex items-center gap-2">
+      <span class="dg-blink inline-block h-2 w-2 rounded-full bg-[var(--dg-magenta)] shadow-[0_0_8px_var(--dg-magenta)]">
+      </span> Surveillance · Live
+    </span>
+    <span class="hidden sm:inline">Sector 07 // Death Race</span>
+  </div>
+
+  <main class="relative z-10 mx-auto flex min-h-[calc(100dvh-3.5rem)] max-w-5xl flex-col px-6 pb-16 pt-6 sm:pt-10">
+    <%!-- Title block. --%>
     <div class="text-center">
-      <h1 class="bg-gradient-to-b from-white to-slate-400 bg-clip-text text-5xl font-black tracking-tight text-transparent sm:text-6xl">
-        DEAD GIVEAWAY
+      <h1
+        class="dg-rise dg-glow-cyan mt-4 text-5xl font-bold uppercase leading-[0.95] tracking-[0.02em] text-white sm:text-7xl"
+        style="animation-delay:.12s"
+      >
+        <%!-- Flicker lives on an inner span: the <h1> already spends its single
+              `animation` slot on dg-rise's intro fade, so the infinite flicker has to
+              own its own element or it would be overridden. --%>
+        <span class="dg-flicker">
+          Dead<br class="sm:hidden" />
+          <span class="text-[var(--dg-cyan)]">Giveaway</span>
+        </span>
       </h1>
-      <p class="mt-3 text-sm leading-6 text-slate-400">Hide among the crowd.</p>
+      <p
+        class="dg-rise mt-5 text-sm tracking-wide text-slate-300/90"
+        style="animation-delay:.2s"
+      >
+        Hide among the crowd. Cross the finish.
+        <span class="text-[var(--dg-magenta)]">Don't get spotted.</span>
+      </p>
     </div>
 
     <%!-- Centre block: pick a name, then create or join a lobby. The name is typed
-          once and powers both actions (Create GETs /play/new; Join POSTs /join);
-          the inline script at the foot mirrors it into the join form. --%>
-    <div class="mx-auto mt-10 w-full max-w-md space-y-5 rounded-2xl bg-[#10162e] p-7 shadow-2xl ring-1 ring-white/10">
+          once (create form) and powers both actions (Create GETs /play/new; Join
+          POSTs /join); router.mjs mirrors it into the join form's hidden field. The
+          reticle frame "locks on" when any field inside is focused. --%>
+    <div
+      class="dg-rise dg-reticle mx-auto mt-12 w-full max-w-md space-y-5 border border-cyan-400/15 bg-[#0a0f22]/85 p-7 shadow-[0_0_60px_-15px_rgba(56,225,255,0.45)] backdrop-blur-sm"
+      style="animation-delay:.28s"
+    >
       <%!-- Create: carries the name and mints a fresh shareable code, dropping you in
             as host. GET so the name rides along as a query param into /play/new. --%>
       <form id="create-form" action={~p"/play/new"} method="get" class="space-y-4">
+        <label
+          for="player-name"
+          class="flex items-center justify-between font-mono text-[0.65rem] uppercase tracking-[0.25em] text-cyan-300/70"
+        >
+          <span>Identify yourself</span>
+          <span class="text-slate-500">16 max</span>
+        </label>
         <input
           type="text"
           id="player-name"
@@ -30,110 +73,115 @@
           placeholder="Your name"
           autocomplete="off"
           maxlength="16"
-          class="w-full rounded-xl bg-[#0b1020] px-4 py-3 text-center text-lg font-semibold text-white placeholder:font-normal placeholder:text-slate-500 ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+          class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-3 text-center text-lg font-semibold text-white transition placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
         />
         <button
           type="submit"
-          class="block w-full rounded-xl bg-emerald-500 px-4 py-3 text-center font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400 active:scale-[0.98]"
+          class="dg-btn dg-btn-cyan block w-full px-4 py-3.5 text-center text-sm font-bold"
         >
           Create a lobby
         </button>
       </form>
 
-      <div class="flex items-center gap-3 text-xs uppercase tracking-widest text-slate-500">
-        <span class="h-px flex-1 bg-white/10"></span>
-        or join one <span class="h-px flex-1 bg-white/10"></span>
+      <div class="flex items-center gap-3 font-mono text-[0.65rem] uppercase tracking-[0.3em] text-slate-500">
+        <span class="h-px flex-1 bg-cyan-400/15"></span>
+        or join one <span class="h-px flex-1 bg-cyan-400/15"></span>
       </div>
 
       <%!-- Join: type a code a host shared with you. `join-name` is a hidden mirror of
-            the name field above, filled by the script below right before submit so a
-            guest carries their chosen name in too. --%>
+            the name field above, filled by router.mjs right before submit so a guest
+            carries their chosen name in too. --%>
       <.form for={to_form(%{})} id="join-form" action={~p"/join"} method="post" class="flex gap-2">
         <input type="hidden" id="join-name" name="name" />
         <input
           type="text"
           id="code"
           name="code"
-          placeholder="Lobby code"
+          placeholder="Code"
           autocomplete="off"
           autocapitalize="characters"
           maxlength="4"
-          class="w-full rounded-xl bg-[#0b1020] px-4 py-3 text-center text-lg font-semibold uppercase tracking-[0.3em] text-white placeholder:tracking-normal placeholder:text-slate-500 ring-1 ring-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+          class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-3 text-center font-mono text-lg font-semibold uppercase tracking-[0.4em] text-white transition placeholder:tracking-[0.2em] placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
         />
         <button
           type="submit"
-          class="shrink-0 rounded-xl bg-white/10 px-5 py-3 font-semibold text-white transition hover:bg-white/20 active:scale-[0.98]"
+          class="dg-btn shrink-0 border border-cyan-400/40 px-5 py-3 text-sm font-bold text-cyan-200 transition hover:bg-cyan-400/10 hover:text-white"
         >
           Join
         </button>
       </.form>
     </div>
 
-    <%!-- Three info cards across the bottom, skribbl-style: About / News / How to Play. --%>
-    <div class="mt-12 grid gap-6 md:grid-cols-3">
+    <%!-- Three HUD panels across the bottom: About / News / How to Play. --%>
+    <div class="dg-rise mt-14 grid gap-5 md:grid-cols-3" style="animation-delay:.36s">
       <%!-- ABOUT — placeholder copy; replace with your own blurb. --%>
-      <section class="rounded-2xl bg-[#10162e] p-6 shadow-2xl ring-1 ring-white/10">
-        <h2 class="mb-3 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
-          About
+      <section class="relative border-l-2 border-cyan-400/50 bg-[#0a0f22]/70 p-6 backdrop-blur-sm">
+        <h2 class="mb-3 font-mono text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-cyan-300/80">
+          // About
         </h2>
         <p class="text-sm leading-6 text-slate-300">
-          Dead Giveaway is a hidden-identity party game: you're one face in a moving
-          crowd, racing for the finish without giving yourself away.
-          <span class="text-slate-500">(Replace this with your own copy.)</span>
+          Dead Giveaway is a hidden-identity party game. Do you know who your friends are? Do you know who you are? 
+          This game is heavily inspired by (if not an outright rip-off of) the Death Race game-mode in <a class="text-[var(--dg-magenta)]" href="https://store.steampowered.com/app/303590/Hidden_in_Plain_Sight/">Hidden in Plain Sight</a>. Go play this most excellent game!
         </p>
       </section>
 
       <%!-- NEWS — placeholder items; replace with your own updates. --%>
-      <section class="rounded-2xl bg-[#10162e] p-6 shadow-2xl ring-1 ring-white/10">
-        <h2 class="mb-3 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
-          News
+      <section class="relative border-l-2 border-l-[var(--dg-magenta)]/50 bg-[#0a0f22]/70 p-6 backdrop-blur-sm">
+        <h2 class="mb-3 font-mono text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-[var(--dg-magenta)]/85">
+          // News
         </h2>
         <ul class="space-y-3 text-sm leading-6 text-slate-300">
           <li>
-            <span class="block text-xs font-semibold text-emerald-400">Latest</span>
-            Add your update here.
-            <span class="text-slate-500">(Replace this with your own news.)</span>
+            <span class="mb-1 block font-mono text-[0.6rem] uppercase tracking-[0.25em] text-[var(--dg-magenta)]">
+              Latest
+            </span>
+            Will has already beaten me at the game; I am considering handicapping him. 
           </li>
+          <li> Mowgli does not feature in this game at all; I need to change that.</li>
+          <li>David is also working on a version with his own hands (not using Clankers).</li>
+          <li>V1 launch!</li>
         </ul>
       </section>
 
       <%!-- HOW TO PLAY — brief prose plus the key legend (matches assets/js/game.mjs
-            bindings + DESIGN §3, §5). --%>
-      <section class="rounded-2xl bg-[#10162e] p-6 shadow-2xl ring-1 ring-white/10">
-        <h2 class="mb-3 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
-          How to Play
+            bindings + DESIGN §3, §5). The run key is magenta — running is the tell. --%>
+      <section class="relative border-l-2 border-l-[var(--dg-lime)]/50 bg-[#0a0f22]/70 p-6 backdrop-blur-sm">
+        <h2 class="mb-3 font-mono text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-[var(--dg-lime)]/85">
+          // How to Play
         </h2>
         <p class="mb-4 text-sm leading-6 text-slate-300">
-          Move with the crowd and reach the finish first. Move too boldly and you
-          stand out; fire to take a rival down.
+          Move with the crowd and reach the finish first. Try not to stand-out or risk being slain. Try to shoot your friends before they finish!
         </p>
         <div class="grid grid-cols-3 gap-3 text-center">
           <div class="flex flex-col items-center gap-2">
-            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+            <kbd class="inline-flex min-w-9 items-center justify-center border border-cyan-400/30 bg-cyan-400/5 px-2 py-1 font-mono text-xs text-cyan-100 shadow-[0_0_10px_-4px_var(--dg-cyan)]">
               Space
             </kbd>
-            <span class="text-xs text-slate-300">Hold to walk</span>
+            <span class="text-xs text-slate-400">Hold to walk</span>
           </div>
           <div class="flex flex-col items-center gap-2">
-            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+            <kbd class="inline-flex min-w-9 items-center justify-center border border-[var(--dg-magenta)]/40 bg-[var(--dg-magenta)]/10 px-2 py-1 font-mono text-xs text-pink-100 shadow-[0_0_10px_-4px_var(--dg-magenta)]">
               Shift
             </kbd>
-            <span class="text-xs text-slate-300">
-              Hold to <span class="text-rose-300">run</span>
+            <span class="text-xs text-slate-400">
+              Hold to <span class="text-[var(--dg-magenta)]">run</span>
             </span>
           </div>
           <div class="flex flex-col items-center gap-2">
-            <kbd class="inline-flex min-w-8 items-center justify-center rounded-md border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
+            <kbd class="inline-flex min-w-9 items-center justify-center border border-white/15 bg-white/5 px-2 py-1 font-mono text-xs text-slate-200 shadow-sm">
               Mouse
             </kbd>
-            <span class="text-xs text-slate-300">Aim &amp; click to fire</span>
+            <span class="text-xs text-slate-400">Aim &amp; click to fire</span>
           </div>
         </div>
+        <p class="mb-4 text-sm leading-6 text-slate-300">
+          Bots can't run... so be careful.
+        </p>
       </section>
     </div>
 
-    <%!-- Audio settings used to live here as a "Sound" card; they're now the always-
-          accessible gear in the root layout (#19), available on every screen. --%>
+    <%!-- Audio settings live as the always-accessible gear in the root layout (#19),
+          available on every screen. --%>
   </main>
 </div>
 

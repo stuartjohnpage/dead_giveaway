@@ -7,6 +7,13 @@
     <.live_title default="DeadGiveaway" suffix=" · Phoenix Framework">
       {assigns[:page_title]}
     </.live_title>
+    <%!-- HUD display + mono families for the neon-noir theme (see assets/css/app.css). --%>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>
@@ -62,7 +69,7 @@
       <div
         id="audio-panel"
         hidden
-        class="absolute right-0 mt-2 w-64 rounded-xl bg-[#10162e]/95 p-4 text-left shadow-2xl ring-1 ring-white/10 backdrop-blur-sm"
+        class="dg-reticle absolute right-0 mt-2 w-64 border border-cyan-400/15 bg-[#0a0f22]/95 p-4 text-left font-display shadow-[0_0_40px_-12px_rgba(56,225,255,0.5)] backdrop-blur-sm"
       >
         <div class="mb-3 flex items-center justify-between">
           <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -70,10 +77,10 @@
           </span>
           <div class="flex items-center gap-3 text-sm text-slate-300">
             <label class="flex items-center gap-1">
-              <input type="radio" name="sound" value="on" class="accent-emerald-500" /> On
+              <input type="radio" name="sound" value="on" class="accent-cyan-400" /> On
             </label>
             <label class="flex items-center gap-1">
-              <input type="radio" name="sound" value="off" class="accent-emerald-500" checked />
+              <input type="radio" name="sound" value="off" class="accent-cyan-400" checked />
               Off
             </label>
           </div>
@@ -87,13 +94,13 @@
               type="range"
               min="0"
               max="100"
-              class="w-full accent-emerald-500"
+              class="w-full accent-cyan-400"
             />
             <span id="vol-master-val" class="w-8 text-right tabular-nums text-slate-500"></span>
           </label>
           <label class="flex items-center gap-2 text-xs text-slate-400">
             <span class="w-12 shrink-0">SFX</span>
-            <input id="vol-sfx" type="range" min="0" max="100" class="w-full accent-emerald-500" />
+            <input id="vol-sfx" type="range" min="0" max="100" class="w-full accent-cyan-400" />
             <span id="vol-sfx-val" class="w-8 text-right tabular-nums text-slate-500"></span>
           </label>
         </div>

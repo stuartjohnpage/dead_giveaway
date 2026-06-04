@@ -103,3 +103,220 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+/* ===========================================================================
+   Dead Giveaway — "Target Acquired" neon-noir HUD theme.
+
+   The whole look keys off the game's own art (priv/static/themes/neon/menu_bg):
+   neon targeting reticles — cyan / magenta / lime — hovering over a dark crowd.
+   Those three colours carry gameplay meaning here too: cyan = you / primary,
+   magenta = the *run* tell / danger, lime = go / finish / success.
+
+   Everything below is cosmetic. No JS hooks live in this file.
+   =========================================================================== */
+
+/* Register the two display/mono families with Tailwind so `font-display` and
+   `font-mono` utilities resolve to them (the <link> is in root.html.heex). */
+@theme {
+  --font-display: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Spline Sans Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --dg-ink: #06070e; /* deepest backdrop */
+  --dg-cyan: #38e1ff; /* you / primary action / identity */
+  --dg-magenta: #ff3d8b; /* the run tell / danger */
+  --dg-lime: #b6ff3d; /* go / finish / success */
+}
+
+/* The whole UI speaks Chakra Petch by default — characterful, squared, HUD-like. */
+body {
+  font-family: var(--font-display);
+}
+
+/* --- Animated corner-bracket reticle ------------------------------------------
+   One class, no extra DOM: an inset ::after paints four L-shaped corner ticks out
+   of eight thin gradients and glows via drop-shadow. It tightens + brightens when
+   the framed card gains focus or hover, so the reticle reads as "locking on".
+   Colour per instance with the --cyan / --lime / --magenta modifiers.            */
+.dg-reticle {
+  position: relative;
+}
+.dg-reticle::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  --len: 16px;
+  --th: 2px;
+  --col: var(--dg-cyan);
+  background:
+    linear-gradient(var(--col), var(--col)) 0 0 / var(--len) var(--th) no-repeat,
+    linear-gradient(var(--col), var(--col)) 0 0 / var(--th) var(--len) no-repeat,
+    linear-gradient(var(--col), var(--col)) 100% 0 / var(--len) var(--th) no-repeat,
+    linear-gradient(var(--col), var(--col)) 100% 0 / var(--th) var(--len) no-repeat,
+    linear-gradient(var(--col), var(--col)) 0 100% / var(--len) var(--th) no-repeat,
+    linear-gradient(var(--col), var(--col)) 0 100% / var(--th) var(--len) no-repeat,
+    linear-gradient(var(--col), var(--col)) 100% 100% / var(--len) var(--th) no-repeat,
+    linear-gradient(var(--col), var(--col)) 100% 100% / var(--th) var(--len) no-repeat;
+  filter: drop-shadow(0 0 5px var(--col));
+  opacity: 0.55;
+  transition: opacity 0.25s ease, inset 0.25s ease;
+}
+.dg-reticle:hover::after,
+.dg-reticle:focus-within::after {
+  opacity: 1;
+  inset: -5px; /* corners spring outward — the "lock acquired" tick */
+}
+.dg-reticle--lime::after {
+  --col: var(--dg-lime);
+}
+.dg-reticle--magenta::after {
+  --col: var(--dg-magenta);
+}
+
+/* --- Neon text glow ---------------------------------------------------------- */
+.dg-glow-cyan {
+  text-shadow: 0 0 8px color-mix(in srgb, var(--dg-cyan) 70%, transparent),
+    0 0 24px color-mix(in srgb, var(--dg-cyan) 45%, transparent);
+}
+
+/* The title flickers like a tube struggling to hold its charge — very subtle,
+   slow, and it settles to full brightness (no strobing). */
+.dg-flicker {
+  animation: dg-flicker 6s linear 1s infinite;
+}
+@keyframes dg-flicker {
+  0%, 100% { opacity: 1; }
+  96% { opacity: 1; }
+  96.5% { opacity: 0.72; }
+  97% { opacity: 1; }
+  98% { opacity: 0.85; }
+  98.5% { opacity: 1; }
+}
+
+/* --- CRT scanlines + a slow surveillance sweep ------------------------------- */
+.dg-scanlines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.22) 3px,
+    rgba(0, 0, 0, 0) 4px
+  );
+  opacity: 0.5;
+}
+/* A single faint cyan line crawls top→bottom like a monitor refresh / scanner. */
+.dg-scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--dg-cyan) 14%, transparent) 50%,
+    transparent 100%
+  );
+  height: 38%;
+  animation: dg-sweep 7s linear infinite;
+}
+@keyframes dg-sweep {
+  0% { transform: translateY(-120%); }
+  100% { transform: translateY(360%); }
+}
+
+/* --- Film grain (inline SVG noise, blended over the scene) -------------------- */
+.dg-grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* --- Neon primary button ("ENGAGE") ------------------------------------------
+   Filled neon slab with an outer bloom that intensifies on hover; a thin sweep of
+   light passes across on hover. Used for Create (cyan) and Go (lime).            */
+.dg-btn {
+  position: relative;
+  overflow: hidden;
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: box-shadow 0.2s ease, transform 0.08s ease, background-color 0.2s ease;
+}
+.dg-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 0.55s ease;
+}
+.dg-btn:hover::before {
+  transform: translateX(120%);
+}
+.dg-btn:active {
+  transform: scale(0.985);
+}
+.dg-btn-cyan {
+  background: var(--dg-cyan);
+  color: #04121a;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dg-cyan) 60%, transparent),
+    0 0 22px -2px color-mix(in srgb, var(--dg-cyan) 55%, transparent);
+}
+.dg-btn-cyan:hover {
+  box-shadow: 0 0 0 1px var(--dg-cyan), 0 0 34px 0 color-mix(in srgb, var(--dg-cyan) 70%, transparent);
+}
+.dg-btn-lime {
+  background: var(--dg-lime);
+  color: #0c1404;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--dg-lime) 60%, transparent),
+    0 0 22px -2px color-mix(in srgb, var(--dg-lime) 55%, transparent);
+}
+.dg-btn-lime:hover {
+  box-shadow: 0 0 0 1px var(--dg-lime), 0 0 34px 0 color-mix(in srgb, var(--dg-lime) 70%, transparent);
+}
+
+/* --- Blinking status dot (the "● TARGETING" telltale) ------------------------ */
+.dg-blink {
+  animation: dg-blink 1.6s steps(1) infinite;
+}
+@keyframes dg-blink {
+  0%, 60% { opacity: 1; }
+  61%, 100% { opacity: 0.15; }
+}
+
+/* --- Staggered load reveal ---------------------------------------------------- */
+.dg-rise {
+  opacity: 0;
+  animation: dg-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes dg-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Respect users who'd rather not have motion. */
+@media (prefers-reduced-motion: reduce) {
+  .dg-flicker,
+  .dg-blink,
+  .dg-rise,
+  .dg-btn::before {
+    animation: none !important;
+  }
+  .dg-rise { opacity: 1; transform: none; }
+  /* The sweep is pure motion — hide it outright rather than leaving the band
+     parked mid-screen at translateY(0). */
+  .dg-scanlines::after { display: none; }
+}
