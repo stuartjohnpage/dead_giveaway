@@ -163,7 +163,8 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     push(guest, "aim", %{"x" => 1.0, "y" => 1.0})
 
     # Snapshots stream at the tick rate; wait for one carrying the host's point.
-    assert_push "snapshot", %{crosshairs: [%{x: 7.0, y: 3.0}]}, 500
+    # Positions ride the wire quantized to whole world units (#39), so 7.0/3.0 → 7/3.
+    assert_push "snapshot", %{crosshairs: [%{x: 7, y: 3}]}, 500
   end
 
   test "the host can set the bullet count and it reaches every client's lobby" do
