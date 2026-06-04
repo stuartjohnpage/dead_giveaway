@@ -16,7 +16,7 @@
   </div>
 
   <%!-- Top status strip — the monitor's chrome. Pure flavour. --%>
-  <div class="relative z-10 flex items-center justify-between px-6 py-4 font-mono text-[0.65rem] uppercase tracking-[0.3em] text-cyan-300/70 sm:px-10">
+  <div class="relative z-10 flex items-center justify-between px-6 py-3 font-mono text-[0.65rem] uppercase tracking-[0.3em] text-cyan-300/70 sm:px-10">
     <span class="flex items-center gap-2">
       <span class="dg-blink inline-block h-2 w-2 rounded-full bg-[var(--dg-magenta)] shadow-[0_0_8px_var(--dg-magenta)]">
       </span> Surveillance · Live
@@ -24,11 +24,11 @@
     <span class="hidden sm:inline">Sector 07 // Death Race</span>
   </div>
 
-  <main class="relative z-10 mx-auto flex min-h-[calc(100dvh-3.5rem)] max-w-5xl flex-col px-6 pb-16 pt-6 sm:pt-10">
+  <main class="relative z-10 mx-auto flex min-h-[calc(100dvh-3rem)] max-w-5xl flex-col justify-center px-6 pb-5 pt-4 sm:pt-5">
     <%!-- Title block. --%>
     <div class="text-center">
       <h1
-        class="dg-rise dg-glow-cyan mt-4 text-5xl font-bold uppercase leading-[0.95] tracking-[0.02em] text-white sm:text-7xl"
+        class="dg-rise dg-glow-cyan mt-1 text-5xl font-bold uppercase leading-[0.95] tracking-[0.02em] text-white sm:text-6xl"
         style="animation-delay:.12s"
       >
         <%!-- Flicker lives on an inner span: the <h1> already spends its single
@@ -40,7 +40,7 @@
         </span>
       </h1>
       <p
-        class="dg-rise mt-5 text-sm tracking-wide text-slate-300/90"
+        class="dg-rise mt-3 text-sm tracking-wide text-slate-300/90"
         style="animation-delay:.2s"
       >
         Hide among the crowd. Cross the finish.
@@ -53,12 +53,12 @@
           POSTs /join); router.mjs mirrors it into the join form's hidden field. The
           reticle frame "locks on" when any field inside is focused. --%>
     <div
-      class="dg-rise dg-reticle mx-auto mt-12 w-full max-w-md space-y-5 border border-cyan-400/15 bg-[#0a0f22]/85 p-7 shadow-[0_0_60px_-15px_rgba(56,225,255,0.45)] backdrop-blur-sm"
+      class="dg-rise dg-reticle mx-auto mt-6 w-full max-w-md space-y-3 border border-cyan-400/15 bg-[#0a0f22]/85 p-5 shadow-[0_0_60px_-15px_rgba(56,225,255,0.45)] backdrop-blur-sm"
       style="animation-delay:.28s"
     >
       <%!-- Create: carries the name and mints a fresh shareable code, dropping you in
             as host. GET so the name rides along as a query param into /play/new. --%>
-      <form id="create-form" action={~p"/play/new"} method="get" class="space-y-4">
+      <form id="create-form" action={~p"/play/new"} method="get" class="space-y-3">
         <label
           for="player-name"
           class="flex items-center justify-between font-mono text-[0.65rem] uppercase tracking-[0.25em] text-cyan-300/70"
@@ -73,11 +73,11 @@
           placeholder="Your name"
           autocomplete="off"
           maxlength="16"
-          class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-3 text-center text-lg font-semibold text-white transition placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
+          class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-2.5 text-center text-lg font-semibold text-white transition placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
         />
         <button
           type="submit"
-          class="dg-btn dg-btn-cyan block w-full px-4 py-3.5 text-center text-sm font-bold"
+          class="dg-btn dg-btn-cyan block w-full px-4 py-3 text-center text-sm font-bold"
         >
           Create a lobby
         </button>
@@ -101,7 +101,7 @@
           autocomplete="off"
           autocapitalize="characters"
           maxlength="4"
-          class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-3 text-center font-mono text-lg font-semibold uppercase tracking-[0.4em] text-white transition placeholder:tracking-[0.2em] placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
+          class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-2.5 text-center font-mono text-lg font-semibold uppercase tracking-[0.4em] text-white transition placeholder:tracking-[0.2em] placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
         />
         <button
           type="submit"
@@ -113,24 +113,24 @@
     </div>
 
     <%!-- Three HUD panels across the bottom: About / News / How to Play. --%>
-    <div class="dg-rise mt-14 grid gap-5 md:grid-cols-3" style="animation-delay:.36s">
+    <div class="dg-rise mt-6 grid gap-4 md:grid-cols-3" style="animation-delay:.36s">
       <%!-- ABOUT — placeholder copy; replace with your own blurb. --%>
-      <section class="relative border-l-2 border-cyan-400/50 bg-[#0a0f22]/70 p-6 backdrop-blur-sm">
+      <section class="relative border-l-2 border-cyan-400/50 bg-[#0a0f22]/70 p-5 backdrop-blur-sm">
         <h2 class="mb-3 font-mono text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-cyan-300/80">
           // About
         </h2>
-        <p class="text-sm leading-6 text-slate-300">
+        <p class="text-sm leading-5 text-slate-300">
           Dead Giveaway is a hidden-identity party game. Do you know who your friends are? Do you know who you are? 
           This game is heavily inspired by (if not an outright rip-off of) the Death Race game-mode in <a class="text-[var(--dg-magenta)]" href="https://store.steampowered.com/app/303590/Hidden_in_Plain_Sight/">Hidden in Plain Sight</a>. Go play this most excellent game!
         </p>
       </section>
 
       <%!-- NEWS — placeholder items; replace with your own updates. --%>
-      <section class="relative border-l-2 border-l-[var(--dg-magenta)]/50 bg-[#0a0f22]/70 p-6 backdrop-blur-sm">
+      <section class="relative border-l-2 border-l-[var(--dg-magenta)]/50 bg-[#0a0f22]/70 p-5 backdrop-blur-sm">
         <h2 class="mb-3 font-mono text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-[var(--dg-magenta)]/85">
           // News
         </h2>
-        <ul class="space-y-3 text-sm leading-6 text-slate-300">
+        <ul class="space-y-3 text-sm leading-5 text-slate-300">
           <li>
             <span class="mb-1 block font-mono text-[0.6rem] uppercase tracking-[0.25em] text-[var(--dg-magenta)]">
               Latest
@@ -145,11 +145,11 @@
 
       <%!-- HOW TO PLAY — brief prose plus the key legend (matches assets/js/game.mjs
             bindings + DESIGN §3, §5). The run key is magenta — running is the tell. --%>
-      <section class="relative border-l-2 border-l-[var(--dg-lime)]/50 bg-[#0a0f22]/70 p-6 backdrop-blur-sm">
+      <section class="relative border-l-2 border-l-[var(--dg-lime)]/50 bg-[#0a0f22]/70 p-5 backdrop-blur-sm">
         <h2 class="mb-3 font-mono text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-[var(--dg-lime)]/85">
           // How to Play
         </h2>
-        <p class="mb-4 text-sm leading-6 text-slate-300">
+        <p class="mb-3 text-sm leading-5 text-slate-300">
           Move with the crowd and reach the finish first. Try not to stand-out or risk being slain. Try to shoot your friends before they finish!
         </p>
         <div class="grid grid-cols-3 gap-3 text-center">
@@ -174,7 +174,7 @@
             <span class="text-xs text-slate-400">Aim &amp; click to fire</span>
           </div>
         </div>
-        <p class="mb-4 text-sm leading-6 text-slate-300">
+        <p class="mb-3 text-sm leading-5 text-slate-300">
           Bots can't run... so be careful.
         </p>
       </section>
