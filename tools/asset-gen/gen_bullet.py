@@ -8,6 +8,9 @@ CYAN=(0,230,230); MAG=(255,60,200); WHITE=(235,255,255); OUT=(8,6,14)
 # brass cartridge palette (western)
 BRASS=(214,170,74); BRASS_D=(150,116,42); BRASS_HL=(245,225,150)
 COPPER=(196,118,66); COPPER_L=(228,152,96); RIM=(120,92,36); OUT_W=(28,16,8)
+# energy-cell palette (station): steel casing, glowing signal-blue core, amber end caps
+STEEL=(170,180,193); STEEL_HL=(222,230,240); CORE=(110,205,232); CORE_HL=(225,248,255)
+CAP=(255,150,60); OUT_S=(14,18,28)
 W,H=34,18                      # native canvas (wide; bullet points right)
 SC=6                           # export scale
 
@@ -66,6 +69,35 @@ def draw_cartridge():
     fig=_outline(fig,OUT_W)
     return fig
 
+def draw_cell():
+    """Energy cell: a steel capsule with amber end caps and a glowing signal-blue core
+    window (points right, like the other ammo icons)."""
+    fig=Image.new("RGBA",(W,H),(0,0,0,0)); d=ImageDraw.Draw(fig)
+    cy=H//2
+    # steel casing capsule
+    d.rounded_rectangle([6,cy-4,28,cy+4],radius=3,fill=STEEL)
+    # amber end caps (charge terminals)
+    d.rectangle([5,cy-3,8,cy+3],fill=CAP)
+    d.rectangle([26,cy-3,29,cy+3],fill=CAP)
+    # glowing core window
+    d.rounded_rectangle([11,cy-2,24,cy+2],radius=1,fill=CORE)
+    # volume shading (lower half darker), clipped to the shape
+    sh=Image.new("RGBA",(W,H),(0,0,0,0)); ds=ImageDraw.Draw(sh)
+    ds.rectangle([0,cy+1,W,H],fill=(0,0,0,80))
+    fig=Image.alpha_composite(fig,_mask_to(fig,sh))
+    # highlights: steel sheen + bright core line
+    hl=Image.new("RGBA",(W,H),(0,0,0,0)); dh=ImageDraw.Draw(hl)
+    dh.line([(8,cy-3),(27,cy-3)],fill=STEEL_HL,width=1)
+    dh.line([(12,cy-1),(23,cy-1)],fill=CORE_HL,width=1)
+    fig=Image.alpha_composite(fig,_mask_to(fig,hl))
+    # core segment ticks
+    dl=Image.new("RGBA",(W,H),(0,0,0,0)); dd=ImageDraw.Draw(dl)
+    dd.line([(15,cy-2),(15,cy+2)],fill=shade(CORE,0.65),width=1)
+    dd.line([(19,cy-2),(19,cy+2)],fill=shade(CORE,0.65),width=1)
+    fig=Image.alpha_composite(fig,_mask_to(fig,dl))
+    fig=_outline(fig,OUT_S)
+    return fig
+
 def _mask_to(base, overlay):
     """Clip overlay to base's alpha so highlights/shading stay on the shape."""
     a=base.split()[3]
@@ -100,9 +132,9 @@ def main():
     outdir=sys.argv[1] if len(sys.argv)>1 else "."
     target=sys.argv[2] if len(sys.argv)>2 and sys.argv[2]!='-' else None
     style=sys.argv[3] if len(sys.argv)>3 else "round"
-    fig = draw_cartridge() if style=="cartridge" else draw_round()
-    glow = (230,170,70) if style=="cartridge" else CYAN
-    bg = (26,18,12,255) if style=="cartridge" else (16,14,26,255)
+    fig = {"cartridge": draw_cartridge, "cell": draw_cell}.get(style, draw_round)()
+    glow = {"cartridge": (230,170,70), "cell": CORE}.get(style, CYAN)
+    bg = {"cartridge": (26,18,12,255), "cell": (14,18,28,255)}.get(style, (16,14,26,255))
     icon=with_glow(fig,SC,glow_col=glow)
     fig.resize((W*SC,H*SC),Image.NEAREST).save(os.path.join(outdir,"bullet_flat.png"))  # no glow
     icon.save(os.path.join(outdir,"bullet.png"))                                          # with glow
