@@ -175,6 +175,16 @@ body {
   --col: var(--dg-magenta);
 }
 
+/* The audio settings panel carries .dg-reticle (for the corner ticks) AND Tailwind's
+   `absolute`. In Tailwind v4 this unlayered .dg-reticle rule (position: relative) beats
+   the layered `absolute` utility, so the panel stays in flow and its w-64 width widens
+   the shrink-to-fit fixed gear container — making the gear jump from top-right to
+   top-left when the panel opens. Force it back out of flow. (absolute still frames the
+   ::after reticle, since an absolute box is itself a positioning context.) */
+#audio-panel {
+  position: absolute;
+}
+
 /* --- Neon text glow ---------------------------------------------------------- */
 .dg-glow-cyan {
   text-shadow: 0 0 8px color-mix(in srgb, var(--dg-cyan) 70%, transparent),
