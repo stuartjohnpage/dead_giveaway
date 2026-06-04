@@ -400,7 +400,9 @@ defmodule DeadGiveaway.Room do
     world = state.world_mod.tick(state.world)
 
     snapshot =
-      Map.put(state.world_mod.snapshot(world), :crosshairs, visible_crosshairs(state, world))
+      state.world_mod.snapshot(world)
+      |> quantize_entities()
+      |> Map.put(:crosshairs, visible_crosshairs(state, world))
 
     broadcast(state.id, {:snapshot, snapshot})
     state = %{state | world: world}
@@ -459,7 +461,16 @@ defmodule DeadGiveaway.Room do
     for {name, {x, y}} <- state.crosshairs,
         state.world_mod.armed?(world, name),
         into: %{},
-        do: {name, %{x: x, y: y}}
+        do: {name, %{x: round(x), y: round(y)}}
+  end
+
+  # Round positions to whole world units before the snapshot goes on the wire (#39,
+  # DESIGN §9 "full quantized snapshots"). The internal world keeps full float precision;
+  # only the broadcast payload is quantized, shrinking the JSON (long raw floats → short
+  # ints) with no visible effect — the client's 0.25 interpolation lerp hides the integer
+  # stepping. Crosshairs are quantized above for the same reason.
+  defp quantize_entities(%{entities: entities} = snapshot) do
+    %{snapshot | entities: Enum.map(entities, &%{&1 | x: round(&1.x)})}
   end
 
   defp finish_round(state) do
