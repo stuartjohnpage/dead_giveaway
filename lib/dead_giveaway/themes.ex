@@ -28,4 +28,24 @@ defmodule DeadGiveaway.Themes do
 
   @doc "Whether `key` names a real theme."
   def valid?(key), do: key in keys()
+
+  @doc """
+  The pack's content `version` from its `theme.json` manifest, or `nil` if absent.
+
+  `gen_pack.py` writes this as a short hash over the pack's assets; the client appends it as
+  `?v=…` to every theme asset URL, and the home page does the same for its menu backdrop, so
+  regenerated art busts the browser cache (these paths are raw, not `phx.digest`'d). Returns
+  `nil` for a missing/old/unparseable manifest, in which case callers serve the asset
+  unversioned (correct, just not cache-busted).
+  """
+  def asset_version(key) do
+    path = Application.app_dir(:dead_giveaway, ["priv", "static", "themes", key, "theme.json"])
+
+    with {:ok, body} <- File.read(path),
+         {:ok, %{"version" => v}} <- Jason.decode(body) do
+      v
+    else
+      _ -> nil
+    end
+  end
 end

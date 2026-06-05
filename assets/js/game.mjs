@@ -430,14 +430,20 @@ export async function boot() {
   async function loadTheme(key) {
     if (key === currentTheme) return;
     const base = themeBase(key);
-    const url = (f) => `${base}/${f}`;
 
     let manifest;
     try {
-      manifest = await (await fetch(`${base}/theme.json`)).json();
+      // no-cache forces revalidation of this tiny manifest, so its `version` is always
+      // current; that version then cache-busts the big PNG/atlas/audio assets below.
+      manifest = await (await fetch(`${base}/theme.json`, { cache: "no-cache" })).json();
     } catch {
       return; // missing/broken manifest — keep the current look rather than blanking out
     }
+    // Append the pack's content version to every asset URL: these are raw paths (not
+    // phx.digest'd), so without this a regenerated pack serves stale art from cache. Packs
+    // generated before versioning have no `version` and simply load unversioned.
+    const ver = manifest.version ? `?v=${encodeURIComponent(manifest.version)}` : "";
+    const url = (f) => `${base}/${f}${ver}`;
     const a = manifest.assets || {};
 
     // Atlas + backdrop textures (nearest-neighbour to keep the pixel art crisp).

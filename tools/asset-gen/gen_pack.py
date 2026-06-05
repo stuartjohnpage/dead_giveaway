@@ -15,7 +15,7 @@ Palette-driven. Produces, for one theme:
 
 Add a new lobby theme = add a THEMES entry. No art skills required.
 """
-import json, math, os, sys, random
+import json, math, os, sys, random, hashlib
 from PIL import Image, ImageDraw, ImageFilter, ImageChops
 
 # ----------------------------------------------------------------------------
@@ -25,12 +25,15 @@ THEMES = {
     "neon": {
         "display": "Neon Concourse",
         "blurb": "After-hours arcade concourse: black glass floor, humming neon, chrome trim.",
-        "floor": [(18, 16, 32), (24, 20, 44)],      # two-tone dark tile
-        "grid_line": (60, 40, 90),
-        "accent": [(0, 230, 230), (255, 60, 200), (160, 255, 60)],  # cyan / magenta / lime
-        "wall": (12, 10, 22),
-        "vignette": (4, 2, 10),
-        "finish": [(245, 245, 255), (20, 18, 30)],   # checker colors
+        # Palette is locked to the UI chrome's --dg-* tokens (assets/css/app.css) so the
+        # baked art and the HUD are literally the same light: same ink, same three neons.
+        # No fourth hue — the old purple grid/wall is gone; seams are dim cyan instead.
+        "floor": [(14, 16, 26), (20, 23, 36)],       # cool dark glass two-tone (no purple)
+        "grid_line": (28, 70, 86),                   # dim cyan seam (was purple)
+        "accent": [(56, 225, 255), (255, 61, 139), (182, 255, 61)],  # --dg-cyan / magenta / lime
+        "wall": (6, 7, 14),                          # --dg-ink
+        "vignette": (3, 4, 9),                        # one notch under ink
+        "finish": [(240, 245, 255), (12, 14, 22)],   # checker colors
         # cosmetic swatches the 12 variants draw from (shirt, hair)
         "shirts": [(0,230,230),(255,60,200),(160,255,60),(255,170,40),(255,235,60),
                    (235,40,70),(60,120,255),(180,70,255),(0,200,160),(255,120,170),
@@ -40,10 +43,17 @@ THEMES = {
                    (60,40,30),(35,30,45)],
         "skins":  [(245,205,170),(225,175,135),(200,150,110),(165,115,80),(120,80,55)],
         "pants":  (35,33,48),
-        "outline":(8,6,14),
+        "outline":(6,7,14),
         # ammo icon (in this folder) + reticle tint — emitted into theme.json's "ui".
+        # Reticle tint = --dg-magenta exactly, so the in-game aiming reticle matches the
+        # HUD's "run / danger" magenta rather than the old salmon that matched neither.
         "bullet": "bullet.png",
-        "reticle": "#ff5577",
+        "reticle": "#ff3d8b",
+        # Opt this theme's backgrounds into the surveillance-HUD motifs that match the global
+        # chrome (assets/css/app.css): broken marquee tubing + targeting reticles on menu_bg,
+        # baked CRT scanlines + start/finish bloom on arena_bg, a cyan vanishing-point glow on
+        # lobby_bg. Off for western/station — those keep their own scene language untouched.
+        "hud": True,
     },
     "western": {
         "display": "Dead Man's Gulch",
@@ -296,6 +306,37 @@ def build_atlas(pal, theme_key):
 def up(img):
     return img.resize((img.width * SCALE_BG, img.height * SCALE_BG), Image.NEAREST)
 
+def _draw_reticle(d, box, col, length=7, th=2, cross=True):
+    """Paint the UI's corner-bracket reticle (assets/css/app.css `.dg-reticle::after`) into
+    ImageDraw `d`: four L-shaped corner ticks framing `box` (x0,y0,x1,y1), in RGBA `col`,
+    with an optional centre crosshair. This is the game's "lock acquired" motif, baked into
+    the art so the scene wears the same targeting language as the chrome over it."""
+    x0, y0, x1, y1 = box
+    L, T = length, th
+    for (cx, cy, sx, sy) in [(x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1)]:
+        d.rectangle([min(cx, cx + sx * L), min(cy, cy + sy * (T - 1)),
+                     max(cx, cx + sx * L), max(cy, cy + sy * (T - 1))], fill=col)
+        d.rectangle([min(cx, cx + sx * (T - 1)), min(cy, cy + sy * L),
+                     max(cx, cx + sx * (T - 1)), max(cy, cy + sy * L)], fill=col)
+    if cross:
+        mx, my = (x0 + x1) // 2, (y0 + y1) // 2
+        faint = col[:3] + (max(60, col[3] * 7 // 10),) if len(col) == 4 else col
+        d.point((mx, my), fill=col)
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            d.line([(mx + dx * 2, my + dy * 2), (mx + dx * 4, my + dy * 4)], fill=faint)
+
+def _scanlines(img, period=4, dark=0.16):
+    """Overlay faint horizontal CRT scanlines at full (upscaled) resolution — the baked
+    cousin of app.css `.dg-scanlines::before`, so the floor reads as 'seen through the
+    monitor' rather than as a clean print. Applied after up()."""
+    w, h = img.size
+    ov = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    od = ImageDraw.Draw(ov)
+    a = int(255 * dark)
+    for y in range(0, h, period):
+        od.line([(0, y), (w, y)], fill=(0, 0, 0, a))
+    return Image.alpha_composite(img, ov)
+
 def floor_tile(pal):
     s = 32
     img = Image.new("RGBA", (s, s), (0, 0, 0, 255))
@@ -346,16 +387,24 @@ def arena_bg(pal):
         y = pad_y + 6 + i * ((H - 2*pad_y - 12) // (rows - 1))
         lc = blend(pal["floor"][1], pal["accent"][i % 3], 0.16)
         d.line([(pad_x, y), (W - pad_x, y)], fill=lc)
-    # start (left) and finish (right) neon posts
+    # HUD themes bloom the start (left) and finish (right) before the crisp lines, so each
+    # carries its gameplay colour as a glow: cyan = you/start, lime = go/finish (DESIGN code).
+    fl_x = W - pad_x - 10
+    if pal.get("hud"):
+        img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle([pad_x, pad_y, pad_x+2, H-pad_y], fill=pal["accent"][0] + (255,)), 4))
+        img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle([fl_x, pad_y, fl_x+10, H-pad_y], fill=pal["accent"][2] + (170,)), 4))
+    # crisp start post + checkered finish strip on top of any glow
     d.rectangle([pad_x, pad_y, pad_x+2, H-pad_y], fill=pal["accent"][0])
     fl = finish_line(pal).resize((10, H-2*pad_y), Image.NEAREST)
-    img.paste(fl, (W - pad_x - 10, pad_y))
+    img.paste(fl, (fl_x, pad_y))
     # top & bottom neon trim
     d.rectangle([0, pad_y-3, W, pad_y-1], fill=pal["accent"][1])
     d.rectangle([0, H-pad_y+1, W, H-pad_y+3], fill=pal["accent"][2])
     # solid black below the finish-edge line (no floor beneath it)
     d.rectangle([0, H-pad_y+4, W, H], fill=pal["wall"])
     img = up(img)
+    if pal.get("hud"):
+        img = _scanlines(img)      # baked CRT scanlines — the floor is on the monitor too
     img = _vignette(img, pal["vignette"])
     return img
 
@@ -421,38 +470,63 @@ def _vfade_alpha(layer, top_a, bot_a):
 
 def menu_bg(pal):
     # Atmospheric only — the game renders the title/UI text on top in Pixi/HTML. A lit back
-    # wall with bloomed neon signage, a glowing horizon, a reflective floor, and a two-layer
-    # backlit crowd give it depth instead of the old near-black void.
+    # wall, a glowing horizon, a reflective floor, and a two-layer backlit crowd give depth.
+    # HUD themes (neon) wear the chrome's language: the back wall becomes broken horizontal
+    # marquee tubing and three corner-bracket reticles lock onto figures in the crowd — "neon
+    # targeting reticles hovering over a dark crowd," exactly what app.css's header keys off.
+    # Non-HUD themes keep the original vertical neon signage + sign reflections in the floor.
     W, H = 320, 180
     wall = pal["wall"]
     accent = pal["accent"]
     horizon = H - 54
+    hud = pal.get("hud")
 
-    img = _vgradient(W, H, shade(wall, 0.7), blend(wall, accent[2], 0.10))
+    img = _vgradient(W, H,
+                     blend(wall, accent[0], 0.05) if hud else shade(wall, 0.7),
+                     wall if hud else blend(wall, accent[2], 0.10))
 
-    # Back-wall neon signage: fat bars bloomed for glow, with a brighter crisp core.
-    def signage(gd):
+    if hud:
+        # Back-wall marquee: broken horizontal neon tubes (segment/gap), bloomed for glow with
+        # a brighter crisp core. Horizontal + broken = concourse signage, not a vertical cross.
+        bars = [(accent[0], 17, 22, 168), (accent[1], 39, 96, 252), (accent[2], 29, 188, 300)]
+        def marquee(gd):
+            for c, y, x0, x1 in bars:
+                x = x0
+                while x < x1:
+                    seg = 17 if (x - x0) % 46 else 9     # one short "dead" segment in the run
+                    gd.rectangle([x, y, min(x + seg, x1), y + 2], fill=c + (255,))
+                    x += seg + 7
+        img.alpha_composite(_bloom(W, H, marquee, 4))
+        dcore = ImageDraw.Draw(img, "RGBA")
+        for c, y, x0, x1 in bars:
+            x = x0
+            while x < x1:
+                seg = 17 if (x - x0) % 46 else 9
+                dcore.rectangle([x, y + 1, min(x + seg, x1), y + 1], fill=blend(c, (255, 255, 255), 0.4) + (255,))
+                x += seg + 7
+    else:
+        # Original vertical neon signage: fat bars bloomed for glow, with a brighter crisp core.
+        def signage(gd):
+            for i, c in enumerate(accent):
+                x = 26 + i * 96
+                gd.rectangle([x, 22, x + 11, horizon - 16], fill=c + (255,))
+                gd.rectangle([x - 16, 30 + i * 12, x + 52, 34 + i * 12], fill=c + (170,))
+        img.alpha_composite(_bloom(W, H, signage, 5))
+        dcore = ImageDraw.Draw(img, "RGBA")
         for i, c in enumerate(accent):
             x = 26 + i * 96
-            gd.rectangle([x, 22, x + 11, horizon - 16], fill=c + (255,))
-            gd.rectangle([x - 16, 30 + i * 12, x + 52, 34 + i * 12], fill=c + (170,))
-    img.alpha_composite(_bloom(W, H, signage, 5))
-    dcore = ImageDraw.Draw(img, "RGBA")
-    for i, c in enumerate(accent):
-        x = 26 + i * 96
-        dcore.rectangle([x + 4, 22, x + 7, horizon - 16], fill=blend(c, (255, 255, 255), 0.35) + (255,))
+            dcore.rectangle([x + 4, 22, x + 7, horizon - 16], fill=blend(c, (255, 255, 255), 0.35) + (255,))
 
     # Glowing horizon where the wall meets the floor.
     img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle([0, horizon - 2, W, horizon + 2], fill=accent[0] + (210,)), 6))
 
-    # Reflective floor: its own dimmer gradient, with faint vertical reflections of the signs.
+    # Reflective floor: its own dimmer gradient. Non-HUD themes also reflect the vertical signs.
     floor = _vgradient(W, H - horizon, blend(wall, accent[0], 0.07), shade(wall, 0.45))
-
-    def reflections(gd):
-        for i, c in enumerate(accent):
-            gd.rectangle([26 + i * 96, 0, 37 + i * 96, H - horizon], fill=c + (60,))
-
-    floor.alpha_composite(_bloom(W, H - horizon, reflections, 7))
+    if not hud:
+        def reflections(gd):
+            for i, c in enumerate(accent):
+                gd.rectangle([26 + i * 96, 0, 37 + i * 96, H - horizon], fill=c + (60,))
+        floor.alpha_composite(_bloom(W, H - horizon, reflections, 7))
     img.paste(floor, (0, horizon))
 
     # Two crowd layers, both standing on the floor: a dense, small, dimly back-lit rank far
@@ -460,6 +534,16 @@ def menu_bg(pal):
     # the wall) so they read as a backlit crowd, not bright outlines.
     img = _crowd_layer(img, pal, n=20, baseline=H - 2, scale=2, body=shade(wall, 0.5), rim=blend(wall, accent[2], 0.3), seed=7)
     img = _crowd_layer(img, pal, n=11, baseline=H + 34, scale=3, body=shade(wall, 0.22), rim=blend(wall, accent[0], 0.45), seed=21)
+
+    if hud:
+        # Three reticles hovering over the crowd, one per accent, each framing a target's head.
+        # Bloomed glow under crisp brackets — the chrome's "lock acquired" tick, in the art.
+        spots = [(accent[0], 50, 96), (accent[1], 159, 86), (accent[2], 252, 106)]
+        def reticles(gd):
+            for c, rx, ry in spots:
+                _draw_reticle(gd, (rx - 13, ry - 17, rx + 13, ry + 17), c + (255,), length=7, th=2)
+        img.alpha_composite(_bloom(W, H, reticles, 3))
+        reticles(ImageDraw.Draw(img, "RGBA"))
 
     img = up(img)
     img = _vignette(img, pal["vignette"])
@@ -480,9 +564,12 @@ def lobby_bg(pal):
     # base ramp just darkens toward the floor for grounding.
     img = _vgradient(W, H, shade(wall, 0.62), shade(wall, 0.92))
 
-    # The light at the end of the corridor — a soft cool bloom the card will sit over.
+    # The light at the end of the corridor — a soft bloom the card will sit over. HUD themes
+    # glow cyan (the chrome's "you / primary" colour, so the doorway is the same light the UI
+    # uses); other themes keep their lime vanishing point.
+    glow_acc = accent[0] if pal.get("hud") else accent[2]
     img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
-        [cx - 30, cy - 30, cx + 30, cy + 30], fill=blend(wall, vivify(accent[2]), 0.85) + (150,)), 20))
+        [cx - 30, cy - 30, cx + 30, cy + 30], fill=blend(wall, vivify(glow_acc), 0.85) + (150,)), 20))
 
     vacc = [vivify(c) for c in accent]   # brightness-equalised accents, so every theme reads
 
@@ -509,9 +596,28 @@ def lobby_bg(pal):
     img.alpha_composite(glow)
     img.alpha_composite(sharp)
 
+    # No baked reticle here: the lobby card wears its own `.dg-reticle--lime` corner brackets
+    # (game_html/show.html.heex), so the card's lime lock-on sits inside this cyan-lit
+    # doorway — the bracket/glow colour contrast is the framing, no duplicate needed.
     img = up(img)
     img = _vignette(img, pal["vignette"])
     return img
+
+# ----------------------------------------------------------------------------
+# cache-busting version
+# ----------------------------------------------------------------------------
+def pack_version(base, files):
+    """A short content hash over the pack's runtime files. Emitted into theme.json as
+    `version`; the client appends it as `?v=…` to every asset URL (game.mjs) and the home
+    page does the same for menu_bg, so regenerated art busts the browser cache. These paths
+    are raw strings, not phx.digest'd, so without this a redeploy serves stale art."""
+    h = hashlib.md5()
+    for f in sorted(files):
+        p = os.path.join(base, f)
+        if os.path.exists(p):
+            with open(p, "rb") as fh:
+                h.update(fh.read())
+    return h.hexdigest()[:10]
 
 # ----------------------------------------------------------------------------
 # previews
@@ -597,6 +703,11 @@ def main():
         audio["gameStages"] = stages
     if audio:
         manifest["audio"] = audio
+
+    # Content version over everything the client loads, so a regenerated pack busts caches.
+    version_files = list(manifest["assets"].values()) + [pal.get("bullet", "bullet.png")]
+    version_files += list(audio.get("gameStages", [])) + ([audio["menuLoop"]] if "menuLoop" in audio else [])
+    manifest["version"] = pack_version(base, version_files)
 
     with open(os.path.join(base, "theme.json"), "w") as f:
         json.dump(manifest, f, indent=2)

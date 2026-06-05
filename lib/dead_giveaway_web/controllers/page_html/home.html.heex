@@ -4,7 +4,10 @@
       and grain; the neon reticle motif frames the play card so it reads as a lock
       acquired on *you*. Cosmetic only — the create/join forms keep their ids, names,
       actions and methods (router.mjs intercepts both on submit). --%>
-<div class="dg-scanlines relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat font-display text-slate-100">
+<div
+  class="dg-scanlines relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-cover bg-center bg-no-repeat font-display text-slate-100"
+  style={"background-image: url(#{@menu_bg})"}
+>
   <%!-- Darken + vignette the crowd so the neon UI reads cleanly on top of it. Grain
         rides this overlay's ::before (its own free pseudo) rather than the root's —
         the root's ::before/::after are already the scanline texture + scan-sweep, and
