@@ -100,13 +100,30 @@
           // Options
         </h3>
         <div class="mt-3 grid grid-cols-[auto_auto] items-center gap-x-3 gap-y-3 text-sm">
-          <%!-- Bullets each player gets per round (DESIGN §5). --%>
-          <label for="ammo-select" class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+          <%!-- Mode preset (UI-only, not a room knob). "Classic" is the default ruleset —
+                one bullet, one life, fast pace — and hides those three knobs. "Custom"
+                reveals them so the host can tweak each. game.mjs drives this entirely on the
+                client: the custom rows carry `dg-custom-option`, and switching back to Classic
+                snaps bullets/lives/pace to the preset and pushes each to the room. Guests have
+                no Mode control, so game.mjs infers the mode from the broadcast values. --%>
+          <label for="mode-select" class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+            Mode
+          </label>
+          <select
+            id="mode-select"
+            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+          >
+            <option value="classic" selected>Classic</option>
+            <option value="custom">Custom</option>
+          </select>
+
+          <%!-- Bullets each player gets per round (DESIGN §5). Custom-only (see Mode). --%>
+          <label for="ammo-select" class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
             Bullets
           </label>
           <select
             id="ammo-select"
-            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 font-mono text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="dg-custom-option w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 font-mono text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="1">1</option>
             <option value="2">2</option>
@@ -117,19 +134,34 @@
           </select>
 
           <%!-- Lives each player gets per round (DESIGN §7). 1 = the original "shot = out";
-                above 1, a dropped player takes over a free bot body instead. --%>
-          <label for="chances-select" class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+                above 1, a dropped player takes over a free bot body instead. Custom-only. --%>
+          <label for="chances-select" class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
             Lives
           </label>
           <select
             id="chances-select"
-            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 font-mono text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="dg-custom-option w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 font-mono text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="1">1</option>
             <option value="2">2</option>
             <option value="3">3</option>
             <option value="4">4</option>
             <option value="5">5</option>
+          </select>
+
+          <%!-- Round pace (DESIGN §4, #17): the bot move:stop ratio, i.e. how long a round
+                runs. Default "fast" is today's tempo. Custom-only. game.mjs disables this for
+                guests and pushes a host's change to the room, which broadcasts it back. --%>
+          <label for="pace-select" class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+            Pace
+          </label>
+          <select
+            id="pace-select"
+            class="dg-custom-option w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+          >
+            <option value="slow">Slow</option>
+            <option value="medium">Medium</option>
+            <option value="fast" selected>Fast</option>
           </select>
 
           <%!-- Cosmetic theme (DESIGN §9). Changing it swaps art/audio for everyone in the
@@ -142,21 +174,6 @@
             class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option :for={t <- @themes} value={t.key}>{t.display}</option>
-          </select>
-
-          <%!-- Round pace (DESIGN §4, #17): the bot move:stop ratio, i.e. how long a round
-                runs. Default "fast" is today's tempo. game.mjs disables this for guests and
-                pushes a host's change to the room, which broadcasts it back. --%>
-          <label for="pace-select" class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
-            Pace
-          </label>
-          <select
-            id="pace-select"
-            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
-          >
-            <option value="slow">Slow</option>
-            <option value="medium">Medium</option>
-            <option value="fast" selected>Fast</option>
           </select>
 
           <%!-- Public/private visibility (issue #43). Private (default) is code-only;
