@@ -293,11 +293,14 @@ defmodule DeadGiveaway.Room do
   def handle_call({:set_pace, _pace}, _from, state), do: {:reply, :ok, state}
 
   # Visibility isn't round config (it's not a knob that arms the next race), so unlike
-  # ammo/theme/pace it's accepted any time — including mid-round, where a public room
-  # simply stays listed with its in-progress badge. Only a boolean is honoured; anything
-  # else is ignored. The change re-broadcasts the lobby and re-syncs the directory.
+  # ammo/theme/pace it's accepted any time — including mid-round, where a public room simply
+  # stays listed with its in-progress badge. Only a boolean is honoured; anything else is
+  # ignored. The directory is always re-synced, but the :lobby roster is only re-broadcast
+  # when we're actually in the lobby (world == nil): mid-round everyone's in-game, so pushing
+  # :lobby then would re-run their lobby handler underneath a running round.
   def handle_call({:set_visibility, public}, _from, state) when is_boolean(public) do
-    state = broadcast_lobby(%{state | public: public})
+    state = %{state | public: public}
+    state = if state.world == nil, do: broadcast_lobby(state), else: sync_presence(state)
     {:reply, :ok, state}
   end
 

@@ -5,12 +5,13 @@
 // so the name you pick follows you into any lobby you make or join (private or public) and
 // survives reloads and return visits.
 //
-// Progressive enhancement: with no JS the field still posts/gets as before; it just won't be
-// remembered between visits, and the room auto-names you "Player N" (the same fallback that
-// already applied to join-by-code without JS).
+// Progressive enhancement: the field belongs to #create-form via its `form` attribute, so a
+// no-JS create still GETs the name through; it just won't be remembered between visits. No-JS
+// join-by-code still can't carry the name (the hidden field is mirrored by JS), so that path
+// falls back to the room auto-naming you "Player N", exactly as before.
 
 const KEY = "dg:name";
-const MAX = 16; // matches the input's maxlength and the server's String.slice/3 cap
+const MAX = 16; // mirrors the field's maxlength and DeadGiveaway.PlayerName.max_length (server-enforced)
 
 // The name to carry on the next join, or "" for none. Prefers the live field (so a name just
 // typed counts immediately) and falls back to the remembered value when the field isn't on

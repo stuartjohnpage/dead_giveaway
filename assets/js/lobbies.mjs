@@ -7,9 +7,9 @@
 // stays hidden — it has no meaning without the live channel — and players still create or
 // join by code exactly as before.
 
-import { Socket } from "phoenix";
 import { navigate } from "./router.mjs";
 import { withName } from "./identity.mjs";
+import { openChannel } from "./socket.mjs";
 
 // Wire the home page's open-lobbies panel to the directory channel. No-op (returns nothing)
 // if the panel isn't on the page, so it's safe to call from the shared home mount.
@@ -19,10 +19,15 @@ export function mountOpenLobbies() {
   const count = document.getElementById("open-lobbies-count");
   if (!panel || !list) return;
 
-  const socket = new Socket("/socket", {});
-  socket.connect();
-  const channel = socket.channel("lobbies", {});
-  channel.join();
+  const { channel, teardown } = openChannel("lobbies");
+  // Surface a failed/timed-out join instead of swallowing it: the panel just stays hidden
+  // (its only-show-when-there's-a-game default), and Phoenix auto-rejoins when the socket
+  // recovers — re-running the server's after_join push — so the list heals itself; this only
+  // makes the failure visible in the console rather than a silent dead panel.
+  channel
+    .join()
+    .receive("error", (reason) => console.warn("lobbies: channel join failed", reason))
+    .receive("timeout", () => console.warn("lobbies: channel join timed out"));
   // The server ships the full set on join and on every change (rooms opening, filling,
   // starting, closing), so we just re-render from scratch each time.
   channel.on("lobbies", (payload) => render(payload.lobbies || []));
@@ -74,18 +79,7 @@ export function mountOpenLobbies() {
 
   // Teardown for the router: leave the channel and drop the socket so the home→game hop
   // doesn't leave a dangling directory connection.
-  return () => {
-    try {
-      channel.leave();
-    } catch {
-      /* already gone */
-    }
-    try {
-      socket.disconnect();
-    } catch {
-      /* already gone */
-    }
-  };
+  return teardown;
 }
 
 // "neon" -> "Neon"; a blank/missing theme falls back to a dash so the meta line still reads.

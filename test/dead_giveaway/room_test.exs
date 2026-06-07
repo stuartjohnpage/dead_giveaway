@@ -615,6 +615,25 @@ defmodule DeadGiveaway.RoomTest do
       assert %{in_progress: true} = listing("vis-live")
     end
 
+    test "going public mid-round lists the room without pushing :lobby into the live round" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("vis-mid"))
+      {:ok, room} = Room.start_link(id: "vis-mid", seed: 1, bots: 0, finish_x: 100.0)
+      Room.join(room, "alice")
+      assert_receive {:lobby, _}
+
+      Room.go(room)
+      assert_receive :round_start
+      assert listing("vis-mid") == nil
+
+      # Mid-round the directory must still update (a public game stays listed, badged
+      # in-progress)...
+      Room.set_visibility(room, true)
+      assert %{in_progress: true} = listing("vis-mid")
+      # ...but no :lobby is broadcast — everyone's in-game, so re-running their lobby handler
+      # under a running round would be wrong (#43 review finding).
+      refute_receive {:lobby, _}, 50
+    end
+
     test "a closed room drops out of the directory when its process dies" do
       {:ok, room} = Room.start_link(id: "vis-close", seed: 1, bots: 0)
       Room.join(room, "alice")
@@ -641,9 +660,17 @@ defmodule DeadGiveaway.RoomTest do
   # a room stopping, so a just-closed lobby can briefly linger in the directory.
   defp eventually(fun, retries \\ 50) do
     cond do
-      fun.() -> true
-      retries > 0 -> Process.sleep(2) || eventually(fun, retries - 1)
-      true -> false
+      fun.() ->
+        true
+
+      retries > 0 ->
+        # Sequence, don't `||`: Process.sleep/1 returns :ok (truthy), so `sleep || recurse`
+        # would short-circuit and never retry — making the assertion pass vacuously.
+        Process.sleep(2)
+        eventually(fun, retries - 1)
+
+      true ->
+        false
     end
   end
 end

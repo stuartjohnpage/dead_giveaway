@@ -39,19 +39,14 @@ defmodule DeadGiveawayWeb.LobbiesChannel do
   end
 
   # Flatten the Presence map into the plain list the client renders: one row per public
-  # room. A room tracks a single entry, so we take the head meta. Ordered waiting-first,
-  # then fullest, then by code for a stable sort — so a joinable, busy lobby leads.
+  # room. A room tracks a single entry, so we take the head meta; the meta IS the row shape
+  # (Room.presence_meta is the single source of truth for which fields a browser sees), so we
+  # just strip Presence's own bookkeeping refs rather than re-listing every field here.
+  # Ordered waiting-first, then fullest, then by code for a stable sort — so a joinable, busy
+  # lobby leads.
   defp list_lobbies do
     Presence.list(Presence.topic())
-    |> Enum.map(fn {code, %{metas: [meta | _]}} ->
-      %{
-        code: code,
-        host: meta.host,
-        players: meta.players,
-        theme: meta.theme,
-        in_progress: meta.in_progress
-      }
-    end)
+    |> Enum.map(fn {_code, %{metas: [meta | _]}} -> Map.drop(meta, [:phx_ref, :phx_ref_prev]) end)
     |> Enum.sort_by(fn l -> {l.in_progress, -l.players, l.code} end)
   end
 end

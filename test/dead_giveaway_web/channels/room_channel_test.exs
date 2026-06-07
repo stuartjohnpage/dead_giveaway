@@ -303,6 +303,22 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     refute_push "lobby", %{public: true}, 200
   end
 
+  test "a malformed set_config is acknowledged, not a channel crash (#43)" do
+    {_reply, socket} = join_room("chan-bad-config", %{"host" => true})
+
+    # A crafted non-boolean visibility (or any unknown knob) must hit the catch-all and be
+    # ignored — not raise FunctionClauseError and tear the channel (and the player) down.
+    ref = push(socket, "set_config", %{"public" => "yes-please"})
+    assert_reply ref, :ok
+
+    ref = push(socket, "set_config", %{"nonsense" => 1})
+    assert_reply ref, :ok
+
+    # The channel is still alive and serving afterwards.
+    ref = push(socket, "set_config", %{"max_ammo" => 4})
+    assert_reply ref, :ok
+  end
+
   test "an input message is accepted and acknowledged" do
     join_room("chan-d")
     {_reply, socket} = join_room("chan-d")

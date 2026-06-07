@@ -1,7 +1,7 @@
 defmodule DeadGiveawayWeb.GameController do
   use DeadGiveawayWeb, :controller
 
-  alias DeadGiveaway.Rooms
+  alias DeadGiveaway.{PlayerName, Rooms}
 
   # Code alphabet excludes easily-confused glyphs (0/O, 1/I/L) so a code read off
   # one screen and typed into another doesn't get garbled.
@@ -50,9 +50,9 @@ defmodule DeadGiveawayWeb.GameController do
   # A chosen name (from the splash) becomes a query param the game page reads and
   # hands to the channel on join. Blank → omitted (the room auto-names "Player N").
   defp name_query(params) do
-    case params["name"] |> to_string() |> String.trim() do
+    case PlayerName.trim(params["name"]) do
       "" -> []
-      name -> [name: String.slice(name, 0, 16)]
+      name -> [name: name]
     end
   end
 

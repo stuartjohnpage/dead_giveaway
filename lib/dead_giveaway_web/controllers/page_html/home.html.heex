@@ -52,7 +52,11 @@
           out of the create form so it reads as "this is you" above the actions. identity.mjs
           remembers it (localStorage) and every join path — create, join-by-code, one-click
           public Join — reads it, so the name you pick here follows you into any lobby and
-          survives reloads. The reticle "locks on" while the field is focused. --%>
+          survives reloads. The reticle "locks on" while the field is focused.
+
+          The field still belongs to #create-form via the `form` attribute even though it's
+          visually a separate card, so with no JS a create GET still carries the name (the
+          maxlength mirrors DeadGiveaway.PlayerName.max_length, which trims it again server-side). --%>
     <div
       class="dg-rise dg-reticle mx-auto mt-6 w-full max-w-md space-y-3 border border-cyan-400/15 bg-[#0a0f22]/85 p-5 shadow-[0_0_60px_-15px_rgba(56,225,255,0.45)] backdrop-blur-sm"
       style="animation-delay:.22s"
@@ -67,6 +71,8 @@
       <input
         type="text"
         id="player-name"
+        name="name"
+        form="create-form"
         placeholder="Your name"
         autocomplete="off"
         maxlength="16"

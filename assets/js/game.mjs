@@ -3,7 +3,7 @@
 // coords.mjs (unit-tested); this module is the Pixi + socket + input glue.
 
 import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from "pixi.js";
-import { Socket } from "phoenix";
+import { openChannel } from "./socket.mjs";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES } from "./audio-shell.mjs";
 import { navigate } from "./router.mjs";
@@ -478,9 +478,10 @@ export async function boot() {
   });
 
   // --- Socket / channel ---
-  const socket = new Socket("/socket", {});
-  socket.connect();
-  const channel = socket.channel("room:" + room, { host: wantsCreate, name: playerName });
+  const { channel, teardown: closeSocket } = openChannel("room:" + room, {
+    host: wantsCreate,
+    name: playerName,
+  });
   channel
     .join()
     .receive("ok", (resp) => {
@@ -753,11 +754,6 @@ export async function boot() {
     } catch {
       /* already destroyed */
     }
-    try {
-      channel.leave();
-      socket.disconnect();
-    } catch {
-      /* already gone */
-    }
+    closeSocket();
   };
 }
