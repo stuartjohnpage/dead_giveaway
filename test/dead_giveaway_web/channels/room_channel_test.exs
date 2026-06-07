@@ -284,6 +284,41 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     refute_push "lobby", %{theme: "western"}, 200
   end
 
+  test "the host can make the lobby public and it reaches every client's lobby (#43)" do
+    {_reply, socket} = join_room("chan-public", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"public" => true})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{public: true}, 500
+  end
+
+  test "a guest cannot change the lobby's visibility (#43)" do
+    join_room("chan-public-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-public-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"public" => true})
+    assert_reply ref, :ok
+    # Same as the other knobs: a non-host's push is ignored — no lobby carries it public.
+    refute_push "lobby", %{public: true}, 200
+  end
+
+  test "a malformed set_config is acknowledged, not a channel crash (#43)" do
+    {_reply, socket} = join_room("chan-bad-config", %{"host" => true})
+
+    # A crafted non-boolean visibility (or any unknown knob) must hit the catch-all and be
+    # ignored — not raise FunctionClauseError and tear the channel (and the player) down.
+    ref = push(socket, "set_config", %{"public" => "yes-please"})
+    assert_reply ref, :ok
+
+    ref = push(socket, "set_config", %{"nonsense" => 1})
+    assert_reply ref, :ok
+
+    # The channel is still alive and serving afterwards.
+    ref = push(socket, "set_config", %{"max_ammo" => 4})
+    assert_reply ref, :ok
+  end
+
   test "an input message is accepted and acknowledged" do
     join_room("chan-d")
     {_reply, socket} = join_room("chan-d")

@@ -1,6 +1,7 @@
 defmodule DeadGiveaway.RoomTest do
   use ExUnit.Case, async: true
 
+  alias DeadGiveaway.Presence
   alias DeadGiveaway.Room
   alias DeadGiveaway.Session
   alias DeadGiveaway.World
@@ -552,6 +553,124 @@ defmodule DeadGiveaway.RoomTest do
       Room.tick(room)
       assert Room.status(room) == :running
       assert Room.score(room, "alice") == 1
+    end
+  end
+
+  describe "public/private visibility (the lobby directory, #43)" do
+    test "a room is private by default — absent from the directory" do
+      {:ok, room} = Room.start_link(id: "vis-default", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      assert listing("vis-default") == nil
+    end
+
+    test "the lobby broadcast carries the visibility flag (private by default)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("vis-flag"))
+      {:ok, room} = Room.start_link(id: "vis-flag", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{public: false}}
+
+      Room.set_visibility(room, true)
+      assert_receive {:lobby, %{public: true}}
+    end
+
+    test "going public lists the room with its summary" do
+      {:ok, room} = Room.start_link(id: "vis-list", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.join(room, "bob")
+      Room.set_visibility(room, true)
+
+      assert %{code: "vis-list", host: "alice", players: 2, theme: "neon", in_progress: false} =
+               listing("vis-list")
+    end
+
+    test "going private again unlists it" do
+      {:ok, room} = Room.start_link(id: "vis-toggle", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.set_visibility(room, true)
+      assert listing("vis-toggle")
+
+      Room.set_visibility(room, false)
+      assert listing("vis-toggle") == nil
+    end
+
+    test "a non-boolean visibility is ignored, keeping the room private" do
+      {:ok, room} = Room.start_link(id: "vis-bad", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.set_visibility(room, "yes-please")
+      assert listing("vis-bad") == nil
+    end
+
+    test "the listing tracks the player count and flips to in-progress for a live round" do
+      {:ok, room} = Room.start_link(id: "vis-live", seed: 1, bots: 0, finish_x: 100.0)
+      Room.join(room, "alice")
+      Room.set_visibility(room, true)
+      assert %{players: 1, in_progress: false} = listing("vis-live")
+
+      Room.join(room, "bob")
+      assert %{players: 2} = listing("vis-live")
+
+      # A live round badges the entry in-progress rather than hiding it (the #43 decision);
+      # it stays listed so a browser can still see (and queue for) the game.
+      Room.go(room)
+      assert %{in_progress: true} = listing("vis-live")
+    end
+
+    test "going public mid-round lists the room without pushing :lobby into the live round" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("vis-mid"))
+      {:ok, room} = Room.start_link(id: "vis-mid", seed: 1, bots: 0, finish_x: 100.0)
+      Room.join(room, "alice")
+      assert_receive {:lobby, _}
+
+      Room.go(room)
+      assert_receive :round_start
+      assert listing("vis-mid") == nil
+
+      # Mid-round the directory must still update (a public game stays listed, badged
+      # in-progress)...
+      Room.set_visibility(room, true)
+      assert %{in_progress: true} = listing("vis-mid")
+      # ...but no :lobby is broadcast — everyone's in-game, so re-running their lobby handler
+      # under a running round would be wrong (#43 review finding).
+      refute_receive {:lobby, _}, 50
+    end
+
+    test "a closed room drops out of the directory when its process dies" do
+      {:ok, room} = Room.start_link(id: "vis-close", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.set_visibility(room, true)
+      assert listing("vis-close")
+
+      Room.close(room)
+      # Presence cleans up on the process's :DOWN, which is async w.r.t. the stop — so a
+      # recycled code never inherits a stale entry.
+      assert eventually(fn -> listing("vis-close") == nil end)
+    end
+  end
+
+  # This room's entry in the public directory, or nil when it isn't listed. Keyed by the
+  # room id, so async tests each watching their own id don't see each other's lobbies.
+  defp listing(id) do
+    case Presence.list(Presence.topic()) do
+      %{^id => %{metas: [meta | _]}} -> meta
+      _ -> nil
+    end
+  end
+
+  # Retry a predicate over a short bounded window: Presence's death-cleanup is async w.r.t.
+  # a room stopping, so a just-closed lobby can briefly linger in the directory.
+  defp eventually(fun, retries \\ 50) do
+    cond do
+      fun.() ->
+        true
+
+      retries > 0 ->
+        # Sequence, don't `||`: Process.sleep/1 returns :ok (truthy), so `sleep || recurse`
+        # would short-circuit and never retry — making the assertion pass vacuously.
+        Process.sleep(2)
+        eventually(fun, retries - 1)
+
+      true ->
+        false
     end
   end
 end

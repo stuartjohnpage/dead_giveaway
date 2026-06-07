@@ -48,33 +48,49 @@
       </p>
     </div>
 
-    <%!-- Centre block: pick a name, then create or join a lobby. The name is typed
-          once (create form) and powers both actions (Create GETs /play/new; Join
-          POSTs /join); router.mjs mirrors it into the join form's hidden field. The
-          reticle frame "locks on" when any field inside is focused. --%>
+    <%!-- Identity card: your name as a persistent thing of its own (#43 follow-up), pulled
+          out of the create form so it reads as "this is you" above the actions. identity.mjs
+          remembers it (localStorage) and every join path — create, join-by-code, one-click
+          public Join — reads it, so the name you pick here follows you into any lobby and
+          survives reloads. The reticle "locks on" while the field is focused.
+
+          The field still belongs to #create-form via the `form` attribute even though it's
+          visually a separate card, so with no JS a create GET still carries the name (the
+          maxlength mirrors DeadGiveaway.PlayerName.max_length, which trims it again server-side). --%>
     <div
       class="dg-rise dg-reticle mx-auto mt-6 w-full max-w-md space-y-3 border border-cyan-400/15 bg-[#0a0f22]/85 p-5 shadow-[0_0_60px_-15px_rgba(56,225,255,0.45)] backdrop-blur-sm"
+      style="animation-delay:.22s"
+    >
+      <label
+        for="player-name"
+        class="flex items-center justify-between font-mono text-[0.65rem] uppercase tracking-[0.25em] text-cyan-300/70"
+      >
+        <span>// Identify yourself</span>
+        <span class="text-slate-500">16 max</span>
+      </label>
+      <input
+        type="text"
+        id="player-name"
+        name="name"
+        form="create-form"
+        placeholder="Your name"
+        autocomplete="off"
+        maxlength="16"
+        class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-2.5 text-center text-lg font-semibold text-white transition placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
+      />
+    </div>
+
+    <%!-- Play card: create a fresh lobby or join one by code. Both pull the name from the
+          identity card above via identity.mjs (the create GET appends it; the join POST
+          mirrors it into the hidden field). The reticle "locks on" when the code field is
+          focused. --%>
+    <div
+      class="dg-rise dg-reticle mx-auto mt-4 w-full max-w-md space-y-3 border border-cyan-400/15 bg-[#0a0f22]/85 p-5 shadow-[0_0_60px_-15px_rgba(56,225,255,0.45)] backdrop-blur-sm"
       style="animation-delay:.28s"
     >
-      <%!-- Create: carries the name and mints a fresh shareable code, dropping you in
-            as host. GET so the name rides along as a query param into /play/new. --%>
+      <%!-- Create: mints a fresh shareable code and drops you in as host. GET so the
+            name (read from the identity card by router.mjs) rides along into /play/new. --%>
       <form id="create-form" action={~p"/play/new"} method="get" class="space-y-3">
-        <label
-          for="player-name"
-          class="flex items-center justify-between font-mono text-[0.65rem] uppercase tracking-[0.25em] text-cyan-300/70"
-        >
-          <span>Identify yourself</span>
-          <span class="text-slate-500">16 max</span>
-        </label>
-        <input
-          type="text"
-          id="player-name"
-          name="name"
-          placeholder="Your name"
-          autocomplete="off"
-          maxlength="16"
-          class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-2.5 text-center text-lg font-semibold text-white transition placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
-        />
         <button
           type="submit"
           class="dg-btn dg-btn-cyan block w-full px-4 py-3 text-center text-sm font-bold"
@@ -112,6 +128,23 @@
       </.form>
     </div>
 
+    <%!-- Open lobbies (issue #43): public games anyone can drop into. Populated live by
+          lobbies.mjs over the read-only "lobbies" channel — one row per public room with a
+          one-click Join (reusing the normal /play/CODE flow). Starts hidden and only shows
+          once there's a game to join; with no JS it stays hidden and code-entry still works. --%>
+    <div
+      id="open-lobbies"
+      hidden
+      class="dg-rise dg-reticle mx-auto mt-6 w-full max-w-md space-y-3 border border-cyan-400/15 bg-[#0a0f22]/85 p-5 shadow-[0_0_60px_-15px_rgba(56,225,255,0.45)] backdrop-blur-sm"
+      style="animation-delay:.32s"
+    >
+      <h2 class="flex items-center justify-between font-mono text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-cyan-300/80">
+        <span>// Open Lobbies</span>
+        <span id="open-lobbies-count" class="text-slate-500"></span>
+      </h2>
+      <ul id="open-lobbies-list" class="space-y-2 text-sm"></ul>
+    </div>
+
     <%!-- Three HUD panels across the bottom: About / News / How to Play. --%>
     <div class="dg-rise mt-6 grid gap-4 md:grid-cols-3" style="animation-delay:.36s">
       <%!-- ABOUT — placeholder copy; replace with your own blurb. --%>
@@ -120,7 +153,7 @@
           // About
         </h2>
         <p class="text-sm leading-5 text-slate-300">
-          Dead Giveaway is a hidden-identity party game. Do you know who your friends are? Do you know who you are? 
+          Dead Giveaway is a hidden-identity party game. Do you know who your friends are? Do you know who you are?
           This game is heavily inspired by (if not an outright rip-off of) the Death Race game-mode in <a class="text-[var(--dg-magenta)]" href="https://store.steampowered.com/app/303590/Hidden_in_Plain_Sight/">Hidden in Plain Sight</a>. Go play this most excellent game!
         </p>
       </section>
@@ -135,7 +168,7 @@
             <span class="mb-1 block font-mono text-[0.6rem] uppercase tracking-[0.25em] text-[var(--dg-magenta)]">
               Latest
             </span>
-            Will has already beaten me at the game; I am considering handicapping him. 
+            Will has already beaten me at the game; I am considering handicapping him.
           </li>
           <li> Mowgli does not feature in this game at all; I need to change that.</li>
           <li>David is also working on a version with his own hands (not using Clankers).</li>
@@ -185,7 +218,7 @@
   </main>
 </div>
 
-<%!-- The name is typed once (in the create form) but both lobby actions need it. The
-      client mirrors it into the join form's hidden field on submit (router.mjs handles
-      both the mirroring and the client-side navigation); with no JS the hidden field is
-      simply empty and the room auto-names the guest "Player N". --%>
+<%!-- The name is typed once (in the identity card) but every join needs it. identity.mjs
+      remembers it and router.mjs reads it on submit — appending it to the create GET and
+      mirroring it into the join form's hidden field — and lobbies.mjs adds it to a public
+      Join. With no JS the hidden field is simply empty and the room auto-names "Player N". --%>

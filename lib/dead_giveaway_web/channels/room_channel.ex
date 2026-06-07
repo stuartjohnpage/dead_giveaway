@@ -12,7 +12,7 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   use Phoenix.Channel
 
-  alias DeadGiveaway.{Profanity, Room, Rooms}
+  alias DeadGiveaway.{PlayerName, Profanity, Room, Rooms}
 
   # Production room shape; overridable via `config :dead_giveaway, :room, ...`
   # (tests use a tiny tick and no bots for determinism).
@@ -138,6 +138,19 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, :ok, socket}
   end
 
+  # Public/private visibility (issue #43), same host-only shape. The Room lists or unlists
+  # the lobby in the directory and broadcasts the new value so every lobby view reflects it.
+  def handle_in("set_config", %{"public" => public}, socket) when is_boolean(public) do
+    if socket.assigns.host, do: Room.set_visibility(socket.assigns.room, public)
+    {:reply, :ok, socket}
+  end
+
+  # Catch-all for set_config: an unknown key or a value that fails a clause's guard (e.g. a
+  # crafted `{"public": "yes"}`) is ignored rather than left to raise FunctionClauseError and
+  # crash the channel — which would boot the player from the lobby. The Room is the authority;
+  # a malformed knob simply does nothing.
+  def handle_in("set_config", _payload, socket), do: {:reply, :ok, socket}
+
   # Backing out of the lobby. The host tears the whole room down (everyone is sent
   # `closed`); a guest just frees their own slot and heads home on their own.
   def handle_in("leave", _payload, socket) do
@@ -212,7 +225,7 @@ defmodule DeadGiveawayWeb.RoomChannel do
   # server-side chokepoint for the only free text players control, so a crafted payload
   # can't bypass the filter.
   defp normalize_name(name) do
-    case name |> to_string() |> String.trim() |> String.slice(0, 16) do
+    case PlayerName.trim(name) do
       "" -> nil
       n -> Profanity.redact(n)
     end

@@ -8,6 +8,8 @@
 // in-game links keep their href, so with no JS (or if anything here throws) the app falls
 // back to ordinary full-page navigations — the only thing lost is audio seamlessness.
 
+import { currentName, withName } from "./identity.mjs";
+
 // The active page's teardown (returned by mount()), called before the next swap so the
 // outgoing page frees its socket / Pixi app / listeners. null between pages.
 let teardown = null;
@@ -28,19 +30,19 @@ export async function initRouter(mount) {
   document.addEventListener("submit", (e) => {
     const form = e.target;
     if (form.id === "create-form") {
-      // GET: the chosen name rides along as a query param into /play/new.
+      // GET: append the chosen name (from the identity card) as a query param into
+      // /play/new. The name lives outside this form now, so we add it rather than reading
+      // it off the form's own fields.
       e.preventDefault();
-      const qs = new URLSearchParams(new FormData(form)).toString();
-      navigate(form.action + (qs ? `?${qs}` : ""));
+      navigate(withName(form.action));
     } else if (form.id === "join-form") {
-      // POST (carries Phoenix's CSRF token from the form's hidden field). The name is
-      // typed once in the create form — mirror it into the join's hidden field here, so a
-      // guest joining by code carries their chosen name in too (this replaced an inline
-      // <script>, which wouldn't run after a content swap anyway).
+      // POST (carries Phoenix's CSRF token from the form's hidden field). The name lives in
+      // the identity card — mirror it into the join's hidden field here, so a guest joining
+      // by code carries their chosen name in too (this replaced an inline <script>, which
+      // wouldn't run after a content swap anyway).
       e.preventDefault();
-      const name = document.getElementById("player-name");
       const joinName = document.getElementById("join-name");
-      if (name && joinName) joinName.value = name.value;
+      if (joinName) joinName.value = currentName();
       navigate(form.action, { method: "POST", body: new FormData(form) });
     }
   });
