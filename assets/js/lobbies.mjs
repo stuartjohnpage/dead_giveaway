@@ -9,6 +9,7 @@
 
 import { Socket } from "phoenix";
 import { navigate } from "./router.mjs";
+import { withName } from "./identity.mjs";
 
 // Wire the home page's open-lobbies panel to the directory channel. No-op (returns nothing)
 // if the panel isn't on the page, so it's safe to call from the shared home mount.
@@ -61,9 +62,11 @@ export function mountOpenLobbies() {
     const join = document.createElement("button");
     join.type = "button";
     join.className =
-      "dg-btn shrink-0 border border-[var(--dg-magenta)]/40 px-4 py-2 text-xs font-bold uppercase tracking-wide text-pink-100 transition hover:bg-[var(--dg-magenta)]/10 hover:text-white";
+      "dg-btn shrink-0 border border-cyan-400/40 px-4 py-2 text-xs font-bold uppercase tracking-wide text-cyan-200 transition hover:bg-cyan-400/10 hover:text-white";
     join.textContent = "Join";
-    join.addEventListener("click", () => navigate(`/play/${lobby.code}`));
+    // Carry the player's chosen name in (withName appends it as ?name=), so a one-click
+    // public join arrives identified just like create / join-by-code — not "Player N".
+    join.addEventListener("click", () => navigate(withName(`/play/${lobby.code}`)));
 
     li.append(info, join);
     return li;
