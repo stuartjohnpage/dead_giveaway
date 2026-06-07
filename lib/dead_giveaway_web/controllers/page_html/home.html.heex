@@ -112,6 +112,23 @@
       </.form>
     </div>
 
+    <%!-- Open lobbies (issue #43): public games anyone can drop into. Populated live by
+          lobbies.mjs over the read-only "lobbies" channel — one row per public room with a
+          one-click Join (reusing the normal /play/CODE flow). Starts hidden and only shows
+          once there's a game to join; with no JS it stays hidden and code-entry still works. --%>
+    <div
+      id="open-lobbies"
+      hidden
+      class="dg-rise mx-auto mt-6 w-full max-w-md border border-[var(--dg-magenta)]/20 bg-[#0a0f22]/85 p-5 backdrop-blur-sm"
+      style="animation-delay:.32s"
+    >
+      <h2 class="flex items-center justify-between font-mono text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-[var(--dg-magenta)]/85">
+        <span>// Open Lobbies</span>
+        <span id="open-lobbies-count" class="text-slate-500"></span>
+      </h2>
+      <ul id="open-lobbies-list" class="mt-3 space-y-2 text-sm"></ul>
+    </div>
+
     <%!-- Three HUD panels across the bottom: About / News / How to Play. --%>
     <div class="dg-rise mt-6 grid gap-4 md:grid-cols-3" style="animation-delay:.36s">
       <%!-- ABOUT — placeholder copy; replace with your own blurb. --%>

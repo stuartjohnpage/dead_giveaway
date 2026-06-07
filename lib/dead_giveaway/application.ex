@@ -12,6 +12,9 @@ defmodule DeadGiveaway.Application do
       DeadGiveaway.Repo,
       {DNSCluster, query: Application.get_env(:dead_giveaway, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: DeadGiveaway.PubSub},
+      # The public-lobby directory (issue #43): public rooms track themselves here so
+      # the home page can browse and join them. Needs PubSub up first.
+      DeadGiveaway.Presence,
       # Rooms are looked up by id and started on demand under a dynamic supervisor.
       {Registry, keys: :unique, name: DeadGiveaway.RoomRegistry},
       {DynamicSupervisor, name: DeadGiveaway.RoomSupervisor, strategy: :one_for_one},

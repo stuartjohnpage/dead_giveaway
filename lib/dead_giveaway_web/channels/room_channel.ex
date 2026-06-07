@@ -138,6 +138,13 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, :ok, socket}
   end
 
+  # Public/private visibility (issue #43), same host-only shape. The Room lists or unlists
+  # the lobby in the directory and broadcasts the new value so every lobby view reflects it.
+  def handle_in("set_config", %{"public" => public}, socket) when is_boolean(public) do
+    if socket.assigns.host, do: Room.set_visibility(socket.assigns.room, public)
+    {:reply, :ok, socket}
+  end
+
   # Backing out of the lobby. The host tears the whole room down (everyone is sent
   # `closed`); a guest just frees their own slot and heads home on their own.
   def handle_in("leave", _payload, socket) do

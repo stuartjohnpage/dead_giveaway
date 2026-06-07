@@ -86,6 +86,7 @@ import { boot } from "./game.mjs"
 import { getAudio } from "./audio-shell.mjs"
 import { bindVolumeSliders, bindSoundToggle } from "./volume.mjs"
 import { initRouter } from "./router.mjs"
+import { mountOpenLobbies } from "./lobbies.mjs"
 
 // Mount the current page in place. Called once for the server-rendered page at load and
 // again by the router after each client-side content swap, so all per-page setup must be
@@ -104,8 +105,9 @@ async function mount() {
   // The game page mounts the Pixi/socket client (and owns its own audio playback).
   if (document.getElementById("game")) return boot()
 
-  // The home splash plays the menu music; the gear above controls its volume.
-  if (document.getElementById("create-form")) mountHome()
+  // The home splash plays the menu music; the gear above controls its volume. Returns a
+  // teardown (the open-lobbies channel) the router runs before navigating into a game.
+  if (document.getElementById("create-form")) return mountHome()
 }
 
 // Wire the always-accessible audio gear (#19): toggle the panel, and bind its On/Off +
@@ -140,6 +142,8 @@ function mountHome() {
   const audio = getAudio()
   audio.enterMenu()
   audio.armUnlock()
+  // Live "open lobbies" list (#43); returns a teardown that drops its socket on navigate.
+  return mountOpenLobbies()
 }
 
 // Take over the home↔play navigations (and mount the initial page). Everything degrades to

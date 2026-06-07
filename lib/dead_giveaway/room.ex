@@ -18,7 +18,7 @@ defmodule DeadGiveaway.Room do
   # is NOT restarted by its supervisor; a genuine crash still is.
   use GenServer, restart: :transient
 
-  alias DeadGiveaway.{Session, Themes, World}
+  alias DeadGiveaway.{Presence, Session, Themes, World}
 
   # A round can start with as few as this many players (the rest are bots).
   @min_players 1
@@ -101,6 +101,15 @@ defmodule DeadGiveaway.Room do
   """
   def set_pace(room, pace), do: GenServer.call(room, {:set_pace, pace})
 
+  @doc """
+  List or unlist the lobby in the public directory (issue #43). Public lobbies show up
+  in the home page's "open lobbies" panel and are joinable in one click; private ones
+  (the default) are code-only. Unlike the round knobs this isn't round config, so it
+  takes effect immediately and is allowed mid-round — a public room stays listed (badged
+  in-progress) while a race runs. Host-set, and broadcast to every lobby view.
+  """
+  def set_visibility(room, public), do: GenServer.call(room, {:set_visibility, public})
+
   @doc "Round status: `:waiting` until a round is running, then `:running`."
   def status(room), do: GenServer.call(room, :status)
 
@@ -156,6 +165,13 @@ defmodule DeadGiveaway.Room do
       # Host-configurable round tempo (#17): the bot move:stop ratio. Defaults to :fast
       # (the original tempo); see DeadGiveaway.World for the presets.
       pace: validate_pace(Keyword.get(opts, :pace, World.default_pace()), World.default_pace()),
+      # Whether this lobby is listed in the public directory (issue #43). Private by
+      # default — code-only, discoverable to no one — until the host flips it public,
+      # which tracks it in `DeadGiveaway.Presence` for the home page to browse.
+      public: Keyword.get(opts, :public, false),
+      # Whether we currently hold a `Presence` entry, so a sync knows to `track` the
+      # first time vs `update` an existing entry vs `untrack` on going private.
+      presence_tracked: false,
       # Optional persistence sink (a module with `record_win/1`, e.g.
       # DeadGiveaway.Accounts). Off by default so the sim has no DB dependency.
       stats_mod: Keyword.get(opts, :stats),
@@ -183,7 +199,9 @@ defmodule DeadGiveaway.Room do
     # The tick timer (if any) runs for the room's lifetime; it idles while no
     # round is in progress, so round resets never double-schedule it.
     if tick_ms, do: schedule_tick(tick_ms)
-    {:ok, state}
+    # List the room straight away if it was created public (the host flow starts
+    # private, so this only fires for an explicitly-public start, e.g. in tests).
+    {:ok, sync_presence(state)}
   end
 
   @impl true
@@ -197,8 +215,8 @@ defmodule DeadGiveaway.Room do
     state =
       %{state | session: session, host: host}
       |> cancel_expiry()
+      |> broadcast_lobby()
 
-    broadcast_lobby(state)
     {:reply, {:ok, slot, name, name == host}, state}
   end
 
@@ -214,8 +232,8 @@ defmodule DeadGiveaway.Room do
       %{state | session: session}
       |> reassign_host(player)
       |> maybe_schedule_expiry()
+      |> broadcast_lobby()
 
-    broadcast_lobby(state)
     {:reply, :ok, state}
   end
 
@@ -241,8 +259,7 @@ defmodule DeadGiveaway.Room do
   # Ammo only reconfigures between rounds — a live round keeps the count it started
   # with, so a mid-round change can't hand a player extra bullets.
   def handle_call({:set_max_ammo, n}, _from, %{world: nil} = state) do
-    state = %{state | max_ammo: clamp(n, @min_ammo, @max_ammo)}
-    broadcast_lobby(state)
+    state = broadcast_lobby(%{state | max_ammo: clamp(n, @min_ammo, @max_ammo)})
     {:reply, :ok, state}
   end
 
@@ -251,8 +268,7 @@ defmodule DeadGiveaway.Room do
   # Lives reconfigure only between rounds, same as ammo — a live round keeps the count
   # it started with.
   def handle_call({:set_max_chances, n}, _from, %{world: nil} = state) do
-    state = %{state | max_chances: clamp(n, @min_chances, @max_chances)}
-    broadcast_lobby(state)
+    state = broadcast_lobby(%{state | max_chances: clamp(n, @min_chances, @max_chances)})
     {:reply, :ok, state}
   end
 
@@ -261,8 +277,7 @@ defmodule DeadGiveaway.Room do
   # Theme is cosmetic and reloaded client-side, so it only changes between rounds —
   # a live round keeps the look it started with rather than swapping mid-race.
   def handle_call({:set_theme, theme}, _from, %{world: nil} = state) do
-    state = %{state | theme: validate_theme(theme, state.theme)}
-    broadcast_lobby(state)
+    state = broadcast_lobby(%{state | theme: validate_theme(theme, state.theme)})
     {:reply, :ok, state}
   end
 
@@ -271,12 +286,22 @@ defmodule DeadGiveaway.Room do
   # Pace changes the next round's tempo, so like the other knobs it only applies between
   # rounds — a live race keeps the pace it started with.
   def handle_call({:set_pace, pace}, _from, %{world: nil} = state) do
-    state = %{state | pace: validate_pace(pace, state.pace)}
-    broadcast_lobby(state)
+    state = broadcast_lobby(%{state | pace: validate_pace(pace, state.pace)})
     {:reply, :ok, state}
   end
 
   def handle_call({:set_pace, _pace}, _from, state), do: {:reply, :ok, state}
+
+  # Visibility isn't round config (it's not a knob that arms the next race), so unlike
+  # ammo/theme/pace it's accepted any time — including mid-round, where a public room
+  # simply stays listed with its in-progress badge. Only a boolean is honoured; anything
+  # else is ignored. The change re-broadcasts the lobby and re-syncs the directory.
+  def handle_call({:set_visibility, public}, _from, state) when is_boolean(public) do
+    state = broadcast_lobby(%{state | public: public})
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_visibility, _public}, _from, state), do: {:reply, :ok, state}
 
   def handle_call({:set_verb, player, verb}, _from, state) do
     {:reply, :ok, update_world(state, &state.world_mod.set_verb(&1, player, verb))}
@@ -387,6 +412,8 @@ defmodule DeadGiveaway.Room do
     broadcast(state.id, :round_start)
     # Fresh round → fresh reticles; last round's aim points don't carry over.
     state = %{state | world: state.world_mod.new(opts), crosshairs: %{}}
+    # A live round flips the directory entry to in-progress (if this room is listed).
+    state = sync_presence(state)
     # Privately seed each player's lives HUD with their starting count (DESIGN §7).
     notify_chances(state, %{}, player_states(state))
     state
@@ -497,8 +524,9 @@ defmodule DeadGiveaway.Room do
   # won't start until a player hits Go (§8).
   defp reset_round(state) do
     state = %{state | seed: state.seed + 1, world: nil, crosshairs: %{}}
+    # Back in the lobby: broadcast_lobby re-syncs the directory, clearing the
+    # in-progress badge for a listed room.
     broadcast_lobby(state)
-    state
   end
 
   defp update_world(%{world: nil} = state, _fun), do: state
@@ -532,9 +560,11 @@ defmodule DeadGiveaway.Room do
   end
 
   # The lobby roster — who's currently waiting to play, and who hosts — plus the room
-  # config the lobby UI reflects (the host-set bullet count and theme). Carrying the
-  # host's name lets every client tell whether it's the host (and keep up if that
-  # changes), so host privilege is read from the server, never from the URL.
+  # config the lobby UI reflects (the host-set bullet count, theme, and public/private
+  # visibility). Carrying the host's name lets every client tell whether it's the host
+  # (and keep up if that changes), so host privilege is read from the server, never from
+  # the URL. Returns the state with its directory entry synced (see `sync_presence/1`), so
+  # callers thread it back — every lobby change keeps the public listing current.
   defp broadcast_lobby(state) do
     broadcast(
       state.id,
@@ -545,9 +575,48 @@ defmodule DeadGiveaway.Room do
          max_ammo: state.max_ammo,
          max_chances: state.max_chances,
          theme: state.theme,
-         pace: state.pace
+         pace: state.pace,
+         public: state.public
        }}
     )
+
+    sync_presence(state)
+  end
+
+  # Mirror this room's public summary into the lobby directory (`DeadGiveaway.Presence`
+  # on the "lobbies" topic, issue #43) so the home page can list and join it. Tracks on
+  # the first public sync, updates the meta (player count, theme, in-progress) on later
+  # ones, and untracks when the host flips the room private. A closed or crashed room is
+  # dropped automatically when its process dies, so nothing here runs on shutdown — and a
+  # still-private room never touches Presence at all.
+  defp sync_presence(%{public: true, presence_tracked: true} = state) do
+    Presence.update(self(), Presence.topic(), state.id, presence_meta(state))
+    state
+  end
+
+  defp sync_presence(%{public: true} = state) do
+    Presence.track(self(), Presence.topic(), state.id, presence_meta(state))
+    %{state | presence_tracked: true}
+  end
+
+  defp sync_presence(%{presence_tracked: true} = state) do
+    Presence.untrack(self(), Presence.topic(), state.id)
+    %{state | presence_tracked: false}
+  end
+
+  defp sync_presence(state), do: state
+
+  # The summary a browsing player sees for this lobby: its code, host, how many humans
+  # are waiting, the theme, and whether a round is currently running (so the home page can
+  # badge it in-progress rather than hide it — issue #43).
+  defp presence_meta(state) do
+    %{
+      code: state.id,
+      host: state.host,
+      players: Session.count(state.session),
+      theme: state.theme,
+      in_progress: state.world != nil
+    }
   end
 
   # Pull a host-set count (bullets or lives) into the whole-number range [lo, hi],

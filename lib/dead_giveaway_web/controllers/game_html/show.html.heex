@@ -158,6 +158,20 @@
             <option value="medium">Medium</option>
             <option value="fast" selected>Fast</option>
           </select>
+
+          <%!-- Public/private visibility (issue #43). Private (default) is code-only;
+                Public lists the lobby on the home page for one-click joining. Host-only,
+                like the other knobs; game.mjs disables it for guests and pushes changes. --%>
+          <label for="visibility-select" class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+            Lobby
+          </label>
+          <select
+            id="visibility-select"
+            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+          >
+            <option value="private" selected>Private</option>
+            <option value="public">Public</option>
+          </select>
         </div>
       </div>
     </div>

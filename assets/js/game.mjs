@@ -183,6 +183,7 @@ export async function boot() {
   const chancesSelect = document.getElementById("chances-select");
   const themeSelect = document.getElementById("theme-select");
   const paceSelect = document.getElementById("pace-select");
+  const visibilitySelect = document.getElementById("visibility-select");
 
   // Bullets-per-round is the host's call: guests see a disabled select reflecting the
   // host's choice (kept current by the lobby broadcast). The host's changes push to the
@@ -233,6 +234,16 @@ export async function boot() {
   });
   const applyPace = (pace) => {
     if (typeof pace === "string" && pace) paceSelect.value = pace;
+  };
+
+  // Public/private visibility (issue #43), same host-only shape as the other knobs. The
+  // <select> carries "public"/"private"; we push a boolean the room validates + broadcasts
+  // so every lobby (and the home directory) reflects the host's choice.
+  visibilitySelect.addEventListener("change", () => {
+    channel.push("set_config", { public: visibilitySelect.value === "public" });
+  });
+  const applyVisibility = (pub) => {
+    if (typeof pub === "boolean") visibilitySelect.value = pub ? "public" : "private";
   };
 
   // --- In-round ammo HUD: your bullets for the round (DESIGN §5) ---
@@ -296,6 +307,7 @@ export async function boot() {
     chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
     paceSelect.disabled = !isHost;
+    visibilitySelect.disabled = !isHost;
     // Only the host starts the round (the server enforces this too); a guest's Go is
     // disabled and a hint tells them they're waiting on the lobby leader. Skip the hint
     // while a round is starting ("starting…") so we don't stomp that transient message.
@@ -502,6 +514,7 @@ export async function boot() {
     applyMaxChances(p.max_chances);
     applyTheme(p.theme);
     applyPace(p.pace);
+    applyVisibility(p.public);
     if (!scores) banner = "Lobby";
     renderLobby();
   });

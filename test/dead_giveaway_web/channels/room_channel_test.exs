@@ -284,6 +284,25 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     refute_push "lobby", %{theme: "western"}, 200
   end
 
+  test "the host can make the lobby public and it reaches every client's lobby (#43)" do
+    {_reply, socket} = join_room("chan-public", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"public" => true})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{public: true}, 500
+  end
+
+  test "a guest cannot change the lobby's visibility (#43)" do
+    join_room("chan-public-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-public-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"public" => true})
+    assert_reply ref, :ok
+    # Same as the other knobs: a non-host's push is ignored — no lobby carries it public.
+    refute_push "lobby", %{public: true}, 200
+  end
+
   test "an input message is accepted and acknowledged" do
     join_room("chan-d")
     {_reply, socket} = join_room("chan-d")
