@@ -179,6 +179,7 @@ export async function boot() {
   const lobbyBack = document.getElementById("lobby-back");
   const lobbyLeave = document.getElementById("lobby-leave");
   const goButton = document.getElementById("go");
+  const modeSelect = document.getElementById("mode-select");
   const ammoSelect = document.getElementById("ammo-select");
   const chancesSelect = document.getElementById("chances-select");
   const themeSelect = document.getElementById("theme-select");
@@ -246,6 +247,43 @@ export async function boot() {
     if (typeof pub === "boolean") visibilitySelect.value = pub ? "public" : "private";
   };
 
+  // Mode preset (Classic/Custom) is a host-side UI convenience, not a room knob: the
+  // actual ruleset still travels as the bullets/lives/pace config. "Classic" is the
+  // preset (1 bullet, 1 life, fast) and hides those three rows; "Custom" reveals them.
+  const CLASSIC = { ammo: 1, chances: 1, pace: "fast" };
+  const customRows = document.querySelectorAll(".dg-custom-option");
+  // True when the current bullets/lives/pace all sit at the classic preset — i.e. there's
+  // nothing a Custom view would add. Read off the selects (kept current by the broadcast).
+  const atClassicPreset = () =>
+    Number(ammoSelect.value) === CLASSIC.ammo &&
+    Number(chancesSelect.value) === CLASSIC.chances &&
+    paceSelect.value === CLASSIC.pace;
+  // Show the bullets/lives/pace rows only in Custom mode. The host drives this from the
+  // Mode select; guests have no say, so we infer their mode from the broadcast values
+  // (if they're all at the preset there's nothing extra to show) and reflect it in their
+  // disabled Mode select for consistency with the other host-only knobs.
+  const applyMode = () => {
+    const custom = isHost ? modeSelect.value === "custom" : !atClassicPreset();
+    if (!isHost) modeSelect.value = custom ? "custom" : "classic";
+    customRows.forEach((el) => el.classList.toggle("hidden", !custom));
+  };
+  // Switching to Classic snaps the per-round knobs back to the preset and pushes each to
+  // the room so guests follow; setting the values first keeps our own view in sync and
+  // makes atClassicPreset agree. Custom just reveals the rows with their current values.
+  modeSelect.addEventListener("change", () => {
+    if (modeSelect.value === "classic") {
+      ammoSelect.value = String(CLASSIC.ammo);
+      chancesSelect.value = String(CLASSIC.chances);
+      paceSelect.value = CLASSIC.pace;
+      maxAmmo = CLASSIC.ammo;
+      maxChances = CLASSIC.chances;
+      channel.push("set_config", { max_ammo: CLASSIC.ammo });
+      channel.push("set_config", { max_chances: CLASSIC.chances });
+      channel.push("set_config", { pace: CLASSIC.pace });
+    }
+    applyMode();
+  });
+
   // --- In-round ammo HUD: your bullets for the round (DESIGN §5) ---
   const hudAmmo = document.getElementById("hud-ammo");
   const ammoBullet = document.getElementById("ammo-bullet");
@@ -303,11 +341,14 @@ export async function boot() {
   // change the bullet count / theme or close the whole lobby. Re-run from the lobby
   // roster whenever the host changes (e.g. the old host left and the room handed off).
   const applyHostUI = () => {
+    modeSelect.disabled = !isHost;
     ammoSelect.disabled = !isHost;
     chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
     paceSelect.disabled = !isHost;
     visibilitySelect.disabled = !isHost;
+    // Host status flips how the mode is derived (own Mode select vs. inferred from values).
+    applyMode();
     // Only the host starts the round (the server enforces this too); a guest's Go is
     // disabled and a hint tells them they're waiting on the lobby leader. Skip the hint
     // while a round is starting ("starting…") so we don't stomp that transient message.
@@ -516,6 +557,9 @@ export async function boot() {
     applyTheme(p.theme);
     applyPace(p.pace);
     applyVisibility(p.public);
+    // Now that the knob values are current, re-derive the Custom/Classic view (mainly for
+    // guests, who infer their mode from these values; a no-op for a host in a fixed mode).
+    applyMode();
     if (!scores) banner = "Lobby";
     renderLobby();
   });
