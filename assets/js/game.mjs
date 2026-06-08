@@ -164,7 +164,7 @@ export async function boot() {
   // can outlive any single boot() once navigation is client-side (#20). The volume is
   // configured on the home page and read fresh per transition. Arm the director's autoplay
   // unlock: the menu loop is queued, awaiting the first user gesture to sound.
-  const { music, playShot, playRoundStart, playWin, armUnlock, lobbyMusic } = getAudio();
+  const { music, playShot, armUnlock, lobbyMusic } = getAudio();
   armUnlock();
 
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
@@ -575,7 +575,6 @@ export async function boot() {
   // Any player's shot — including your own — arrives here, so everyone hears it (§5).
   channel.on("shot", () => playShot());
   channel.on("round_start", () => {
-    playRoundStart(); // 3-2-1 riser over the start, masking the menu→game crossfade
     music.toRound(); // open on stage 1 and climb the ladder through the round
     hideCard();
     scores = null;
@@ -604,10 +603,8 @@ export async function boot() {
     setCrosshairVisible(false); // no firing while the card is up
     showAmmo(false); // the round's done — pull the HUD with the card up
     showChances(false); // pull the lives HUD too
-    // Stay in the game: float the card over the frozen final frame. A win fanfare marks
-    // the moment, then the music ducks to its chill stage-1 limbo bed (held, not climbing)
-    // until the next round ramps anew.
-    playWin();
+    // Stay in the game: float the card over the frozen final frame, and duck the music to
+    // its chill stage-1 limbo bed (held, not climbing) until the next round ramps anew.
     music.toCard();
     showCard(true);
   });

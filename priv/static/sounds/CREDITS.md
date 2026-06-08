@@ -11,17 +11,6 @@ as a courtesy and so we can verify provenance later.
 - **License:** [Pixabay Content License](https://pixabay.com/service/license-summary/) — free for commercial and non-commercial use, no attribution required.
 - **Notes:** Used as the firing sound for the single-bullet hitscan shot (DESIGN §5).
 
-## round_start.mp3, win.mp3 (transitional stingers)
-
-- **Source:** Generated procedurally in-repo by `tools/asset-gen/gen_stingers.py` — no
-  external service (same pure-numpy additive synthesis as the music generators).
-- **License:** Original to this project; free to use.
-- **Notes:** One-shot cues layered over the background music at view transitions, played
-  through the SFX path (so they ride the sfx volume): `round_start.mp3` is a 3-2-1 riser
-  that resolves into a downbeat hit as a round opens (it also masks the menu→game music
-  crossfade); `win.mp3` is a bright fanfare on the win banner / round_over. Theme-neutral
-  and global (like `gunshot.mp3`) — see `tools/asset-gen/STINGERS.md`.
-
 ## themes/neon/menu_loop.mp3 (and other theme music)
 
 - **Source:** Generated procedurally in-repo by the generators in `tools/asset-gen/`

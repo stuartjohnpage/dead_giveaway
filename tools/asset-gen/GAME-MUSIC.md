@@ -36,9 +36,8 @@ go through `restage()` (reset the gain ladder back to stage 1 *in place*) and `f
 (the duck), not `start()`. The four sources keep running phase-locked for the game's whole
 life, so the beat carries unbroken across every round boundary; only the gains move. The
 menu→game change at the first round is a `fadeTo`-driven crossfade (the menu loop ducks to
-silence but stays live, ready to fade back up on a return home), masked by the
-`round_start.mp3` riser; `win.mp3` marks the round's end as it ducks to the card. See
-`STINGERS.md` and `music-director.mjs` (the `enterRound`/`enterCard` adapter ops).
+silence but stays live, ready to fade back up on a return home). See `music-director.mjs`
+(the `enterRound`/`enterCard` adapter ops).
 
 The HTML5 two-element crossfade below is the original sketch of the same idea; the
 shipped version does it in WebAudio (sample-accurate scheduling, one shared

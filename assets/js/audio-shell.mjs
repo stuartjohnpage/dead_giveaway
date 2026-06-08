@@ -36,8 +36,6 @@ let shell = null;
  *   musicGain(): number,
  *   applyMusicGain(): void,
  *   playShot(): void,
- *   playRoundStart(): void,
- *   playWin(): void,
  *   armUnlock(): void,
  *   enterMenu(): void,
  *   resumeMusic(): void,
@@ -75,23 +73,16 @@ function create() {
     (music.inGame ? gameMusic : lobbyMusic).setGain(musicGain());
   };
 
-  // One-shot SFX, each preloaded so the first play isn't silent while the asset decodes.
-  // cloneNode lets overlapping plays both sound (the server broadcasts every peer's fire).
-  // The firing shot is the Pixabay-licensed gunshot (priv/static/sounds/CREDITS.md); the
-  // transitional stingers (round-start riser, win fanfare) are procedurally generated
-  // (tools/asset-gen/gen_stingers.py) and layered over the music at view changes.
-  const oneShot = (url) => {
-    const el = new Audio(url);
-    el.preload = "auto";
-    return () => {
-      const s = el.cloneNode();
-      s.volume = sfxGain(volume);
-      s.play().catch(() => {}); // autoplay is rejected until the first gesture; in-game the click is one
-    };
+  // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
+  // Pixabay Content License, credited in priv/static/sounds/CREDITS.md. cloneNode lets
+  // overlapping shots both play (the server broadcasts every peer's fire).
+  const shotSfx = new Audio("/sounds/gunshot.mp3");
+  shotSfx.preload = "auto";
+  const playShot = () => {
+    const s = shotSfx.cloneNode();
+    s.volume = sfxGain(volume);
+    s.play().catch(() => {}); // autoplay is rejected until the first gesture; in-game the click is the gesture
   };
-  const playShot = oneShot("/sounds/gunshot.mp3");
-  const playRoundStart = oneShot("/sounds/round_start.mp3");
-  const playWin = oneShot("/sounds/win.mp3");
 
   // Return to the splash/menu from anywhere — the home page calls this on mount, which
   // (post client-side nav) may be arriving back from a live game. Reset the director to the
@@ -152,8 +143,6 @@ function create() {
     musicGain,
     applyMusicGain,
     playShot,
-    playRoundStart,
-    playWin,
     armUnlock,
     enterMenu,
     resumeMusic,
