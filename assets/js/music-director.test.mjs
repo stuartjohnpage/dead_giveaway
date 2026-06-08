@@ -140,6 +140,21 @@ test("the boot-time setTheme only retargets — no play", () => {
   assert.deepEqual(audio.plays(), []);
 });
 
+test("re-setting the SAME theme is a no-op — no retarget, no replay (the singleton survives nav)", () => {
+  const audio = fakeAudio();
+  const music = createMusicDirector(audio);
+  music.setTheme({ menuLoop: "/m.mp3", gameStages: ["/g1.mp3", "/g2.mp3"] }); // first page boot
+  music.adoptLobby(); // menu loop carried over and playing
+  audio.calls.length = 0; // focus on the redundant re-set
+
+  // A second lobby's boot reloads the SAME default theme. The director outlives the page, so
+  // `themed` is already true — but the tracks are unchanged, so it must touch nothing (no
+  // retarget that drops the buffer, no replay that restarts the loop). This is the home→lobby
+  // skip-on-the-second-lobby bug: the carry stays seamless only if this is a true no-op.
+  music.setTheme({ menuLoop: "/m.mp3", gameStages: ["/g1.mp3", "/g2.mp3"] });
+  assert.deepEqual(audio.calls, []);
+});
+
 test("a live setTheme after a round restarts the currently-playing loop", () => {
   const audio = fakeAudio();
   const music = createMusicDirector(audio);

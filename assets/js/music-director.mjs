@@ -70,6 +70,20 @@ export function createMusicDirector(audio) {
   // adopts the new track. False until the first setTheme.
   let themed = false;
 
+  // The tracks currently loaded, so setTheme can tell a real swap from a redundant
+  // re-set of the same theme. This is load-bearing because the director is a SINGLETON
+  // that survives client-side navigation (#20): every new page's boot calls
+  // setTheme(DEFAULT_THEME) again, and on every visit after the first `themed` is already
+  // true — so without this comparison setTheme would treat the unchanged default as a live
+  // swap and replay(), restarting the menu loop from the top and breaking the seamless
+  // home↔lobby carry on the second lobby and beyond.
+  let curMenu = null;
+  let curStages = [];
+  const sameTracks = (menuLoop, gameStages) =>
+    menuLoop === curMenu &&
+    gameStages.length === curStages.length &&
+    gameStages.every((u, i) => u === curStages[i]);
+
   const playLobby = () => audio.play("lobby", { gain: audio.gain() });
   const playGame = (escalate) => audio.play("game", { gain: audio.gain(), escalate });
 
@@ -116,12 +130,18 @@ export function createMusicDirector(audio) {
     if (!inGame) toRound();
   };
 
-  // Point both loops at a theme's tracks. The boot-time load only retargets (first
-  // playback is the initial toLobby()); a live swap also restarts whichever loop is
-  // currently playing so it picks up the new track.
+  // Point both loops at a theme's tracks. A re-set of the already-loaded tracks (e.g. each
+  // page's boot reloading the default theme — the director outlives the page) is a no-op:
+  // no retarget (which would drop the decoded buffer) and no replay (which would restart
+  // the loop). The boot-time *first* load only retargets (first playback is the initial
+  // toLobby()/adoptLobby()); a genuine live swap also restarts whichever loop is currently
+  // playing so it picks up the new track.
   const setTheme = ({ menuLoop, gameStages }) => {
+    if (themed && sameTracks(menuLoop, gameStages)) return; // unchanged — leave it playing
     audio.retarget("lobby", menuLoop);
     audio.retarget("game", gameStages);
+    curMenu = menuLoop;
+    curStages = gameStages;
     if (themed) replay();
     themed = true;
   };
