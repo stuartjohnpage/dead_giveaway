@@ -64,6 +64,9 @@ async function setup() {
             ramps.push({ type: "ramp", v, t });
             this.value = v;
           },
+          cancelScheduledValues(t) {
+            ramps.push({ type: "cancel", t });
+          },
         },
         ramps,
         connect: (node) => node,
@@ -240,4 +243,93 @@ test("escalating loop setGain re-levels the master", async () => {
   await loop.start(0.5);
   loop.setGain(0.2);
   assert.equal(gains[0].gain.value, 0.2); // master is the first gain created
+});
+
+// --- fade / restage / wanted (the seamless-transition primitives) ---
+
+test("wanted is true the instant start() is called, before its async decode makes a source", async () => {
+  const { createMusicLoop } = await setup();
+  const loop = createMusicLoop("/x.mp3");
+  const p = loop.start(); // do NOT await — mid-flight, the buffer is still decoding
+  assert.equal(loop.wanted, true); // intended-to-play immediately…
+  assert.equal(loop.live, false); // …but no source node yet (the home→lobby skip window)
+  await p;
+  assert.equal(loop.live, true); // now the source exists
+});
+
+test("start({fadeMs}) ramps the loop up from silence instead of snapping to gain", async () => {
+  const { createMusicLoop, gains } = await setup();
+  const loop = createMusicLoop("/x.mp3");
+  await loop.start(0.4, { fadeMs: 600 });
+  const g = gains.at(-1);
+  assert.equal(g.gain.value, 0.4); // ends at the target
+  // opened at 0 and ramped to 0.4 at t0(0)+0.6s
+  assert.deepEqual(g.ramps, [
+    { type: "set", v: 0, t: 0 },
+    { type: "ramp", v: 0.4, t: 0.6 },
+  ]);
+});
+
+test("fadeTo ramps the live loop to a new level without restarting (no new source)", async () => {
+  const { createMusicLoop, sources, gains } = await setup();
+  const loop = createMusicLoop("/x.mp3");
+  await loop.start(0.5);
+  loop.fadeTo(0, 600);
+  assert.equal(sources.length, 1); // still the one source — no restart
+  const r = gains.at(-1).ramps;
+  assert.deepEqual(r.at(-1), { type: "ramp", v: 0, t: 0.6 }); // ramped to 0 over 600ms
+  assert.equal(r.some((x) => x.type === "cancel"), true); // pending ramps cancelled first
+});
+
+test("fadeTo before start is a harmless no-op", async () => {
+  const { createMusicLoop } = await setup();
+  const loop = createMusicLoop("/x.mp3");
+  loop.fadeTo(0.2); // no node yet — must not throw
+  assert.equal(loop.live, false);
+});
+
+test("escalating fadeTo ramps the master (the between-rounds duck) without restarting", async () => {
+  const { createEscalatingLoop, sources, gains } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS);
+  await loop.start(0.4, { escalate: false });
+  loop.fadeTo(0.13, 600); // duck to the limbo level
+  assert.equal(sources.length, 4); // no teardown
+  assert.deepEqual(gains[0].ramps.at(-1), { type: "ramp", v: 0.13, t: 0.6 }); // master ramped
+});
+
+test("restage resets the ladder IN PLACE — same sources, climb re-scheduled, no phase reset", async () => {
+  const { createEscalatingLoop, sources, gains } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS);
+  await loop.start(0.4, { escalate: false }); // sitting on the stage-1 bed
+  const before = sources.length;
+
+  loop.restage({ escalate: true }); // back to a climbing round, in place
+
+  assert.equal(sources.length, before); // NO new sources — the four keep running, phase intact
+  assert.ok(sources.every((s) => !s.stopped)); // nothing was torn down
+  // Every stage gain was reset (crossfaded back toward stage 1) and the climb re-scheduled.
+  const stageGains = gains.slice(1);
+  assert.ok(stageGains.every((g) => g.ramps.some((r) => r.type === "cancel")));
+  assert.ok(stageGains.every((g) => g.ramps.some((r) => r.type === "ramp")));
+});
+
+test("restage holds the bed when escalate:false (ladder reset, no climb beyond the reset)", async () => {
+  const { createEscalatingLoop, gains } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS, { stageMs: 15000, crossMs: 1200 });
+  await loop.start(0.4); // a climbing round (ramps scheduled)
+  gains.forEach((g) => (g.ramps.length = 0)); // focus on what restage does
+
+  loop.restage({ escalate: false }); // drop to the chill bed and hold
+
+  const stageGains = gains.slice(1);
+  // Stage 1 is brought back up; every stage's only ramp target is the reset (no boundary climbs).
+  assert.deepEqual(stageGains[0].ramps.filter((r) => r.type === "ramp"), [{ type: "ramp", v: 1, t: 1.2 }]);
+  assert.deepEqual(stageGains[1].ramps.filter((r) => r.type === "ramp"), [{ type: "ramp", v: 0, t: 1.2 }]);
+});
+
+test("restage before start is a harmless no-op", async () => {
+  const { createEscalatingLoop, sources } = await setup();
+  const loop = createEscalatingLoop(STAGE_URLS);
+  loop.restage({ escalate: true }); // no master yet — must not throw
+  assert.equal(sources.length, 0);
 });

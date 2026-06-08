@@ -10,7 +10,7 @@
 // still-playing loop — will carry across seamlessly, which is the point (#20).
 
 import { loadVolume, sfxGain } from "./volume.mjs";
-import { createMusicLoop, createEscalatingLoop, audioRunning, MUSIC_GAIN } from "./music.mjs";
+import { createMusicLoop, createEscalatingLoop, audioRunning, MUSIC_GAIN, FADE_MS } from "./music.mjs";
 import { createMusicDirector, createAudioPort } from "./music-director.mjs";
 
 // The default theme's audio, used until a room's own theme is loaded — and as the
@@ -36,7 +36,11 @@ let shell = null;
  *   musicGain(): number,
  *   applyMusicGain(): void,
  *   playShot(): void,
+ *   playRoundStart(): void,
+ *   playWin(): void,
  *   armUnlock(): void,
+ *   enterMenu(): void,
+ *   resumeMusic(): void,
  * }}
  */
 export function getAudio() {
@@ -63,36 +67,52 @@ function create() {
     createAudioPort({ lobbyMusic, gameMusic, audioRunning, gain: musicGain }),
   );
 
-  // Re-gain whichever loops are live to the current volume, WITHOUT restarting them — for
-  // a slider drag while music plays. setGain on a stopped loop is a harmless no-op.
+  // Re-gain the loop the player is actually hearing to the current volume, WITHOUT
+  // restarting it — for a slider drag while music plays. Only the active loop is touched:
+  // the backgrounded loop sits ducked to silence (a crossfade leaves it live but at 0), and
+  // re-leveling it would bring it back over the foreground track.
   const applyMusicGain = () => {
-    lobbyMusic.setGain(musicGain());
-    gameMusic.setGain(musicGain());
+    (music.inGame ? gameMusic : lobbyMusic).setGain(musicGain());
   };
 
-  // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
-  // Pixabay Content License, credited in priv/static/sounds/CREDITS.md. cloneNode lets
-  // overlapping shots both play (the server broadcasts every peer's fire).
-  const shotSfx = new Audio("/sounds/gunshot.mp3");
-  shotSfx.preload = "auto";
-  const playShot = () => {
-    const s = shotSfx.cloneNode();
-    s.volume = sfxGain(volume);
-    s.play().catch(() => {}); // autoplay is rejected until the first gesture; in-game the click is the gesture
+  // One-shot SFX, each preloaded so the first play isn't silent while the asset decodes.
+  // cloneNode lets overlapping plays both sound (the server broadcasts every peer's fire).
+  // The firing shot is the Pixabay-licensed gunshot (priv/static/sounds/CREDITS.md); the
+  // transitional stingers (round-start riser, win fanfare) are procedurally generated
+  // (tools/asset-gen/gen_stingers.py) and layered over the music at view changes.
+  const oneShot = (url) => {
+    const el = new Audio(url);
+    el.preload = "auto";
+    return () => {
+      const s = el.cloneNode();
+      s.volume = sfxGain(volume);
+      s.play().catch(() => {}); // autoplay is rejected until the first gesture; in-game the click is one
+    };
   };
+  const playShot = oneShot("/sounds/gunshot.mp3");
+  const playRoundStart = oneShot("/sounds/round_start.mp3");
+  const playWin = oneShot("/sounds/win.mp3");
 
   // Return to the splash/menu from anywhere — the home page calls this on mount, which
   // (post client-side nav) may be arriving back from a live game. Reset the director to the
-  // lobby view and make sure no in-game loop is left sounding under the splash. If the menu
-  // loop is already playing (we left a pre-round lobby, sound on) it's kept as-is — seamless,
-  // no restart. Otherwise drop the game loop; and if audio is already unlocked (we came from
-  // the game, not a fresh page load) and sound is on, (re)start the menu loop now — on a
-  // fresh load the context is still suspended, so first playback is left to the home gesture.
+  // lobby view, then make the menu loop the one we hear.
+  //
+  // On a fresh load (context suspended) or with sound off, leave first playback to the home
+  // gesture and just make sure a left-over game loop isn't sounding. Otherwise (unlocked +
+  // sound on): if the menu loop is already up — carried over from a pre-round lobby — keep
+  // it (seamless, no restart); if it's backgrounded under a game (ducked to silence by the
+  // lobby→round crossfade) fade it back up; if it never started, start it with a fade-in.
+  // Either way crossfade the game loop out. `wanted` (not just `live`) covers a menu loop
+  // whose start() is still decoding, so we never stack a second start on top of it.
   const enterMenu = () => {
     music.adoptLobby();
-    if (lobbyMusic.live) return;
-    gameMusic.stop();
-    if (volume.enabled && audioRunning()) lobbyMusic.start(musicGain());
+    if (!volume.enabled || !audioRunning()) {
+      if (!lobbyMusic.wanted && !lobbyMusic.live) gameMusic.stop();
+      return;
+    }
+    if (lobbyMusic.live) lobbyMusic.fadeTo(musicGain(), FADE_MS);
+    else if (!lobbyMusic.wanted) lobbyMusic.start(musicGain(), { fadeMs: FADE_MS });
+    if (gameMusic.live) gameMusic.fadeTo(0, FADE_MS);
   };
 
   // Make sure the current view's loop is actually playing — for when sound is switched ON
@@ -132,6 +152,8 @@ function create() {
     musicGain,
     applyMusicGain,
     playShot,
+    playRoundStart,
+    playWin,
     armUnlock,
     enterMenu,
     resumeMusic,

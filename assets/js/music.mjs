@@ -11,6 +11,14 @@
 // suggests ~0.4–0.5). master volume scales this further.
 export const MUSIC_GAIN = 0.45;
 
+// Default crossfade/duck length for view transitions. Long enough to read as a
+// deliberate blend (not a cut), short enough not to drag. Used by the loops' fadeTo and
+// by the music director's adapter (lobby↔game crossfade, between-rounds duck).
+export const FADE_MS = 900;
+// The between-rounds "limbo" level: the game loop ducks to this fraction of its normal
+// gain on the card, so the round's end reads as a breath without going fully silent.
+export const DUCK_LEVEL = 0.32;
+
 // One AudioContext shared by every loop on the page. Browsers gate audio behind a user
 // gesture: a context is born "suspended" and only a resume() originating from a gesture
 // starts it. Sharing a single context means one gesture (e.g. the Go click) unlocks
@@ -41,8 +49,9 @@ export function createMusicLoop(url) {
   return {
     // (Re)start the loop from the beginning. Idempotent enough to call on every view
     // change — it tears down any current source first. Must originate from a user
-    // gesture the first time, or the AudioContext stays suspended (silent).
-    async start(g = MUSIC_GAIN) {
+    // gesture the first time, or the AudioContext stays suspended (silent). Pass
+    // `fadeMs` to ramp up from silence instead of snapping to `g` (a crossfade-in).
+    async start(g = MUSIC_GAIN, { fadeMs = 0 } = {}) {
       gain = g;
       wantPlaying = true;
       try {
@@ -65,9 +74,14 @@ export function createMusicLoop(url) {
         src.buffer = buffer;
         src.loop = true;
         gainNode = ctx.createGain();
-        gainNode.gain.value = gain;
+        gainNode.gain.value = fadeMs ? 0 : gain;
         src.connect(gainNode).connect(ctx.destination);
         src.start();
+        if (fadeMs) {
+          const t0 = ctx.currentTime;
+          gainNode.gain.setValueAtTime(0, t0);
+          gainNode.gain.linearRampToValueAtTime(gain, t0 + fadeMs / 1000);
+        }
       } catch {
         /* WebAudio unavailable or fetch failed — caller just stays silent */
       }
@@ -75,6 +89,19 @@ export function createMusicLoop(url) {
     setGain(g) {
       gain = g;
       if (gainNode) gainNode.gain.value = g;
+    },
+    // Ramp the live loop to `level` over `ms` (a crossfade/duck), leaving it playing. A
+    // no-op on a loop that has never started (no node yet) — the caller passes fadeMs to
+    // start() instead for the fade-IN. Doesn't touch the stored `gain`, so a later
+    // setGain still restores the nominal level.
+    fadeTo(level, ms = FADE_MS) {
+      if (!gainNode) return;
+      const ctx = audioContext();
+      const t0 = ctx.currentTime;
+      const p = gainNode.gain;
+      p.cancelScheduledValues(t0);
+      p.setValueAtTime(p.value, t0);
+      p.linearRampToValueAtTime(level, t0 + ms / 1000);
     },
     // Retarget the loop at a different track (e.g. a theme swap). Drops the cached
     // buffer so the next start() re-fetches/decodes; the caller restarts to hear it.
@@ -96,6 +123,15 @@ export function createMusicLoop(url) {
     },
     get live() {
       return !!src;
+    },
+    // "Intended to be playing" — true from the moment start() is called, BEFORE its async
+    // fetch/decode has created the source node. The "adopt vs (re)start" decision keys off
+    // this rather than `live`: when the first gesture is the navigation click itself,
+    // start()'s buffer is still decoding when the next page boots, so a `live`-based check
+    // would see no source and issue a SECOND start() — restarting the loop from the top
+    // just as the new view appears (the home→lobby skip).
+    get wanted() {
+      return wantPlaying;
     },
   };
 }
@@ -127,6 +163,19 @@ export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS
     param.linearRampToValueAtTime(to, at + dur);
   };
 
+  // Schedule the climb up the ladder starting at `base`: at each stage boundary fade the
+  // next stage in and the current out. Past the last boundary there are no more ramps, so
+  // it simply holds at the top. Shared by start() (climb from t0) and restage() (climb
+  // from the reset point).
+  const scheduleClimb = (base) => {
+    const dur = crossMs / 1000;
+    for (let i = 1; i < stageGains.length; i++) {
+      const at = base + (i * stageMs) / 1000;
+      fade(stageGains[i - 1].gain, 1, 0, at, dur);
+      fade(stageGains[i].gain, 0, 1, at, dur);
+    }
+  };
+
   const teardown = () => {
     for (const s of sources) {
       try {
@@ -145,9 +194,15 @@ export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS
 
   return {
     // (Re)start at stage 1. `escalate` true schedules the climb (one stage per stageMs,
-    // holding at the last); false holds at the chill bed. Like createMusicLoop.start,
+    // holding at the last); false holds at the chill bed. `fadeMs` ramps the master up
+    // from silence (a crossfade-in) instead of snapping to `g`. Like createMusicLoop.start,
     // must first run from a user gesture or the shared AudioContext stays suspended.
-    async start(g = MUSIC_GAIN, { escalate = true } = {}) {
+    //
+    // NB: this tears the loop down and restarts it (resetting the loop phase). The normal
+    // round→card→round flow uses restage() instead, which keeps the sources running so the
+    // beat never breaks; start() is for first playback, a theme swap, or coming back from
+    // a fully-stopped (e.g. page-loaded-muted) loop.
+    async start(g = MUSIC_GAIN, { escalate = true, fadeMs = 0 } = {}) {
       gain = g;
       wantPlaying = true;
       try {
@@ -162,7 +217,7 @@ export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS
         teardown();
 
         master = ctx.createGain();
-        master.gain.value = gain;
+        master.gain.value = fadeMs ? 0 : gain;
         master.connect(ctx.destination);
 
         const t0 = ctx.currentTime;
@@ -181,13 +236,10 @@ export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS
 
         // Climb the ladder: at each boundary fade the next stage in and the current out.
         // Past the last boundary there are no more ramps, so it simply holds at the top.
-        if (escalate) {
-          const dur = crossMs / 1000;
-          for (let i = 1; i < buffers.length; i++) {
-            const at = t0 + (i * stageMs) / 1000;
-            fade(stageGains[i - 1].gain, 1, 0, at, dur);
-            fade(stageGains[i].gain, 0, 1, at, dur);
-          }
+        if (escalate) scheduleClimb(t0);
+        if (fadeMs) {
+          master.gain.setValueAtTime(0, t0);
+          master.gain.linearRampToValueAtTime(gain, t0 + fadeMs / 1000);
         }
       } catch {
         /* WebAudio unavailable or fetch failed — caller just stays silent */
@@ -196,6 +248,38 @@ export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS
     setGain(g) {
       gain = g;
       if (master) master.gain.value = g;
+    },
+    // Ramp the master to `level` over `ms` (the between-rounds duck, or a crossfade in/out)
+    // without restarting — the stages keep playing, phase intact. No-op before first start.
+    fadeTo(level, ms = FADE_MS) {
+      if (!master) return;
+      const ctx = audioContext();
+      const t0 = ctx.currentTime;
+      const p = master.gain;
+      p.cancelScheduledValues(t0);
+      p.setValueAtTime(p.value, t0);
+      p.linearRampToValueAtTime(level, t0 + ms / 1000);
+    },
+    // Reset the stage ladder back to stage 1 *in place* — the four sources keep running
+    // phase-locked, so unlike start() there's no teardown and no phase reset (the beat
+    // carries unbroken across a round boundary). Crossfades the ladder down to the stage-1
+    // bed; `escalate` true then re-schedules the climb. A no-op if not yet started (the
+    // caller falls back to start() for that). This is what makes round→card→round seamless.
+    restage({ escalate = true } = {}) {
+      if (!master) return;
+      const ctx = audioContext();
+      const t0 = ctx.currentTime;
+      const dur = crossMs / 1000;
+      // Crossfade every stage back to the stage-1 bed (stage 0 up, the rest down), first
+      // cancelling any climb ramps still pending from the previous round.
+      stageGains.forEach((sg, i) => {
+        const p = sg.gain;
+        p.cancelScheduledValues(t0);
+        p.setValueAtTime(p.value, t0);
+        p.linearRampToValueAtTime(i === 0 ? 1 : 0, t0 + dur);
+      });
+      // Climb again from the reset point (past the short crossfade), if asked.
+      if (escalate) scheduleClimb(t0 + dur);
     },
     // Retarget at a different set of stage tracks (a theme swap). Drops the cached
     // buffers so the next start() re-fetches/decodes; the caller restarts to hear it.
@@ -209,6 +293,11 @@ export function createEscalatingLoop(urls, { stageMs = STAGE_MS, crossMs = CROSS
     },
     get live() {
       return sources.length > 0;
+    },
+    // Intended-to-be-playing, set before start()'s async decode produces the sources — see
+    // the note on createMusicLoop's `wanted`.
+    get wanted() {
+      return wantPlaying;
     },
   };
 }
