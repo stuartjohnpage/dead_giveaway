@@ -6,7 +6,7 @@ import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Textu
 import { openChannel } from "./socket.mjs";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { advance, reconcile } from "./prediction.mjs";
-import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES } from "./audio-shell.mjs";
+import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES, DEFAULT_SHOT } from "./audio-shell.mjs";
 import { navigate } from "./router.mjs";
 
 const PAD = 24;
@@ -128,10 +128,14 @@ export async function boot() {
   window.addEventListener("resize", layout);
 
   // Crosshair lives in screen space so it tracks the raw mouse with no transform. Its
-  // texture (a cross tinted to the theme's accent) is generated in loadTheme.
+  // texture — the pack's own crosshair sprite, or a generated cross tinted to the
+  // theme's accent when the pack has none (#48) — is set in loadTheme. `crossOwned`
+  // remembers which: generated textures are ours to destroy on swap, Assets-loaded
+  // ones belong to the shared cache (destroying those would break switching back).
   const myCross = new Sprite(Texture.EMPTY);
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
+  let crossOwned = false;
 
   // The pink reticle *is* your pointer while you're armed, so hide the OS cursor over
   // the canvas whenever it's up — no arrow sitting on top of the crosshair. When the
@@ -165,7 +169,7 @@ export async function boot() {
   // can outlive any single boot() once navigation is client-side (#20). The volume is
   // configured on the home page and read fresh per transition. Arm the director's autoplay
   // unlock: the menu loop is queued, awaiting the first user gesture to sound.
-  const { music, playShot, armUnlock, lobbyMusic } = getAudio();
+  const { music, playShot, setShotUrl, armUnlock, lobbyMusic } = getAudio();
   armUnlock();
 
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
@@ -479,21 +483,41 @@ export async function boot() {
 
     const ui = manifest.ui || {};
 
-    // Reticle: the same cross shape, tinted to the theme's accent.
-    const reticle = ui.reticle || "#ff5577";
-    const newCross = app.renderer.generateTexture(
-      new Graphics()
-        .circle(0, 0, 11)
-        .stroke({ width: 2, color: reticle })
-        .moveTo(-15, 0)
-        .lineTo(15, 0)
-        .moveTo(0, -15)
-        .lineTo(0, 15)
-        .stroke({ width: 2, color: reticle }),
-    );
+    // Reticle (#48): the pack's own crosshair sprite when it ships one; the generated
+    // cross tinted to ui.reticle otherwise (the pre-pack look, and the fallback for a
+    // missing/broken sprite path). Peers' reticles adopt myCross.texture per snapshot,
+    // so they follow the theme automatically. Cosmetic only — size and centered anchor
+    // stay consistent across themes, so aim feel never changes (DESIGN §9).
+    let newCross = null;
+    let newOwned = false;
+    if (ui.crosshair) {
+      try {
+        newCross = await Assets.load(url(ui.crosshair));
+        newCross.source.scaleMode = "nearest";
+      } catch {
+        newCross = null; // manifest points at a missing file — fall back to the drawn cross
+      }
+    }
+    if (!newCross) {
+      const reticle = ui.reticle || "#ff5577";
+      newCross = app.renderer.generateTexture(
+        new Graphics()
+          .circle(0, 0, 11)
+          .stroke({ width: 2, color: reticle })
+          .moveTo(-15, 0)
+          .lineTo(15, 0)
+          .moveTo(0, -15)
+          .lineTo(0, 15)
+          .stroke({ width: 2, color: reticle }),
+      );
+      newOwned = true;
+    }
     const oldCross = myCross.texture;
+    const oldOwned = crossOwned;
     myCross.texture = newCross;
-    if (oldCross && oldCross !== Texture.EMPTY) oldCross.destroy(true);
+    crossOwned = newOwned;
+    // Only a texture we generated is ours to free; cached pack textures stay live.
+    if (oldOwned && oldCross && oldCross !== Texture.EMPTY) oldCross.destroy(true);
 
     // Ammo HUD icon (the theme's bullet).
     if (ui.bullet) ammoBullet.src = url(ui.bullet);
@@ -514,6 +538,9 @@ export async function boot() {
     const stages =
       audio.gameStages && audio.gameStages.length ? audio.gameStages.map(url) : DEFAULT_GAME_STAGES;
     music.setTheme({ menuLoop, gameStages: stages });
+    // The gunshot follows the pack too (#48), preloading on swap so the round's first
+    // shot isn't silent; a pack without one keeps the classic default crack.
+    setShotUrl(audio.shot ? url(audio.shot) : DEFAULT_SHOT);
 
     currentTheme = key;
   }

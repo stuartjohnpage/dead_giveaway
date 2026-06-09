@@ -11,8 +11,9 @@ see the identity note below.
 
 The generators that produce these packs live OUTSIDE the web-served tree, in
 `tools/asset-gen/` (so `mix phx.digest` doesn't bundle them): `gen_pack.py` (sprites +
-backgrounds + manifest), `gen_bullet.py` (ammo icon), and `gen_music*.py` /
-`gen_game_music*.py` (music), plus `stems/` (raw layers for future WebAudio mixing).
+backgrounds + manifest), `gen_bullet.py` (ammo icon), `gen_crosshair.py` (reticle),
+`gen_gunshot.py` (firing SFX), and `gen_music*.py` / `gen_game_music*.py` (music), plus
+`stems/` (raw layers for future WebAudio mixing).
 
 ```
 themes/
@@ -28,14 +29,19 @@ themes/
     menu_bg.png          # main-menu backdrop (1280x720, no baked text)
     lobby_bg.png         # between-rounds lobby backdrop (1280x720, no baked text)
     bullet.png           # ammo-counter icon (+ bullet_flat.png, the no-glow variant)
+    crosshair.png        # the theme's reticle (38x38, centered) — yours and peers' (#48)
     menu_loop.mp3        # menu/lobby music loop
     game/stage1..4.mp3   # in-round escalating music (one stage per 15s, holds at 4)
+    shot.mp3             # the theme's gunshot one-shot (#48)
   western/               # same shape; PACK.md documents this pack's specifics
 ```
 
 All paths inside `theme.json` are **relative to the theme's own folder**, so a pack is
 fully self-contained and relocatable. A theme may omit `audio.gameStages` (e.g. before its
 in-round music is generated); the client then falls back to the default theme's stages.
+Likewise `ui.crosshair` (absent → a procedural cross tinted to `ui.reticle`) and
+`audio.shot` (absent → the default `/sounds/gunshot.mp3` crack). Crosshairs are cosmetic
+only: keep the canvas size and centered anchor so aim feel never changes between themes.
 
 ## The sprite pool (read this)
 

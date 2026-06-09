@@ -29,11 +29,13 @@
       "game/stage2.mp3",
       "game/stage3.mp3",
       "game/stage4.mp3"
-    ]
+    ],
+    "shot": "shot.mp3"
   },
   "ui": {
     "bullet": "bullet_flat.png",
-    "reticle": "#e0963c"
+    "reticle": "#e0963c",
+    "crosshair": "crosshair.png"
   },
   "palette": {
     "wall": [

@@ -575,6 +575,7 @@ def main():
             "lobbyBackground": "lobby_bg.png",
         },
         # The ammo icon + reticle tint the client loads (paths relative to this folder).
+        # ui.crosshair is appended below only if the sprite exists (gen_crosshair.py).
         "ui": {
             "bullet": pal.get("bullet", "bullet.png"),
             "reticle": pal.get("reticle", "#ff5577"),
@@ -586,15 +587,23 @@ def main():
                 "Assign a random variant per character at spawn, server-side.",
     }
 
+    # The themed crosshair (#48) is generated separately (gen_crosshair.py); only
+    # reference it if it exists so a fresh pack falls back to the procedural reticle.
+    if os.path.exists(os.path.join(base, "crosshair.png")):
+        manifest["ui"]["crosshair"] = "crosshair.png"
+
     # Audio lives in this folder too, but is generated separately (see tools/asset-gen).
     # Only reference tracks that actually exist so a fresh art-only pack falls back to the
-    # default theme's music client-side rather than 404ing to silence.
+    # default theme's music client-side rather than 404ing to silence. Same deal for the
+    # themed gunshot (#48, gen_gunshot.py): absent → the default crack.
     audio = {}
     if os.path.exists(os.path.join(base, "menu_loop.mp3")):
         audio["menuLoop"] = "menu_loop.mp3"
     stages = [f"game/stage{i}.mp3" for i in range(1, 5)]
     if all(os.path.exists(os.path.join(base, s)) for s in stages):
         audio["gameStages"] = stages
+    if os.path.exists(os.path.join(base, "shot.mp3")):
+        audio["shot"] = "shot.mp3"
     if audio:
         manifest["audio"] = audio
 
