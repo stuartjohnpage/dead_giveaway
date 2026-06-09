@@ -150,6 +150,51 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     refute_push "out", %{}, 200
   end
 
+  test "you're privately told your own body id when the round starts (#41)" do
+    {reply, socket} = join_room("chan-you", %{"host" => true})
+
+    go = push(socket, "go", %{})
+    assert_reply go, :ok
+
+    # The id matches the body the world assigned us, so the client can predict it.
+    assert_push "you", %{id: id}, 500
+    room = Rooms.whereis("chan-you")
+    assert id == :sys.get_state(room).world.slot_of[reply.name]
+  end
+
+  test "a peer's body id never reaches your channel (#41)" do
+    # One channel (the host) plus a second, channel-less player joined directly via
+    # the Room — the only "you" this channel may see is its own id, or the self-id
+    # carve-out would widen into the human/bot mapping (DESIGN §2, §9).
+    {reply, socket} = join_room("chan-you-peer", %{"host" => true})
+    room = Rooms.whereis("chan-you-peer")
+    DeadGiveaway.Room.join(room, "victim")
+
+    go = push(socket, "go", %{})
+    assert_reply go, :ok
+
+    slots = :sys.get_state(room).world.slot_of
+    my_row = slots[reply.name]
+    victim_row = slots["victim"]
+    assert_push "you", %{id: ^my_row}, 500
+    refute_push "you", %{id: ^victim_row}, 200
+  end
+
+  test "a room broadcast reaches a channel exactly once — no double subscription" do
+    {_reply, socket} = join_room("chan-once", %{"host" => true})
+
+    go = push(socket, "go", %{})
+    assert_reply go, :ok
+
+    # Round start emits exactly one private "you" for this player, so a second push
+    # can only mean the channel received the broadcast twice. That's what happened
+    # when the Room broadcast on the channel transport's own topic ("room:<id>"):
+    # Phoenix auto-subscribes the channel process there, doubling up the channel's
+    # explicit subscribe — hence the Room's distinct "room_events:<id>" topic.
+    assert_push "you", %{id: _}, 500
+    refute_push "you", %{}, 200
+  end
+
   test "a peer's crosshair reaches you as an anonymous point, and never your own" do
     {_r1, host} = join_room("chan-aim", %{"host" => true})
     {_r2, guest} = join_room("chan-aim", %{"host" => false})
