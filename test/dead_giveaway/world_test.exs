@@ -464,6 +464,32 @@ defmodule DeadGiveaway.WorldTest do
     end
   end
 
+  describe "body_of (the self-id carve-out for prediction, #41)" do
+    test "returns the entity id of the body a player drives" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 2)
+      id = World.body_of(world, "alice")
+
+      # It's a real snapshot id, so the client can match it against the entity list.
+      assert id in Enum.map(World.snapshot(world).entities, & &1.id)
+    end
+
+    test "a player not in this round drives no body" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 2)
+      assert World.body_of(world, "stranger") == nil
+    end
+
+    test "a takeover re-points body_of at the inherited bot body (§7)" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 3, max_chances: 2)
+      first = World.body_of(world, "alice")
+
+      # alice drops her own body; with a spare life and free bots she moves into one.
+      {world, :killed} = World.fire(world, "alice", {0.0, first * World.row_spacing()})
+
+      assert World.player_alive?(world, "alice")
+      assert World.body_of(world, "alice") != first
+    end
+  end
+
   defp positions(world) do
     for e <- World.snapshot(world).entities, into: %{}, do: {e.id, e.x}
   end

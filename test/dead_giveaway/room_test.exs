@@ -482,6 +482,47 @@ defmodule DeadGiveaway.RoomTest do
     end
   end
 
+  describe "self body-id for client-side prediction (#41)" do
+    test "players are privately told which body they drive when a round begins" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("body-1"))
+      {:ok, room} = Room.start_link(id: "body-1", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # The signal is named so the channel forwards it to the owner alone (§5);
+      # it carries alice's own entity id and nothing about anyone else's.
+      assert_receive {:you_are, "alice", id}
+      assert id == :sys.get_state(room).world.slot_of["alice"]
+    end
+
+    test "a takeover re-points the owner's body id (§7)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("body-2"))
+      {:ok, room} = Room.start_link(id: "body-2", seed: 1, bots: 3, max_chances: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+      assert_receive {:you_are, "alice", first}
+
+      # alice drops her own body and inherits a bot — her client must be re-pointed
+      # at the new body or it would predict (and animate) the corpse.
+      assert Room.fire(room, "alice", {0.0, first * World.row_spacing()}) == :fired
+      assert_receive {:you_are, "alice", second}
+      assert second != first
+    end
+
+    test "a kill with no takeover re-points nothing — the id only rides a change" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("body-3"))
+      {:ok, room} = Room.start_link(id: "body-3", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.go(room)
+      assert_receive {:you_are, "alice", id}
+
+      # One life: dropping her own body just puts her out; no fresh body id follows.
+      assert Room.fire(room, "alice", {0.0, id * World.row_spacing()}) == :fired
+      assert_receive {:player_out, "alice"}
+      refute_receive {:you_are, "alice", _}, 200
+    end
+  end
+
   describe "the room's theme" do
     test "defaults to the catalogue head and the host's pick reaches every lobby view" do
       Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("theme-1"))

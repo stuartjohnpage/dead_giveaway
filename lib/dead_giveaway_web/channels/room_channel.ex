@@ -30,7 +30,9 @@ defmodule DeadGiveawayWeb.RoomChannel do
   def join("room:" <> id, payload, socket) do
     case resolve_room(id, payload) do
       {:ok, room} ->
-        # Subscribe before joining so we receive our own join's lobby roster.
+        # Subscribe before joining so we receive our own join's lobby roster. The room
+        # broadcasts on its own topic, distinct from this channel's transport topic —
+        # see Room.topic/1 — so this is the only delivery of each broadcast.
         Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic(id))
 
         # The player's chosen name (from the splash) is their identity for all
@@ -211,6 +213,16 @@ defmodule DeadGiveawayWeb.RoomChannel do
   # life but keeps you alive) never tips peers off (DESIGN §5).
   def handle_info({:chances, name, n}, socket) do
     if name == socket.assigns.name, do: push(socket, "chances", %{chances: n})
+    {:noreply, socket}
+  end
+
+  # Private "this is your body" (#41): the room tells each owner the entity id they
+  # drive — at round start, and again on a bot takeover (§7) — so their client can
+  # predict its own motion. Like "out"/"chances", every channel sees the broadcast but
+  # only the named owner forwards it: peers learn nothing, and only your OWN id ever
+  # reaches a browser — the full human/bot mapping stays server-side (DESIGN §2, §9).
+  def handle_info({:you_are, name, id}, socket) do
+    if name == socket.assigns.name, do: push(socket, "you", %{id: id})
     {:noreply, socket}
   end
 
