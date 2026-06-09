@@ -21,9 +21,8 @@ export const DEFAULT_MENU_LOOP = `/themes/${DEFAULT_THEME}/menu_loop.mp3`;
 export const DEFAULT_GAME_STAGES = [1, 2, 3, 4].map(
   (i) => `/themes/${DEFAULT_THEME}/game/stage${i}.mp3`,
 );
-// The firing SFX a pack without its own shot falls back to (#48). Deliberately the
-// theme-agnostic /sounds clip rather than a theme path: it predates the packs and is
-// the one piece of audio that must exist even with every theme folder empty.
+// The firing SFX for packs that don't declare their own (#48) — the theme-agnostic
+// /sounds clip, so a shot always has a sound even with every theme folder empty.
 export const DEFAULT_SHOT = "/sounds/gunshot.mp3";
 
 let shell = null;

@@ -128,14 +128,11 @@ export async function boot() {
   window.addEventListener("resize", layout);
 
   // Crosshair lives in screen space so it tracks the raw mouse with no transform. Its
-  // texture — the pack's own crosshair sprite, or a generated cross tinted to the
-  // theme's accent when the pack has none (#48) — is set in loadTheme. `crossOwned`
-  // remembers which: generated textures are ours to destroy on swap, Assets-loaded
-  // ones belong to the shared cache (destroying those would break switching back).
+  // texture — the pack's crosshair sprite, or a drawn cross tinted to the theme's
+  // accent when the pack has none — is set in loadTheme.
   const myCross = new Sprite(Texture.EMPTY);
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
-  let crossOwned = false;
 
   // The pink reticle *is* your pointer while you're armed, so hide the OS cursor over
   // the canvas whenever it's up — no arrow sitting on top of the crosshair. When the
@@ -483,13 +480,14 @@ export async function boot() {
 
     const ui = manifest.ui || {};
 
-    // Reticle (#48): the pack's own crosshair sprite when it ships one; the generated
-    // cross tinted to ui.reticle otherwise (the pre-pack look, and the fallback for a
-    // missing/broken sprite path). Peers' reticles adopt myCross.texture per snapshot,
-    // so they follow the theme automatically. Cosmetic only — size and centered anchor
-    // stay consistent across themes, so aim feel never changes (DESIGN §9).
+    // Reticle (#48): the pack's crosshair sprite when it ships one; a drawn cross
+    // tinted to ui.reticle otherwise (also the fallback for a broken sprite path).
+    // Peers' reticles adopt myCross.texture per snapshot, so they follow the theme
+    // automatically. Cosmetic only — size and centered anchor stay consistent across
+    // themes, so aim feel never changes (DESIGN §9). Swapped-out textures are never
+    // destroyed: pack sprites belong to the shared Assets cache, and a stray drawn
+    // cross is a ~38px texture on a rare lobby event — not worth tracking ownership.
     let newCross = null;
-    let newOwned = false;
     if (ui.crosshair) {
       try {
         newCross = await Assets.load(url(ui.crosshair));
@@ -510,14 +508,8 @@ export async function boot() {
           .lineTo(0, 15)
           .stroke({ width: 2, color: reticle }),
       );
-      newOwned = true;
     }
-    const oldCross = myCross.texture;
-    const oldOwned = crossOwned;
     myCross.texture = newCross;
-    crossOwned = newOwned;
-    // Only a texture we generated is ours to free; cached pack textures stay live.
-    if (oldOwned && oldCross && oldCross !== Texture.EMPTY) oldCross.destroy(true);
 
     // Ammo HUD icon (the theme's bullet).
     if (ui.bullet) ammoBullet.src = url(ui.bullet);
@@ -538,8 +530,8 @@ export async function boot() {
     const stages =
       audio.gameStages && audio.gameStages.length ? audio.gameStages.map(url) : DEFAULT_GAME_STAGES;
     music.setTheme({ menuLoop, gameStages: stages });
-    // The gunshot follows the pack too (#48), preloading on swap so the round's first
-    // shot isn't silent; a pack without one keeps the classic default crack.
+    // The gunshot follows the pack too, preloading on swap so the round's first shot
+    // isn't silent; a pack without one keeps the default crack.
     setShotUrl(audio.shot ? url(audio.shot) : DEFAULT_SHOT);
 
     currentTheme = key;
