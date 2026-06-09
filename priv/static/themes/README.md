@@ -13,7 +13,9 @@ The generators that produce these packs live OUTSIDE the web-served tree, in
 `tools/asset-gen/` (so `mix phx.digest` doesn't bundle them): `gen_pack.py` (sprites +
 backgrounds + manifest), `gen_bullet.py` (ammo icon), `gen_crosshair.py` (reticle),
 `gen_gunshot.py` (firing SFX), and `gen_music*.py` / `gen_game_music*.py` (music), plus
-`stems/` (raw layers for future WebAudio mixing).
+`stems/` (raw layers for future WebAudio mixing). Two preview tools render a pack the way
+players actually see it: `arena_preview.py` (arena_bg + tiled floor + finish + sprites)
+and `scrim_preview.py` (lobby_bg behind the lobby card's blur + scrim).
 
 ```
 themes/
@@ -85,7 +87,10 @@ scaling (`texture.source.scaleMode = "nearest"`) to keep pixels crisp.
 
 1. Open `tools/asset-gen/gen_pack.py`, copy the `"neon"` block in `THEMES`, rename the key,
    and change the colours (`floor`, `accent`, `shirts`, `hairs`, `skins`, `wall`, `finish`,
-   and the `bullet`/`reticle` UI hints). Then, from the repo root:
+   and the `bullet`/`reticle` UI hints). Pick a `scene` — the composition archetype the
+   backgrounds are drawn with (`concourse` = neon signage + black glass, `frontier` =
+   storefronts + boardwalk + dirt, `orbital` = viewports + deck plating); the palette does
+   the colouring. Then, from the repo root:
 
    ```bash
    python3 tools/asset-gen/gen_pack.py . <your_key>     # writes priv/static/themes/<your_key>/

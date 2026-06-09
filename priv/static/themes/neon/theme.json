@@ -22,16 +22,6 @@
     "menuBackground": "menu_bg.png",
     "lobbyBackground": "lobby_bg.png"
   },
-  "audio": {
-    "menuLoop": "menu_loop.mp3",
-    "gameStages": [
-      "game/stage1.mp3",
-      "game/stage2.mp3",
-      "game/stage3.mp3",
-      "game/stage4.mp3"
-    ],
-    "shot": "shot.mp3"
-  },
   "ui": {
     "bullet": "bullet.png",
     "reticle": "#ff5577",
@@ -73,5 +63,15 @@
       ]
     ]
   },
-  "note": "Cosmetic variants are NOT correlated with human/bot identity. Assign a random variant per character at spawn, server-side."
+  "note": "Cosmetic variants are NOT correlated with human/bot identity. Assign a random variant per character at spawn, server-side.",
+  "audio": {
+    "menuLoop": "menu_loop.mp3",
+    "gameStages": [
+      "game/stage1.mp3",
+      "game/stage2.mp3",
+      "game/stage3.mp3",
+      "game/stage4.mp3"
+    ],
+    "shot": "shot.mp3"
+  }
 }
