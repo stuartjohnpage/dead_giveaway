@@ -8,7 +8,11 @@
 // Ports & Adapters: the director is pure policy against one injected `AudioPort`, its
 // entire boundary to WebAudio. It never touches AudioContext, window, or music.mjs —
 // game.mjs wires a production adapter around createMusicLoop/createEscalatingLoop, and
-// the test wires an in-memory recorder.
+// the test wires an in-memory recorder. (The production adapter below — createAudioPort —
+// is the part that DOES wrap music.mjs, so it imports the shared fade/duck constants; the
+// director proper stays pure.)
+
+import { FADE_MS, DUCK_LEVEL } from "./music.mjs";
 
 /**
  * The injected capability — the ONLY boundary to WebAudio.
@@ -24,6 +28,11 @@
  *   Is the shared AudioContext actually sounding? Drives the suspended-only prime guard.
  * @property {(name: "lobby"|"game", urls: string|string[]) => void} retarget
  *   Point a loop at a theme's track(s); no restart (the caller decides whether to replay).
+ * @property {(opts: {gain: number, escalate: boolean, fromLobby: boolean}) => void} enterRound
+ *   Open a round. `fromLobby` crossfades the menu loop out and the game loop in; otherwise
+ *   the game loop is already running (ducked on the card) and just un-ducks + restages.
+ * @property {(opts: {gain: number}) => void} enterCard
+ *   The between-rounds card: hold the stage-1 bed and duck the game loop to limbo, in place.
  */
 
 /**
@@ -61,6 +70,20 @@ export function createMusicDirector(audio) {
   // adopts the new track. False until the first setTheme.
   let themed = false;
 
+  // The tracks currently loaded, so setTheme can tell a real swap from a redundant
+  // re-set of the same theme. This is load-bearing because the director is a SINGLETON
+  // that survives client-side navigation (#20): every new page's boot calls
+  // setTheme(DEFAULT_THEME) again, and on every visit after the first `themed` is already
+  // true — so without this comparison setTheme would treat the unchanged default as a live
+  // swap and replay(), restarting the menu loop from the top and breaking the seamless
+  // home↔lobby carry on the second lobby and beyond.
+  let curMenu = null;
+  let curStages = [];
+  const sameTracks = (menuLoop, gameStages) =>
+    menuLoop === curMenu &&
+    gameStages.length === curStages.length &&
+    gameStages.every((u, i) => u === curStages[i]);
+
   const playLobby = () => audio.play("lobby", { gain: audio.gain() });
   const playGame = (escalate) => audio.play("game", { gain: audio.gain(), escalate });
 
@@ -81,18 +104,24 @@ export function createMusicDirector(audio) {
     replay = playLobby;
   };
 
-  // Open a round on the climbing game track (stage 1, ramping up).
+  // Open a round on the climbing game track (stage 1, ramping up). `fromLobby` (we were
+  // still on the menu loop) tells the adapter to crossfade the menu out and the game in;
+  // otherwise we're coming back from the between-rounds card, where the game loop is still
+  // running (ducked) and just needs to un-duck and restage the climb in place — no restart,
+  // so the beat carries unbroken between rounds.
   const toRound = () => {
+    const fromLobby = !inGame; // null/false → still on the menu loop
     inGame = true;
-    replay = () => playGame(true);
-    playGame(true);
+    replay = () => playGame(true); // the unlock/theme-swap path still does a clean (re)start
+    audio.enterRound({ gain: audio.gain(), escalate: true, fromLobby });
   };
 
-  // The between-rounds card: reset the game track to its chill stage-1 bed and hold it.
+  // The between-rounds card: hold the chill stage-1 bed and duck the game track to a low
+  // limbo level until the next round — in place, no restart (DESIGN §7, §8).
   const toCard = () => {
     inGame = true;
     replay = () => playGame(false);
-    playGame(false);
+    audio.enterCard({ gain: audio.gain() });
   };
 
   // Make sure the game loop is playing, for a snapshot that beats its round_start to the
@@ -101,12 +130,18 @@ export function createMusicDirector(audio) {
     if (!inGame) toRound();
   };
 
-  // Point both loops at a theme's tracks. The boot-time load only retargets (first
-  // playback is the initial toLobby()); a live swap also restarts whichever loop is
-  // currently playing so it picks up the new track.
+  // Point both loops at a theme's tracks. A re-set of the already-loaded tracks (e.g. each
+  // page's boot reloading the default theme — the director outlives the page) is a no-op:
+  // no retarget (which would drop the decoded buffer) and no replay (which would restart
+  // the loop). The boot-time *first* load only retargets (first playback is the initial
+  // toLobby()/adoptLobby()); a genuine live swap also restarts whichever loop is currently
+  // playing so it picks up the new track.
   const setTheme = ({ menuLoop, gameStages }) => {
+    if (themed && sameTracks(menuLoop, gameStages)) return; // unchanged — leave it playing
     audio.retarget("lobby", menuLoop);
     audio.retarget("game", gameStages);
+    curMenu = menuLoop;
+    curStages = gameStages;
     if (themed) replay();
     themed = true;
   };
@@ -153,6 +188,8 @@ export function createMusicDirector(audio) {
  */
 export function createAudioPort({ lobbyMusic, gameMusic, audioRunning, gain }) {
   return {
+    // Hard (re)start, stopping the other loop — the unlock/theme-swap path, where a clean
+    // restart is wanted anyway. The smooth view transitions go through enterRound/enterCard.
     play(name, { gain: g, escalate }) {
       if (name === "lobby") {
         gameMusic.stop();
@@ -161,6 +198,31 @@ export function createAudioPort({ lobbyMusic, gameMusic, audioRunning, gain }) {
         lobbyMusic.stop();
         if (g > 0) gameMusic.start(g, { escalate });
       }
+    },
+    enterRound({ gain: g, escalate, fromLobby }) {
+      if (fromLobby) {
+        // Crossfade off the menu loop onto the game loop. The menu loop is ducked to
+        // silence but left running (cheap, one source) — enterMenu fades it back up if we
+        // ever return home; nothing else re-levels a backgrounded loop.
+        lobbyMusic.fadeTo(0, FADE_MS);
+        if (g > 0) gameMusic.start(g, { escalate, fadeMs: FADE_MS });
+      } else if (g > 0) {
+        // Back from the card: un-duck and restage the climb in place (no restart). If a
+        // muted round meant the loop was never started, bring it up fresh instead.
+        if (gameMusic.live) {
+          gameMusic.restage({ escalate });
+          gameMusic.fadeTo(g, FADE_MS);
+        } else {
+          gameMusic.start(g, { escalate, fadeMs: FADE_MS });
+        }
+      } else {
+        gameMusic.fadeTo(0, FADE_MS); // muted — keep it silent
+      }
+    },
+    enterCard({ gain: g }) {
+      // Hold the stage-1 bed and duck to the limbo level — in place, no restart.
+      if (gameMusic.live) gameMusic.restage({ escalate: false });
+      gameMusic.fadeTo(g > 0 ? g * DUCK_LEVEL : 0, FADE_MS);
     },
     gain,
     audioRunning,

@@ -28,8 +28,16 @@ in `music.mjs` (`assets/js/game.mjs`). All four stage loops are decoded and star
 together so they stay phase-locked, and escalation is pure gain automation — at each
 15s boundary the next stage crossfades in and the current one out (WebAudio
 `linearRampToValueAtTime`, gapless), holding at stage 4. A live round opens on stage 1
-and climbs; the between-rounds "Play again?" card resets to the stage-1 bed and *holds*
-there (no climb), so the next round ramps up from calm again.
+and climbs; the between-rounds "Play again?" card holds the stage-1 bed and ducks the
+whole loop to a low limbo level, so the next round ramps up from calm again.
+
+Crucially, the loop is **never torn down between rounds** — round→card→round transitions
+go through `restage()` (reset the gain ladder back to stage 1 *in place*) and `fadeTo()`
+(the duck), not `start()`. The four sources keep running phase-locked for the game's whole
+life, so the beat carries unbroken across every round boundary; only the gains move. The
+menu→game change at the first round is a `fadeTo`-driven crossfade (the menu loop ducks to
+silence but stays live, ready to fade back up on a return home). See `music-director.mjs`
+(the `enterRound`/`enterCard` adapter ops).
 
 The HTML5 two-element crossfade below is the original sketch of the same idea; the
 shipped version does it in WebAudio (sample-accurate scheduling, one shared

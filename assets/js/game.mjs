@@ -629,17 +629,20 @@ export async function boot() {
     predictedX = null;
     showAmmo(false); // the round's done — pull the HUD with the card up
     showChances(false); // pull the lives HUD too
-    // Stay in the game: float the card over the frozen final frame, and drop the music
-    // back to its chill stage-1 bed (held, not climbing) so the next round ramps anew.
+    // Stay in the game: float the card over the frozen final frame, and duck the music to
+    // its chill stage-1 limbo bed (held, not climbing) until the next round ramps anew.
     music.toCard();
     showCard(true);
   });
 
   // Start out in the pre-game lobby (full backdrop), waiting to hit Go. If the menu loop
-  // is already playing — carried over from the splash through the shared audio shell when
-  // we arrived here via client-side navigation (#20) — adopt it without a restart so the
-  // music doesn't skip; otherwise (a direct load, or sound was off) start it fresh.
-  if (lobbyMusic.live) music.adoptLobby();
+  // is already playing — or its start() is mid-flight — carried over from the splash through
+  // the shared audio shell when we arrived here via client-side navigation (#20), adopt it
+  // without a restart so the music doesn't skip. `wanted` (not just `live`) is the fix for
+  // the home→lobby skip: when the first gesture is the Create click itself, the menu loop's
+  // start() is still decoding when we boot here, so a `live`-only check would miss it and
+  // fire a second start() — restarting the track from the top. Otherwise start it fresh.
+  if (lobbyMusic.wanted || lobbyMusic.live) music.adoptLobby();
   else music.toLobby();
   showCard(false);
 
