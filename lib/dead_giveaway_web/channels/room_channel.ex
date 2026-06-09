@@ -30,7 +30,9 @@ defmodule DeadGiveawayWeb.RoomChannel do
   def join("room:" <> id, payload, socket) do
     case resolve_room(id, payload) do
       {:ok, room} ->
-        # Subscribe before joining so we receive our own join's lobby roster.
+        # Subscribe before joining so we receive our own join's lobby roster. The room
+        # broadcasts on its own topic, distinct from this channel's transport topic —
+        # see Room.topic/1 — so this is the only delivery of each broadcast.
         Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic(id))
 
         # The player's chosen name (from the splash) is their identity for all

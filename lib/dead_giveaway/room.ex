@@ -138,8 +138,15 @@ defmodule DeadGiveaway.Room do
   @doc "Cumulative wins for a player this session (DESIGN §8 — wins only score)."
   def score(room, player), do: GenServer.call(room, {:score, player})
 
-  @doc "PubSub topic a client subscribes to for a room's snapshot stream."
-  def topic(id), do: "room:#{id}"
+  @doc """
+  PubSub topic the room broadcasts on (lobby, snapshots, and the private per-player
+  signals). Deliberately NOT the channel transport's own topic (`"room:<id>"`): Phoenix
+  auto-subscribes every channel process to its topic on the same PubSub, so sharing the
+  string would deliver each broadcast to a channel twice — once via that built-in
+  subscription and once via the channel's explicit subscribe in join (which must stay,
+  it's what catches the joiner's own lobby broadcast before Phoenix's kicks in).
+  """
+  def topic(id), do: "room_events:#{id}"
 
   @doc "Display name of the shared bot opponent on the scoreboard."
   def bot_name, do: @bot_name
