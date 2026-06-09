@@ -6,7 +6,7 @@ import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Textu
 import { openChannel } from "./socket.mjs";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { advance, reconcile } from "./prediction.mjs";
-import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES } from "./audio-shell.mjs";
+import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES, DEFAULT_SHOT } from "./audio-shell.mjs";
 import { navigate } from "./router.mjs";
 
 const PAD = 24;
@@ -128,7 +128,8 @@ export async function boot() {
   window.addEventListener("resize", layout);
 
   // Crosshair lives in screen space so it tracks the raw mouse with no transform. Its
-  // texture (a cross tinted to the theme's accent) is generated in loadTheme.
+  // texture — the pack's crosshair sprite, or a drawn cross tinted to the theme's
+  // accent when the pack has none — is set in loadTheme.
   const myCross = new Sprite(Texture.EMPTY);
   myCross.anchor.set(0.5);
   app.stage.addChild(myCross);
@@ -165,7 +166,7 @@ export async function boot() {
   // can outlive any single boot() once navigation is client-side (#20). The volume is
   // configured on the home page and read fresh per transition. Arm the director's autoplay
   // unlock: the menu loop is queued, awaiting the first user gesture to sound.
-  const { music, playShot, armUnlock, lobbyMusic } = getAudio();
+  const { music, playShot, setShotUrl, armUnlock, lobbyMusic } = getAudio();
   armUnlock();
 
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
@@ -479,21 +480,36 @@ export async function boot() {
 
     const ui = manifest.ui || {};
 
-    // Reticle: the same cross shape, tinted to the theme's accent.
-    const reticle = ui.reticle || "#ff5577";
-    const newCross = app.renderer.generateTexture(
-      new Graphics()
-        .circle(0, 0, 11)
-        .stroke({ width: 2, color: reticle })
-        .moveTo(-15, 0)
-        .lineTo(15, 0)
-        .moveTo(0, -15)
-        .lineTo(0, 15)
-        .stroke({ width: 2, color: reticle }),
-    );
-    const oldCross = myCross.texture;
+    // Reticle (#48): the pack's crosshair sprite when it ships one; a drawn cross
+    // tinted to ui.reticle otherwise (also the fallback for a broken sprite path).
+    // Peers' reticles adopt myCross.texture per snapshot, so they follow the theme
+    // automatically. Cosmetic only — size and centered anchor stay consistent across
+    // themes, so aim feel never changes (DESIGN §9). Swapped-out textures are never
+    // destroyed: pack sprites belong to the shared Assets cache, and a stray drawn
+    // cross is a ~38px texture on a rare lobby event — not worth tracking ownership.
+    let newCross = null;
+    if (ui.crosshair) {
+      try {
+        newCross = await Assets.load(url(ui.crosshair));
+        newCross.source.scaleMode = "nearest";
+      } catch {
+        newCross = null; // manifest points at a missing file — fall back to the drawn cross
+      }
+    }
+    if (!newCross) {
+      const reticle = ui.reticle || "#ff5577";
+      newCross = app.renderer.generateTexture(
+        new Graphics()
+          .circle(0, 0, 11)
+          .stroke({ width: 2, color: reticle })
+          .moveTo(-15, 0)
+          .lineTo(15, 0)
+          .moveTo(0, -15)
+          .lineTo(0, 15)
+          .stroke({ width: 2, color: reticle }),
+      );
+    }
     myCross.texture = newCross;
-    if (oldCross && oldCross !== Texture.EMPTY) oldCross.destroy(true);
 
     // Ammo HUD icon (the theme's bullet).
     if (ui.bullet) ammoBullet.src = url(ui.bullet);
@@ -514,6 +530,9 @@ export async function boot() {
     const stages =
       audio.gameStages && audio.gameStages.length ? audio.gameStages.map(url) : DEFAULT_GAME_STAGES;
     music.setTheme({ menuLoop, gameStages: stages });
+    // The gunshot follows the pack too, preloading on swap so the round's first shot
+    // isn't silent; a pack without one keeps the default crack.
+    setShotUrl(audio.shot ? url(audio.shot) : DEFAULT_SHOT);
 
     currentTheme = key;
   }

@@ -10,6 +10,16 @@ as a courtesy and so we can verify provenance later.
 - **Author:** [Universfield](https://pixabay.com/users/universfield-28281460/)
 - **License:** [Pixabay Content License](https://pixabay.com/service/license-summary/) — free for commercial and non-commercial use, no attribution required.
 - **Notes:** Used as the firing sound for the single-bullet hitscan shot (DESIGN §5).
+  Since #48 this is the *fallback*: each theme pack ships its own `shot.mp3` (below),
+  and this clip plays only for a pack that doesn't declare one.
+
+## themes/<key>/shot.mp3 (per-theme gunshots, #48)
+
+- **Source:** Generated procedurally in-repo by `tools/asset-gen/gen_gunshot.py`
+  (pure-numpy synthesis, encoded with ffmpeg) — no external samples.
+- **License:** Original to this project; free to use.
+- **Notes:** One firing sound per theme, matched to the pack's fiction: neon's arcade
+  zapper, western's revolver report, station's energy blaster.
 
 ## themes/neon/menu_loop.mp3 (and other theme music)
 

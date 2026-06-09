@@ -21,6 +21,9 @@ export const DEFAULT_MENU_LOOP = `/themes/${DEFAULT_THEME}/menu_loop.mp3`;
 export const DEFAULT_GAME_STAGES = [1, 2, 3, 4].map(
   (i) => `/themes/${DEFAULT_THEME}/game/stage${i}.mp3`,
 );
+// The firing SFX for packs that don't declare their own (#48) — the theme-agnostic
+// /sounds clip, so a shot always has a sound even with every theme folder empty.
+export const DEFAULT_SHOT = "/sounds/gunshot.mp3";
 
 let shell = null;
 
@@ -36,6 +39,7 @@ let shell = null;
  *   musicGain(): number,
  *   applyMusicGain(): void,
  *   playShot(): void,
+ *   setShotUrl(url: string): void,
  *   armUnlock(): void,
  *   enterMenu(): void,
  *   resumeMusic(): void,
@@ -74,10 +78,19 @@ function create() {
   };
 
   // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
-  // Pixabay Content License, credited in priv/static/sounds/CREDITS.md. cloneNode lets
-  // overlapping shots both play (the server broadcasts every peer's fire).
-  const shotSfx = new Audio("/sounds/gunshot.mp3");
+  // cloneNode lets overlapping shots both play (the server broadcasts every peer's
+  // fire). Per-theme (#48): loadTheme retargets it via setShotUrl, mirroring how the
+  // music loops are repointed, and a swap preloads the new clip the same way; packs
+  // without a shot stay on DEFAULT_SHOT (Pixabay, credited in sounds/CREDITS.md).
+  let shotSfx = new Audio(DEFAULT_SHOT);
   shotSfx.preload = "auto";
+  let shotUrl = DEFAULT_SHOT;
+  const setShotUrl = (url) => {
+    if (url === shotUrl) return; // recurring lobby broadcasts — don't re-fetch
+    shotUrl = url;
+    shotSfx = new Audio(url);
+    shotSfx.preload = "auto";
+  };
   const playShot = () => {
     const s = shotSfx.cloneNode();
     s.volume = sfxGain(volume);
@@ -143,6 +156,7 @@ function create() {
     musicGain,
     applyMusicGain,
     playShot,
+    setShotUrl,
     armUnlock,
     enterMenu,
     resumeMusic,
