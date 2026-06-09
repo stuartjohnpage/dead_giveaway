@@ -342,6 +342,9 @@ defmodule DeadGiveaway.Room do
     notify_knocked_out(state, states_before, states_after)
     # A taken-over player stays alive but spent a life — refresh their lives HUD (§7).
     notify_chances(state, states_before, states_after)
+    # A takeover also moved them into a new body — privately re-point their self
+    # body-id so their client predicts the right one (#41).
+    notify_bodies(state, states_before, states_after)
 
     {:reply, if(spent?, do: :fired, else: :no_shot), state}
   end
@@ -417,8 +420,11 @@ defmodule DeadGiveaway.Room do
     state = %{state | world: state.world_mod.new(opts), crosshairs: %{}}
     # A live round flips the directory entry to in-progress (if this room is listed).
     state = sync_presence(state)
-    # Privately seed each player's lives HUD with their starting count (DESIGN §7).
-    notify_chances(state, %{}, player_states(state))
+    # Privately seed each player's lives HUD with their starting count (DESIGN §7) and
+    # their self body-id for client-side prediction (#41).
+    states = player_states(state)
+    notify_chances(state, %{}, states)
+    notify_bodies(state, %{}, states)
     state
   end
 
@@ -441,17 +447,19 @@ defmodule DeadGiveaway.Room do
     {state, snapshot}
   end
 
-  # Each joined player's `{alive?, lives-left}` for the live round, keyed by name (empty
-  # in the lobby, so a fire that somehow lands there notifies no one). One walk feeds both
-  # the knock-out and lives-HUD diffs around a shot; both stay private — neither liveness
-  # nor lives ever ride the public snapshot (DESIGN §5).
+  # Each joined player's `{alive?, lives-left, body-id}` for the live round, keyed by
+  # name (empty in the lobby, so a fire that somehow lands there notifies no one). One
+  # walk feeds the knock-out, lives-HUD and self-body diffs around a shot; all three stay
+  # private — none of liveness, lives or ownership ever rides the public snapshot
+  # (DESIGN §5).
   defp player_states(%{world: nil}), do: %{}
 
   defp player_states(state) do
     for name <- Session.names(state.session), into: %{} do
       {name,
        {state.world_mod.player_alive?(state.world, name),
-        state.world_mod.chances_left(state.world, name)}}
+        state.world_mod.chances_left(state.world, name),
+        state.world_mod.body_of(state.world, name)}}
     end
   end
 
@@ -460,7 +468,7 @@ defmodule DeadGiveaway.Room do
   # now down gets a personal `:player_out`. A taken-over player (still alive) doesn't
   # transition, so they're correctly left alone (DESIGN §5, §7).
   defp notify_knocked_out(state, before, after_states) do
-    for {name, {true, _}} <- before, match?({false, _}, after_states[name]) do
+    for {name, {true, _, _}} <- before, match?({false, _, _}, after_states[name]) do
       broadcast(state.id, {:player_out, name})
     end
   end
@@ -469,8 +477,19 @@ defmodule DeadGiveaway.Room do
   # is empty at round start) their current lives, for the HUD (DESIGN §7). Routed per
   # owner by the channel, so a takeover stays invisible to peers (DESIGN §5).
   defp notify_chances(state, before, after_states) do
-    for {name, {_, n}} <- after_states, chances_in(before, name) != n do
+    for {name, {_, n, _}} <- after_states, chances_in(before, name) != n do
       broadcast(state.id, {:chances, name, n})
+    end
+  end
+
+  # Privately tell each owner which body they drive — their entity id — at round start
+  # and again whenever it changes (a bot takeover, §7), so their client can predict its
+  # own motion (#41). Routed per owner by the channel like the other private signals:
+  # peers never learn whose body is whose, and only the recipient's OWN id ever leaves
+  # the server — the full human/bot mapping stays private (DESIGN §2, §9).
+  defp notify_bodies(state, before, after_states) do
+    for {name, {_, _, body}} <- after_states, body != nil, body_in(before, name) != body do
+      broadcast(state.id, {:you_are, name, body})
     end
   end
 
@@ -478,7 +497,15 @@ defmodule DeadGiveaway.Room do
   # `before` at round start, where every count then reads as changed and gets seeded).
   defp chances_in(states, name) do
     case states do
-      %{^name => {_, n}} -> n
+      %{^name => {_, n, _}} -> n
+      _ -> nil
+    end
+  end
+
+  # A player's body id from a `player_states/1` map, same shape as `chances_in/2`.
+  defp body_in(states, name) do
+    case states do
+      %{^name => {_, _, body}} -> body
       _ -> nil
     end
   end

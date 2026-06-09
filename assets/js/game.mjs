@@ -5,6 +5,7 @@
 import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from "pixi.js";
 import { openChannel } from "./socket.mjs";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
+import { advance, reconcile } from "./prediction.mjs";
 import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES } from "./audio-shell.mjs";
 import { navigate } from "./router.mjs";
 
@@ -297,6 +298,15 @@ export async function boot() {
   // its own and can't infer its own death from the snapshot — the room signals it
   // directly. While dead we hide our reticle and ignore fire/aim (we're spectating, §7).
   let dead = false;
+  // Client-side prediction of our own body (#41): the room privately tells us which
+  // entity id we drive (a "you" push at round start, re-pointed on a bot takeover §7) —
+  // the one self-id carve-out in DESIGN §9. We apply our own verb to that body the
+  // instant a key changes and reconcile against each snapshot, so movement responds
+  // this frame instead of a tick-plus-latency later. Only how the body's *motion is
+  // sourced* changes: it renders identically to every other body — same sprite, no
+  // highlight — so the find-yourself opening is untouched (DESIGN §2).
+  let myBodyId = null; // our body's entity id, or null when we don't drive one
+  let predictedX = null; // its predicted world x; null until a snapshot seeds it
   // Reflect the remaining count: show the number, and once it hits 0 drop the bullet icon.
   const setAmmo = (n) => {
     ammoCount.textContent = String(n);
@@ -579,6 +589,8 @@ export async function boot() {
     hideCard();
     scores = null;
     dead = false; // fresh round → back in play (a previous round's death is cleared)
+    myBodyId = null; // the room re-sends our body id ("you") right after round_start
+    predictedX = null;
     clearPeerCrosses(); // last round's reticles don't carry into this one
     setCrosshairVisible(true); // fresh round → fresh clip (DESIGN §5)
     showAmmo(true); // (re)load the ammo HUD to a full clip for the new round
@@ -589,6 +601,18 @@ export async function boot() {
   channel.on("out", () => {
     dead = true;
     setCrosshairVisible(false);
+    myBodyId = null; // our corpse is just another body now — back to plain interpolation
+    predictedX = null;
+  });
+  // The room privately told us which body we drive (#41) — at round start, and again
+  // when a takeover moves us into a bot body (§7). Reset the prediction to seed from
+  // the next snapshot, and re-assert the held keys on the new body: the server spawns
+  // a taken-over body stopped, but our fingers may say otherwise.
+  channel.on("you", (p) => {
+    if (typeof p.id !== "number") return;
+    myBodyId = p.id;
+    predictedX = null;
+    sendVerb();
   });
   // Private lives update for our HUD (DESIGN §7): the room sends our starting count at
   // round start and a fresh one each time we take over a bot. Peers never see this.
@@ -601,6 +625,8 @@ export async function boot() {
     scores = p.scores || {};
     clearPeerCrosses(); // the round's frozen — drop the peers' reticles with the card up
     setCrosshairVisible(false); // no firing while the card is up
+    myBodyId = null; // stop predicting too, or held keys would slide us across the freeze
+    predictedX = null;
     showAmmo(false); // the round's done — pull the HUD with the card up
     showChances(false); // pull the lives HUD too
     // Stay in the game: float the card over the frozen final frame, and drop the music
@@ -627,7 +653,11 @@ export async function boot() {
     for (const e of ents) {
       seen.add(e.id);
       const { sx, sy } = worldToScreen(e.x, e.row * ROW_SPACING, view);
-      const state = stateFor(e);
+      // Our own body animates off the locally-held verb rather than the snapshot's
+      // copy (which trails it by the round trip), so its legs move the same frame the
+      // key does (#41) — the same animations every body uses, just sourced locally.
+      const mine = e.id === myBodyId;
+      const state = mine && e.alive ? localState() : stateFor(e);
       let s = sprites.get(e.id);
       if (!s) {
         const variant = variantFor(e.id);
@@ -653,6 +683,19 @@ export async function boot() {
       s.tx = sx;
       s.ty = sy;
       s.sprite.alpha = e.alive ? 1 : 0.55; // dropped frame already reads as down; a touch of fade on top
+
+      // Reconcile our predicted body against the server's word (#41): seed it from the
+      // first snapshot that shows the body, then correct only genuine desyncs — the
+      // expected in-flight trail of a moving body is left alone (prediction.mjs). The
+      // ticker below re-targets this sprite from the prediction every frame.
+      if (mine && e.alive) {
+        predictedX = predictedX === null ? e.x : reconcile(predictedX, e.x, verb() !== "stop");
+      } else if (mine) {
+        // Our body shows dropped before the private "out"/"you" lands — stop predicting
+        // now; that signal then settles whether we're out or in a new body (§7).
+        myBodyId = null;
+        predictedX = null;
+      }
     }
     for (const [id, s] of sprites) {
       if (!seen.has(id)) {
@@ -696,6 +739,9 @@ export async function boot() {
   let walking = false;
   let running = false;
   const verb = () => (running ? "run" : walking ? "walk" : "stop");
+  // The animation state our held verb maps to — what stateFor derives for everyone
+  // else from the snapshot, our own body takes from the keys directly (#41).
+  const localState = () => (running ? "run" : walking ? "walk" : "idle");
   const sendVerb = () => channel.push("input", { verb: verb() });
 
   const onKeyDown = (ev) => {
@@ -758,10 +804,23 @@ export async function boot() {
   });
 
   // --- Render loop: interpolate other entities toward the latest snapshot ---
-  app.ticker.add(() => {
+  app.ticker.add((ticker) => {
     for (const s of sprites.values()) {
       s.sprite.x += (s.tx - s.sprite.x) * 0.25;
       s.sprite.y += (s.ty - s.sprite.y) * 0.25;
+    }
+    // Our own body moves by prediction, not the snapshot lerp above (#41): advance it
+    // by the held verb every frame and pin the sprite there (tx too, so the lerp
+    // agrees), so a keypress shows this very frame. Corrections arrive smoothly via
+    // reconcile in updateWorld; everything visual about the body stays identical.
+    if (myBodyId !== null && predictedX !== null) {
+      const s = sprites.get(myBodyId);
+      if (s) {
+        predictedX = advance(predictedX, verb(), ticker.deltaMS);
+        const { sx } = worldToScreen(predictedX, 0, view);
+        s.tx = sx;
+        s.sprite.x = sx;
+      }
     }
     myCross.x = mouse.x;
     myCross.y = mouse.y;

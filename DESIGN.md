@@ -25,6 +25,9 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 - You are **never marked**. The whole round, you only know yourself by behavior.
 - Probing to find yourself is the single most human-looking thing you can do — so the
   opening seconds are when you are most exposed.
+- One nuance (#41): the client *software* is privately told its own entity id so it can
+  predict its own motion (§9) — but it must render that body **identically** to every
+  other (no highlight, no cue), so the *player* still only finds themself by moving.
 
 ## 3. Movement
 
@@ -133,9 +136,16 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 ## 9. Technical architecture
 
 - **Authoritative Elixir server.** Required: clients must NOT know the human/bot mapping,
-  and the server must be cheat-proof.
+  and the server must be cheat-proof. One deliberate carve-out (#41): each client is
+  privately told **its own** entity id — never anyone else's, never the full mapping — so
+  it can predict its own body. A modified client could thus skip its own find-yourself
+  opening; we accept that narrow leak because responsiveness beats cheat-resistance for a
+  party game.
 - **Client-side prediction + interpolation** so movement feels instant despite server
-  authority (directly addresses the "server in charge = laggy UX" concern).
+  authority (directly addresses the "server in charge = laggy UX" concern). Implemented
+  (#41): the client applies its own verb to its own body the frame a key changes and
+  reconciles against each snapshot; the server stays authoritative for everything —
+  fire, kills, finish, takeover.
 - **Phoenix Channels** (websockets) for transport.
 - **One GenServer per room**, supervised; a **single ~20Hz tick** that simulates the
   world AND broadcasts state (split sim/broadcast later only if needed).

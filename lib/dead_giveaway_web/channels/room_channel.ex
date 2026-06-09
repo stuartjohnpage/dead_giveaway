@@ -214,6 +214,16 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:noreply, socket}
   end
 
+  # Private "this is your body" (#41): the room tells each owner the entity id they
+  # drive — at round start, and again on a bot takeover (§7) — so their client can
+  # predict its own motion. Like "out"/"chances", every channel sees the broadcast but
+  # only the named owner forwards it: peers learn nothing, and only your OWN id ever
+  # reaches a browser — the full human/bot mapping stays server-side (DESIGN §2, §9).
+  def handle_info({:you_are, name, id}, socket) do
+    if name == socket.assigns.name, do: push(socket, "you", %{id: id})
+    {:noreply, socket}
+  end
+
   # --- Encoding (atoms/tuples → JSON-friendly maps) ---
 
   defp room_opts do

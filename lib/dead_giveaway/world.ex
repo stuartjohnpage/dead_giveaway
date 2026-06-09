@@ -360,6 +360,22 @@ defmodule DeadGiveaway.World do
     end
   end
 
+  @doc """
+  The entity id of the body `player` currently drives, or `nil` if they're not in
+  this round. It changes when a takeover moves them into a bot body (DESIGN §7).
+
+  This is the deliberate self-id carve-out for client-side prediction (#41): the Room
+  routes it privately to that owner alone so their client can predict its own motion.
+  It must never ride the public snapshot — a player learns only their OWN id, and the
+  full human/bot mapping stays server-side (DESIGN §2, §9).
+  """
+  def body_of(%__MODULE__{} = world, player) do
+    case Map.fetch(world.slot_of, player) do
+      {:ok, row} -> world.entities[row].id
+      :error -> nil
+    end
+  end
+
   # The nearest living body to the crosshair as `{entity, squared_distance}`, or `nil` if
   # nothing's left alive. The caller compares the distance against @hit_radius — squared on
   # both sides, so no sqrt.
