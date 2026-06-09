@@ -20,7 +20,8 @@
     "finishLine": "finish_line.png",
     "arenaBackground": "arena_bg.png",
     "menuBackground": "menu_bg.png",
-    "lobbyBackground": "menu_bg.png"
+    "lobbyBackground": "menu_bg.png",
+    "watcher": "watcher.json"
   },
   "ui": {
     "bullet": "bullet.png",
@@ -72,6 +73,7 @@
       "game/stage3.mp3",
       "game/stage4.mp3"
     ],
-    "shot": "shot.mp3"
+    "shot": "shot.mp3",
+    "windup": "windup.mp3"
   }
 }

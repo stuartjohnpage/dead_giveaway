@@ -1080,6 +1080,11 @@ def main():
     if os.path.exists(os.path.join(base, "crosshair.png")):
         manifest["ui"]["crosshair"] = "crosshair.png"
 
+    # The Red Light watcher (#53, gen_watcher.py), same deal: absent → the client
+    # falls back to the default theme's watcher.
+    if os.path.exists(os.path.join(base, "watcher.json")):
+        manifest["assets"]["watcher"] = "watcher.json"
+
     # Audio lives in this folder too, but is generated separately (see tools/asset-gen).
     # Only reference tracks that actually exist so a fresh art-only pack falls back to the
     # default theme's music client-side rather than 404ing to silence. Same deal for the
@@ -1092,6 +1097,8 @@ def main():
         audio["gameStages"] = stages
     if os.path.exists(os.path.join(base, "shot.mp3")):
         audio["shot"] = "shot.mp3"
+    if os.path.exists(os.path.join(base, "windup.mp3")):
+        audio["windup"] = "windup.mp3"
     if audio:
         manifest["audio"] = audio
 

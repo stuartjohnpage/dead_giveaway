@@ -6,7 +6,13 @@ import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Textu
 import { openChannel } from "./socket.mjs";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { advance, reconcile } from "./prediction.mjs";
-import { getAudio, DEFAULT_MENU_LOOP, DEFAULT_GAME_STAGES, DEFAULT_SHOT } from "./audio-shell.mjs";
+import {
+  getAudio,
+  DEFAULT_MENU_LOOP,
+  DEFAULT_GAME_STAGES,
+  DEFAULT_SHOT,
+  DEFAULT_WINDUP,
+} from "./audio-shell.mjs";
 import { navigate } from "./router.mjs";
 
 const PAD = 24;
@@ -106,6 +112,49 @@ export async function boot() {
   const entityLayer = new Container();
   world.addChild(entityLayer);
 
+  // The Red Light watcher (#53): the landmark on the finish line, present only while
+  // snapshots carry a `light`. Its pose tracks the room-global light — facing away
+  // (green), spinning (wind-up), facing the crowd (red) — and the wind-up cue makes
+  // the warning audible without staring at the line. All enforcement is server-side;
+  // this is pure presentation. The atlas is per-theme (loadTheme below); the sprite
+  // is built lazily once a sheet exists and dropped on a theme swap like the agents.
+  let watcherSheet = null;
+  let watcher = null;
+  let light = null; // the last snapshot's light — null through a classic round
+  const WATCHER_SCALE = 2; // 48px art → 96px on the field: bigger than any agent
+  const WATCHER_ANIM = { green: "idle", windup: "spin", red: "watch" };
+  const WATCHER_SPEED = { idle: 0.05, spin: 0.3, watch: 0.08 };
+
+  const ensureWatcher = () => {
+    if (watcher || !watcherSheet) return;
+    watcher = new AnimatedSprite(watcherSheet.animations.idle);
+    watcher.anchor.set(0.5);
+    watcher.scale.set(WATCHER_SCALE);
+    // On the line, mid-field, drawn over the runners passing it — a landmark, nudged
+    // left so it doesn't spill past the design edge. Placement tuned by feel.
+    watcher.x = finish.x - 30;
+    watcher.y = DESIGN_H / 2;
+    watcher.visible = false;
+    watcher.play();
+    world.addChild(watcher);
+  };
+
+  const setLight = (next) => {
+    if (next === light) return;
+    light = next;
+    // The spin is the warning (#53) — make it heard even off-screen-focus.
+    if (next === "windup") playWindup();
+    ensureWatcher();
+    if (!watcher) return; // no watcher art anywhere — the light still enforces server-side
+    watcher.visible = !!next;
+    const frames = next && watcherSheet.animations[WATCHER_ANIM[next]];
+    if (frames) {
+      watcher.textures = frames;
+      watcher.animationSpeed = WATCHER_SPEED[WATCHER_ANIM[next]];
+      watcher.play();
+    }
+  };
+
   // Cheap integer hash so id→variant looks scattered rather than a row-by-row cycle,
   // while staying deterministic (same id → same look for every client) and
   // independent of the human/bot mapping, so the sprite never hints at who is human.
@@ -166,7 +215,8 @@ export async function boot() {
   // can outlive any single boot() once navigation is client-side (#20). The volume is
   // configured on the home page and read fresh per transition. Arm the director's autoplay
   // unlock: the menu loop is queued, awaiting the first user gesture to sound.
-  const { music, playShot, setShotUrl, armUnlock, lobbyMusic } = getAudio();
+  const { music, playShot, setShotUrl, playWindup, setWindupUrl, armUnlock, lobbyMusic } =
+    getAudio();
   armUnlock();
 
   // --- Lobby overlay (the default view; hidden only while a round runs) ---
@@ -182,6 +232,7 @@ export async function boot() {
   const lobbyLeave = document.getElementById("lobby-leave");
   const goButton = document.getElementById("go");
   const modeSelect = document.getElementById("mode-select");
+  const setupSelect = document.getElementById("setup-select");
   const ammoSelect = document.getElementById("ammo-select");
   const chancesSelect = document.getElementById("chances-select");
   const themeSelect = document.getElementById("theme-select");
@@ -249,41 +300,51 @@ export async function boot() {
     if (typeof pub === "boolean") visibilitySelect.value = pub ? "public" : "private";
   };
 
-  // Mode preset (Classic/Custom) is a host-side UI convenience, not a room knob: the
-  // actual ruleset still travels as the bullets/lives/pace config. "Classic" is the
+  // Game mode (#53): Classic, or Red Light / Green Light with the watcher on the
+  // finish line. A real room knob with the standard host-only shape: the room
+  // validates ("classic"/"red_light") and broadcasts, so every client tracks it.
+  modeSelect.addEventListener("change", () => {
+    channel.push("set_config", { mode: modeSelect.value });
+  });
+  const applyGameMode = (mode) => {
+    if (typeof mode === "string" && mode) modeSelect.value = mode;
+  };
+
+  // Setup preset (Standard/Custom) is a host-side UI convenience, not a room knob: the
+  // actual ruleset still travels as the bullets/lives/pace config. "Standard" is the
   // preset (1 bullet, 1 life, fast) and hides those three rows; "Custom" reveals them.
-  const CLASSIC = { ammo: 1, chances: 1, pace: "fast" };
+  const STANDARD = { ammo: 1, chances: 1, pace: "fast" };
   const customRows = document.querySelectorAll(".dg-custom-option");
-  // True when the current bullets/lives/pace all sit at the classic preset — i.e. there's
+  // True when the current bullets/lives/pace all sit at the standard preset — i.e. there's
   // nothing a Custom view would add. Read off the selects (kept current by the broadcast).
-  const atClassicPreset = () =>
-    Number(ammoSelect.value) === CLASSIC.ammo &&
-    Number(chancesSelect.value) === CLASSIC.chances &&
-    paceSelect.value === CLASSIC.pace;
-  // Show the bullets/lives/pace rows only in Custom mode. The host drives this from the
-  // Mode select; guests have no say, so we infer their mode from the broadcast values
+  const atStandardPreset = () =>
+    Number(ammoSelect.value) === STANDARD.ammo &&
+    Number(chancesSelect.value) === STANDARD.chances &&
+    paceSelect.value === STANDARD.pace;
+  // Show the bullets/lives/pace rows only in Custom setup. The host drives this from the
+  // Setup select; guests have no say, so we infer their setup from the broadcast values
   // (if they're all at the preset there's nothing extra to show) and reflect it in their
-  // disabled Mode select for consistency with the other host-only knobs.
-  const applyMode = () => {
-    const custom = isHost ? modeSelect.value === "custom" : !atClassicPreset();
-    if (!isHost) modeSelect.value = custom ? "custom" : "classic";
+  // disabled Setup select for consistency with the other host-only knobs.
+  const applySetup = () => {
+    const custom = isHost ? setupSelect.value === "custom" : !atStandardPreset();
+    if (!isHost) setupSelect.value = custom ? "custom" : "standard";
     customRows.forEach((el) => el.classList.toggle("hidden", !custom));
   };
-  // Switching to Classic snaps the per-round knobs back to the preset and pushes each to
+  // Switching to Standard snaps the per-round knobs back to the preset and pushes each to
   // the room so guests follow; setting the values first keeps our own view in sync and
-  // makes atClassicPreset agree. Custom just reveals the rows with their current values.
-  modeSelect.addEventListener("change", () => {
-    if (modeSelect.value === "classic") {
-      ammoSelect.value = String(CLASSIC.ammo);
-      chancesSelect.value = String(CLASSIC.chances);
-      paceSelect.value = CLASSIC.pace;
-      maxAmmo = CLASSIC.ammo;
-      maxChances = CLASSIC.chances;
-      channel.push("set_config", { max_ammo: CLASSIC.ammo });
-      channel.push("set_config", { max_chances: CLASSIC.chances });
-      channel.push("set_config", { pace: CLASSIC.pace });
+  // makes atStandardPreset agree. Custom just reveals the rows with their current values.
+  setupSelect.addEventListener("change", () => {
+    if (setupSelect.value === "standard") {
+      ammoSelect.value = String(STANDARD.ammo);
+      chancesSelect.value = String(STANDARD.chances);
+      paceSelect.value = STANDARD.pace;
+      maxAmmo = STANDARD.ammo;
+      maxChances = STANDARD.chances;
+      channel.push("set_config", { max_ammo: STANDARD.ammo });
+      channel.push("set_config", { max_chances: STANDARD.chances });
+      channel.push("set_config", { pace: STANDARD.pace });
     }
-    applyMode();
+    applySetup();
   });
 
   // --- In-round ammo HUD: your bullets for the round (DESIGN §5) ---
@@ -353,13 +414,14 @@ export async function boot() {
   // roster whenever the host changes (e.g. the old host left and the room handed off).
   const applyHostUI = () => {
     modeSelect.disabled = !isHost;
+    setupSelect.disabled = !isHost;
     ammoSelect.disabled = !isHost;
     chancesSelect.disabled = !isHost;
     themeSelect.disabled = !isHost;
     paceSelect.disabled = !isHost;
     visibilitySelect.disabled = !isHost;
-    // Host status flips how the mode is derived (own Mode select vs. inferred from values).
-    applyMode();
+    // Host status flips how the setup is derived (own Setup select vs. inferred from values).
+    applySetup();
     // Only the host starts the round (the server enforces this too); a guest's Go is
     // disabled and a hint tells them they're waiting on the lobby leader. Skip the hint
     // while a round is starting ("starting…") so we don't stomp that transient message.
@@ -478,6 +540,23 @@ export async function boot() {
       sprites.delete(id);
     }
 
+    // The Red Light watcher's atlas (#53): the pack's own, or the default theme's when
+    // this pack hasn't shipped one (the gameStages fallback rule). With neither, red
+    // light rounds simply run watcher-less on this client — the server still enforces.
+    const watcherAtlas = a.watcher ? url(a.watcher) : `${themeBase(DEFAULT_THEME)}/watcher.json`;
+    try {
+      watcherSheet = await Assets.load(watcherAtlas);
+      for (const tex of Object.values(watcherSheet.textures)) tex.source.scaleMode = "nearest";
+    } catch {
+      watcherSheet = null;
+    }
+    // Like the agents, the built sprite is stale on a swap — rebuilt lazily by setLight.
+    if (watcher) {
+      world.removeChild(watcher);
+      watcher.destroy();
+      watcher = null;
+    }
+
     const ui = manifest.ui || {};
 
     // Reticle (#48): the pack's crosshair sprite when it ships one; a drawn cross
@@ -531,8 +610,10 @@ export async function boot() {
       audio.gameStages && audio.gameStages.length ? audio.gameStages.map(url) : DEFAULT_GAME_STAGES;
     music.setTheme({ menuLoop, gameStages: stages });
     // The gunshot follows the pack too, preloading on swap so the round's first shot
-    // isn't silent; a pack without one keeps the default crack.
+    // isn't silent; a pack without one keeps the default crack. Same for the watcher's
+    // wind-up cue (#53).
     setShotUrl(audio.shot ? url(audio.shot) : DEFAULT_SHOT);
+    setWindupUrl(audio.windup ? url(audio.windup) : DEFAULT_WINDUP);
 
     currentTheme = key;
   }
@@ -585,10 +666,11 @@ export async function boot() {
     applyMaxChances(p.max_chances);
     applyTheme(p.theme);
     applyPace(p.pace);
+    applyGameMode(p.mode);
     applyVisibility(p.public);
-    // Now that the knob values are current, re-derive the Custom/Classic view (mainly for
-    // guests, who infer their mode from these values; a no-op for a host in a fixed mode).
-    applyMode();
+    // Now that the knob values are current, re-derive the Custom/Standard view (mainly for
+    // guests, who infer their setup from these values; a no-op for a host in a fixed setup).
+    applySetup();
     if (!scores) banner = "Lobby";
     renderLobby();
   });
@@ -666,6 +748,10 @@ export async function boot() {
   showCard(false);
 
   function updateWorld(snap) {
+    // The watcher's light rides red-light snapshots only (#53); classic carries none,
+    // which is what hides the watcher there.
+    setLight(snap.light || null);
+
     const ents = snap.entities || [];
     const rows = Math.max(1, ents.length - 1);
     view.worldW = snap.finish_x || 1000;

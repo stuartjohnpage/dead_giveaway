@@ -77,7 +77,11 @@
       Dead Giveaway
     </h2>
     <%!-- The shareable lobby code, so the host can read it off and pass it on. --%>
-    <p id="lobby-code" class="mt-1 font-mono text-xs uppercase tracking-[0.35em] text-[var(--dg-lime)]/80"></p>
+    <p
+      id="lobby-code"
+      class="mt-1 font-mono text-xs uppercase tracking-[0.35em] text-[var(--dg-lime)]/80"
+    >
+    </p>
 
     <%!-- Two columns: who's here on the left, host's room settings on the right. The
           options use a label/select grid so the controls line up regardless of how
@@ -100,13 +104,13 @@
           // Options
         </h3>
         <div class="mt-3 grid grid-cols-[auto_auto] items-center gap-x-3 gap-y-3 text-sm">
-          <%!-- Mode preset (UI-only, not a room knob). "Classic" is the default ruleset —
-                one bullet, one life, fast pace — and hides those three knobs. "Custom"
-                reveals them so the host can tweak each. game.mjs drives this entirely on the
-                client: the custom rows carry `dg-custom-option`, and switching back to Classic
-                snaps bullets/lives/pace to the preset and pushes each to the room. Guests have
-                no Mode control, so game.mjs infers the mode from the broadcast values. --%>
-          <label for="mode-select" class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+          <%!-- Game mode (#53): the classic race, or Red Light / Green Light with the
+                watcher on the finish line. A real room knob like theme/pace — host-set,
+                validated server-side, broadcast to every lobby. --%>
+          <label
+            for="mode-select"
+            class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400"
+          >
             Mode
           </label>
           <select
@@ -114,11 +118,34 @@
             class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="classic" selected>Classic</option>
+            <option value="red_light">Red Light, Green Light</option>
+          </select>
+
+          <%!-- Setup preset (UI-only, not a room knob). "Standard" is the default ruleset —
+                one bullet, one life, fast pace — and hides those three knobs. "Custom"
+                reveals them so the host can tweak each. game.mjs drives this entirely on the
+                client: the custom rows carry `dg-custom-option`, and switching back to Standard
+                snaps bullets/lives/pace to the preset and pushes each to the room. Guests have
+                no Setup control, so game.mjs infers the setup from the broadcast values. --%>
+          <label
+            for="setup-select"
+            class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400"
+          >
+            Setup
+          </label>
+          <select
+            id="setup-select"
+            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+          >
+            <option value="standard" selected>Standard</option>
             <option value="custom">Custom</option>
           </select>
 
-          <%!-- Bullets each player gets per round (DESIGN §5). Custom-only (see Mode). --%>
-          <label for="ammo-select" class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+          <%!-- Bullets each player gets per round (DESIGN §5). Custom-only (see Setup). --%>
+          <label
+            for="ammo-select"
+            class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400"
+          >
             Bullets
           </label>
           <select
@@ -135,7 +162,10 @@
 
           <%!-- Lives each player gets per round (DESIGN §7). 1 = the original "shot = out";
                 above 1, a dropped player takes over a free bot body instead. Custom-only. --%>
-          <label for="chances-select" class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+          <label
+            for="chances-select"
+            class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400"
+          >
             Lives
           </label>
           <select
@@ -152,7 +182,10 @@
           <%!-- Round pace (DESIGN §4, #17): the bot move:stop ratio, i.e. how long a round
                 runs. Default "fast" is today's tempo. Custom-only. game.mjs disables this for
                 guests and pushes a host's change to the room, which broadcasts it back. --%>
-          <label for="pace-select" class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+          <label
+            for="pace-select"
+            class="dg-custom-option text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400"
+          >
             Pace
           </label>
           <select
@@ -166,7 +199,10 @@
 
           <%!-- Cosmetic theme (DESIGN §9). Changing it swaps art/audio for everyone in the
                 room; options come from DeadGiveaway.Themes via the controller. --%>
-          <label for="theme-select" class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+          <label
+            for="theme-select"
+            class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400"
+          >
             Theme
           </label>
           <select
@@ -179,7 +215,10 @@
           <%!-- Public/private visibility (issue #43). Private (default) is code-only;
                 Public lists the lobby on the home page for one-click joining. Host-only,
                 like the other knobs; game.mjs disables it for guests and pushes changes. --%>
-          <label for="visibility-select" class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400">
+          <label
+            for="visibility-select"
+            class="text-right font-mono text-[0.7rem] uppercase tracking-[0.15em] text-slate-400"
+          >
             Lobby
           </label>
           <select

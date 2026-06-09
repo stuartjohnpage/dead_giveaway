@@ -179,9 +179,48 @@ These were considered and **cut** — do not add back without a deliberate decis
 
 ---
 
+## 11. Red Light / Green Light mode (#53)
+
+A second host-set **game mode** (`classic | red_light` — a lobby knob like tempo/theme,
+applied from the next Go). Red Light overlays the classic race — every rule above still
+applies, sprint and bullets included — with a **watcher** on the finish line driving a
+room-global light. All timings are initial values, tuned by feel.
+
+- The light cycles **green** (random 4–8s) → **wind-up** (fixed 0.8s: the watcher spins
+  to face the crowd, with a per-theme audio cue — the warning; moving is safe) →
+  **red** (random 2–4s) → green…, durations re-rolled per cycle so there is no rhythm
+  to memorize. Rounds open on a fresh green.
+- After red goes live, a **0.75s grace** covers human reaction time; from then until
+  green, **anything still moving is killed by the watcher** — walking and running die
+  the same. Inputs are never gated (the game forces nothing, §6; the watcher enforces).
+  A watcher kill rides the same pipeline as a bullet kill: the body ghosts, the owner
+  gets the private out / bot-takeover (§7) — and a takeover landing mid-red starts a
+  fresh grace of its own, since the client re-asserts held keys onto the new body (#41).
+- **Bots comply perfectly**: under green they run their normal desynced phases (§4); at
+  red onset each moving bot stops after its own random **150–500ms** reaction delay —
+  always inside the grace, so no bot ever dies. During red the bot phase clocks freeze
+  and resume on green, so reds neither sync the crowd into waves nor skew the tempo's
+  move:stop ratio.
+- **The tell economy**: the bot reaction window is the blend target. Stopping inside it
+  reads bot-like; anticipating the wind-up (no bot does) or outlasting the window (no
+  bot does that either) is a *soft tell* to armed rivals — and the gap between the last
+  bot stop and the end of grace is free distance anyone can take, in full view. Aiming
+  and firing during red are legal (a crosshair is not a body, §5), so the frozen crowd
+  makes red the natural scope-in window. Greed vs exposure is the mode's core trade.
+- **Accepted leak**: with bots perfectly compliant, a watcher kill is a de facto human
+  reveal — a deliberate, narrow exception to §5's "a kill reveals nothing". Revisit via
+  rare bot red-light failures (a `botNoise` slice, below) if it proves bad in play.
+- The snapshot carries **`light: green | windup | red` in this mode only** — classic's
+  wire format is byte-identical to before. The watcher is per-theme art
+  (`assets.watcher` + `audio.windup` in the pack manifest, falling back to the default
+  theme's pack).
+
+---
+
 ## Open / deferred (post-MVP)
 
-- `botNoise` dial (fake flinches, odd pauses) to add false positives.
+- `botNoise` dial (fake flinches, odd pauses) to add false positives — including rare
+  bot red-light failures, which would blunt §11's watcher-kill reveal.
 - A few "eager" bots that lunge for the finish to give a winning dash some cover.
 - Delta-compressed snapshots if bandwidth ever becomes a concern.
 - Decoupling the sim tick from the broadcast tick for scale.

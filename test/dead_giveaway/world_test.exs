@@ -490,6 +490,178 @@ defmodule DeadGiveaway.WorldTest do
     end
   end
 
+  describe "red light / green light (#53)" do
+    # Tick until the snapshot first shows `light`, returning the world as of that
+    # first tick — e.g. for :red, the first tick of the grace window.
+    defp tick_to_light(world, light) do
+      Enum.reduce_while(1..1000, world, fn _, w ->
+        w = World.tick(w)
+
+        case World.snapshot(w) do
+          %{light: ^light} -> {:halt, {:ok, w}}
+          _ -> {:cont, w}
+        end
+      end)
+      |> case do
+        {:ok, w} -> w
+        _ -> flunk("light never reached #{light}")
+      end
+    end
+
+    test "classic snapshots carry no light — the wire format is unchanged" do
+      snap = World.snapshot(World.new(seed: 1, humans: ["alice"], bots: 2))
+      refute Map.has_key?(snap, :light)
+    end
+
+    test "an unknown mode falls back to classic" do
+      snap = World.snapshot(World.new(seed: 1, bots: 2, mode: :nonsense))
+      refute Map.has_key?(snap, :light)
+    end
+
+    test "a red light round opens on green" do
+      assert World.snapshot(World.new(seed: 1, bots: 2, mode: :red_light)).light == :green
+    end
+
+    test "the light cycles green → wind-up → red → green, identically per seed" do
+      lights = fn seed ->
+        Enum.map_reduce(1..400, World.new(seed: seed, bots: 3, mode: :red_light), fn _, w ->
+          w = World.tick(w)
+          {World.snapshot(w).light, w}
+        end)
+        |> elem(0)
+      end
+
+      observed = lights.(5)
+      assert observed == lights.(5)
+      assert :green in observed and :windup in observed and :red in observed
+
+      observed
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.each(fn
+        [same, same] -> :ok
+        [from, to] -> assert {from, to} in [{:green, :windup}, {:windup, :red}, {:red, :green}]
+      end)
+    end
+
+    test "red light worlds are fully deterministic for a given seed" do
+      w1 = World.new(seed: 11, humans: [], bots: 4, mode: :red_light) |> tick_n(300)
+      w2 = World.new(seed: 11, humans: [], bots: 4, mode: :red_light) |> tick_n(300)
+
+      assert World.snapshot(w1) == World.snapshot(w2)
+    end
+
+    test "the crowd still races under green — the mode overlays classic, not replaces it" do
+      # The shortest green is longer than these ticks, so this is all green crowd.
+      world = World.new(seed: 7, bots: 6, mode: :red_light) |> tick_n(79)
+
+      total = World.snapshot(world).entities |> Enum.map(& &1.x) |> Enum.sum()
+      assert total > 0.0
+    end
+
+    test "bots stop inside the reaction window and never die to the watcher" do
+      world = World.new(seed: 21, bots: 12, mode: :red_light)
+      max_delay = Enum.max(World.bot_stop_delay_ticks())
+
+      Enum.reduce(1..600, {world, 0}, fn _, {w, reds} ->
+        w = World.tick(w)
+        snap = World.snapshot(w)
+
+        assert Enum.all?(snap.entities, & &1.alive)
+
+        reds = if snap.light == :red, do: reds + 1, else: 0
+        # Once the slowest possible reaction has elapsed, the whole crowd holds still.
+        if reds > max_delay, do: assert(Enum.all?(snap.entities, &(&1.verb == :stop)))
+
+        {w, reds}
+      end)
+    end
+
+    test "red freezes bot phases — green resumes the interrupted phase, no re-roll" do
+      world = World.new(seed: 33, bots: 8, mode: :red_light) |> tick_to_light(:red)
+
+      phases = fn w ->
+        for {row, e} <- w.entities, into: %{}, do: {row, {e.phase, e.phase_left}}
+      end
+
+      at_onset = phases.(world)
+
+      Enum.reduce_while(1..200, world, fn _, w ->
+        w = World.tick(w)
+
+        if World.snapshot(w).light == :red do
+          assert phases.(w) == at_onset
+          {:cont, w}
+        else
+          {:halt, w}
+        end
+      end)
+    end
+
+    test "a walking human survives the full grace, then the watcher drops them" do
+      world =
+        World.new(seed: 9, humans: ["alice"], bots: 0, mode: :red_light)
+        |> World.set_verb("alice", :walk)
+        |> tick_to_light(:red)
+
+      # tick_to_light landed on the first red tick, so the grace has one tick spent.
+      world = tick_n(world, World.red_grace_ticks() - 1)
+      assert World.player_alive?(world, "alice")
+
+      world = World.tick(world)
+      refute World.player_alive?(world, "alice")
+    end
+
+    test "stopping within the grace keeps you alive through the red" do
+      world =
+        World.new(seed: 9, humans: ["alice"], bots: 0, mode: :red_light)
+        |> World.set_verb("alice", :walk)
+        |> tick_to_light(:red)
+
+      # React a beat after the light goes live — three ticks in, well inside grace.
+      world =
+        world
+        |> tick_n(2)
+        |> World.set_verb("alice", :stop)
+        |> tick_to_light(:green)
+
+      assert World.player_alive?(world, "alice")
+    end
+
+    test "twitching mid-red after the grace is spent is instant death" do
+      world =
+        World.new(seed: 9, humans: ["alice"], bots: 0, mode: :red_light)
+        |> tick_to_light(:red)
+        |> tick_n(World.red_grace_ticks() + 5)
+
+      # Still mid-red (the shortest red far outlasts the grace), grace long spent.
+      assert World.snapshot(world).light == :red
+
+      world = world |> World.set_verb("alice", :walk) |> World.tick()
+      refute World.player_alive?(world, "alice")
+    end
+
+    test "a mid-red takeover gets its own fresh grace window" do
+      world =
+        World.new(seed: 9, humans: ["alice"], bots: 3, max_chances: 2, mode: :red_light)
+        |> World.set_verb("alice", :walk)
+        |> tick_to_light(:red)
+
+      # She walks straight through the grace: the watcher drops her body and the
+      # spare life moves her into a bot (§7).
+      world = tick_n(world, World.red_grace_ticks())
+      assert World.player_alive?(world, "alice")
+      assert World.chances_left(world, "alice") == 1
+
+      # Her held key re-asserts onto the new body (#41) — which must get a full
+      # grace of its own from the takeover instant, not die on the next tick.
+      world = world |> World.set_verb("alice", :walk) |> tick_n(World.red_grace_ticks())
+      assert World.player_alive?(world, "alice")
+
+      world = World.tick(world)
+      refute World.player_alive?(world, "alice")
+    end
+  end
+
   defp positions(world) do
     for e <- World.snapshot(world).entities, into: %{}, do: {e.id, e.x}
   end

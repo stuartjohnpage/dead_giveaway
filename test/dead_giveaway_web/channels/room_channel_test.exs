@@ -248,6 +248,24 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     refute_push "lobby", %{pace: :slow}, 200
   end
 
+  test "the host can set the game mode and it reaches every client's lobby (#53)" do
+    {_reply, socket} = join_room("chan-mode", %{"host" => true})
+
+    ref = push(socket, "set_config", %{"mode" => "red_light"})
+    assert_reply ref, :ok
+
+    assert_push "lobby", %{mode: :red_light}, 500
+  end
+
+  test "a guest cannot change the game mode (#53)" do
+    join_room("chan-mode-guest", %{"host" => true})
+    {_reply, guest} = join_room("chan-mode-guest", %{"host" => false})
+
+    ref = push(guest, "set_config", %{"mode" => "red_light"})
+    assert_reply ref, :ok
+    refute_push "lobby", %{mode: :red_light}, 200
+  end
+
   test "a guest cannot change the life count" do
     join_room("chan-lives-guest", %{"host" => true})
     {_reply, guest} = join_room("chan-lives-guest", %{"host" => false})

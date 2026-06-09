@@ -561,6 +561,86 @@ defmodule DeadGiveaway.RoomTest do
     end
   end
 
+  describe "red light / green light (#53)" do
+    test "the mode defaults to classic and the host's pick reaches every lobby view" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("mode-1"))
+      {:ok, room} = Room.start_link(id: "mode-1", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      assert_receive {:lobby, %{mode: :classic}}
+
+      Room.set_mode(room, "red_light")
+      assert_receive {:lobby, %{mode: :red_light}}
+    end
+
+    test "an unknown mode is ignored, keeping the current one" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("mode-2"))
+      {:ok, room} = Room.start_link(id: "mode-2", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.set_mode(room, :red_light)
+      assert_receive {:lobby, %{mode: :red_light}}
+
+      Room.set_mode(room, "speedrun")
+      assert_receive {:lobby, %{mode: :red_light}}
+    end
+
+    test "the mode can't change mid-round" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("mode-3"))
+      {:ok, room} = Room.start_link(id: "mode-3", seed: 1, bots: 0, finish_x: 100.0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      Room.set_mode(room, :red_light)
+      refute_receive {:lobby, %{mode: :red_light}}
+    end
+
+    test "a red light round's snapshots carry the watcher's light" do
+      {:ok, room} = Room.start_link(id: "mode-4", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.set_mode(room, :red_light)
+      Room.go(room)
+
+      {:ok, snap} = Room.tick(room)
+      assert snap.light == :green
+    end
+
+    test "a watcher kill privately knocks the walker out and cracks an anonymous shot" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("mode-5"))
+      {:ok, room} = Room.start_link(id: "mode-5", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.set_mode(room, :red_light)
+      Room.go(room)
+
+      # alice walks straight through the first red's grace — the watcher drops her.
+      # (Nobody fires this round, so the crack can only be the watcher's.)
+      Room.set_verb(room, "alice", :walk)
+      Enum.each(1..250, fn _ -> Room.tick(room) end)
+
+      assert_receive {:player_out, "alice"}
+      assert_receive :shot
+    end
+
+    test "a watcher kill with a spare life rides the same takeover signals as a shot" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("mode-6"))
+      {:ok, room} = Room.start_link(id: "mode-6", seed: 1, bots: 3, max_chances: 2)
+      Room.join(room, "alice")
+      Room.set_mode(room, :red_light)
+      Room.go(room)
+      assert_receive {:you_are, "alice", first}
+      assert_receive {:chances, "alice", 2}
+
+      # She walks through the red; the watcher drops her body and the spare life
+      # moves her into a bot (the room never re-asserts her verb, so the new body
+      # stands still and survives).
+      Room.set_verb(room, "alice", :walk)
+      Enum.each(1..250, fn _ -> Room.tick(room) end)
+
+      assert_receive {:chances, "alice", 1}
+      assert_receive {:you_are, "alice", second}
+      assert second != first
+      refute_receive {:player_out, "alice"}, 50
+    end
+  end
+
   describe "the between-rounds lobby" do
     setup do
       {:ok, room} =

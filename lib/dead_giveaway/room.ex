@@ -102,6 +102,13 @@ defmodule DeadGiveaway.Room do
   def set_pace(room, pace), do: GenServer.call(room, {:set_pace, pace})
 
   @doc """
+  Set the game mode `classic | red_light` (#53). Like the other round knobs it's
+  host-set, takes effect from the next Go (ignored mid-round), and is broadcast to
+  every lobby view. An unknown value keeps the current mode.
+  """
+  def set_mode(room, mode), do: GenServer.call(room, {:set_mode, mode})
+
+  @doc """
   List or unlist the lobby in the public directory (issue #43). Public lobbies show up
   in the home page's "open lobbies" panel and are joinable in one click; private ones
   (the default) are code-only. Unlike the round knobs this isn't round config, so it
@@ -172,6 +179,8 @@ defmodule DeadGiveaway.Room do
       # Host-configurable round tempo (#17): the bot move:stop ratio. Defaults to :fast
       # (the original tempo); see DeadGiveaway.World for the presets.
       pace: validate_pace(Keyword.get(opts, :pace, World.default_pace()), World.default_pace()),
+      # Host-configurable game mode (#53): classic, or red_light with the watcher.
+      mode: validate_mode(Keyword.get(opts, :mode, World.default_mode()), World.default_mode()),
       # Whether this lobby is listed in the public directory (issue #43). Private by
       # default — code-only, discoverable to no one — until the host flips it public,
       # which tracks it in `DeadGiveaway.Presence` for the home page to browse.
@@ -299,6 +308,15 @@ defmodule DeadGiveaway.Room do
 
   def handle_call({:set_pace, _pace}, _from, state), do: {:reply, :ok, state}
 
+  # Mode arms the next round (it's what the world is built with), so like the other
+  # knobs it only applies between rounds — a live race keeps the mode it started with.
+  def handle_call({:set_mode, mode}, _from, %{world: nil} = state) do
+    state = broadcast_lobby(%{state | mode: validate_mode(mode, state.mode)})
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:set_mode, _mode}, _from, state), do: {:reply, :ok, state}
+
   # Visibility isn't round config (it's not a knob that arms the next race), so unlike
   # ammo/theme/pace it's accepted any time — including mid-round, where a public room simply
   # stays listed with its in-progress badge. Only a boolean is honoured; anything else is
@@ -417,7 +435,8 @@ defmodule DeadGiveaway.Room do
         bots: state.bots,
         max_ammo: state.max_ammo,
         max_chances: state.max_chances,
-        pace: state.pace
+        pace: state.pace,
+        mode: state.mode
       ]
       |> put_unless_nil(:finish_x, state.finish_x)
 
@@ -440,6 +459,10 @@ defmodule DeadGiveaway.Room do
   defp do_tick(%{world: nil} = state), do: {state, nil}
 
   defp do_tick(state) do
+    # Only a Red Light tick can kill (the watcher, #53), so only there do we pay for
+    # the before/after diff that routes the private death signals. Classic skips it.
+    states_before = if state.mode == :red_light, do: player_states(state), else: nil
+
     world = state.world_mod.tick(state.world)
 
     snapshot =
@@ -449,10 +472,33 @@ defmodule DeadGiveaway.Room do
 
     broadcast(state.id, {:snapshot, snapshot})
     state = %{state | world: world}
+    notify_watcher_kills(state, states_before)
 
     state = if state.world_mod.finished?(world), do: finish_round(state), else: state
     {state, snapshot}
   end
+
+  # A body dropped by the watcher rides the exact same private signals as one dropped
+  # by a bullet — owner knocked out / lives spent / re-pointed at a new body (#53) —
+  # and the room hears the same anonymous crack. One crack covers simultaneous kills
+  # (a rare double death isn't worth a per-body replay).
+  defp notify_watcher_kills(_state, nil), do: :ok
+
+  defp notify_watcher_kills(state, states_before) do
+    states_after = player_states(state)
+    notify_knocked_out(state, states_before, states_after)
+    notify_chances(state, states_before, states_after)
+    notify_bodies(state, states_before, states_after)
+
+    if Enum.any?(states_before, fn {name, before} -> body_dropped?(before, states_after[name]) end),
+       do: broadcast(state.id, :shot)
+  end
+
+  # Whether this player's body dropped across the tick: knocked out (alive flipped),
+  # or moved into a fresh body (a takeover — the old body is now a corpse).
+  defp body_dropped?({true, _, _}, {false, _, _}), do: true
+  defp body_dropped?({true, _, body}, {true, _, body2}), do: body != body2
+  defp body_dropped?(_before, _after), do: false
 
   # Each joined player's `{alive?, lives-left, body-id}` for the live round, keyed by
   # name (empty in the lobby, so a fire that somehow lands there notifies no one). One
@@ -613,6 +659,7 @@ defmodule DeadGiveaway.Room do
          max_chances: state.max_chances,
          theme: state.theme,
          pace: state.pace,
+         mode: state.mode,
          public: state.public
        }}
     )
@@ -676,6 +723,16 @@ defmodule DeadGiveaway.Room do
   end
 
   defp validate_pace(_pace, current), do: current
+
+  # Same shape as the pace: accept a known mode as an atom or a client string (#53),
+  # keep the current mode for anything unknown, and never mint atoms from the wire.
+  defp validate_mode(mode, _current) when mode in [:classic, :red_light], do: mode
+
+  defp validate_mode(mode, current) when is_binary(mode) do
+    Enum.find(World.modes(), current, fn m -> Atom.to_string(m) == mode end)
+  end
+
+  defp validate_mode(_mode, current), do: current
 
   defp put_unless_nil(opts, _key, nil), do: opts
   defp put_unless_nil(opts, key, value), do: Keyword.put(opts, key, value)

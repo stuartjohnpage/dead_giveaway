@@ -12,8 +12,9 @@ see the identity note below.
 The generators that produce these packs live OUTSIDE the web-served tree, in
 `tools/asset-gen/` (so `mix phx.digest` doesn't bundle them): `gen_pack.py` (sprites +
 backgrounds + manifest), `gen_bullet.py` (ammo icon), `gen_crosshair.py` (reticle),
-`gen_gunshot.py` (firing SFX), and `gen_music*.py` / `gen_game_music*.py` (music), plus
-`stems/` (raw layers for future WebAudio mixing). Two preview tools render a pack the way
+`gen_gunshot.py` (firing SFX), `gen_watcher.py` + `gen_windup.py` (the Red Light
+watcher and its wind-up cue, #53), and `gen_music*.py` / `gen_game_music*.py` (music),
+plus `stems/` (raw layers for future WebAudio mixing). Two preview tools render a pack the way
 players actually see it: `arena_preview.py` (arena_bg + tiled floor + finish + sprites)
 and `scrim_preview.py` (menu_bg behind the lobby card's blur + scrim).
 
@@ -32,18 +33,22 @@ themes/
                          # lobbyBackground points here too — one shot serves both
     bullet.png           # ammo-counter icon (+ bullet_flat.png, the no-glow variant)
     crosshair.png        # the theme's reticle (38x38, centered) — yours and peers' (#48)
+    watcher.png/.json    # the Red Light watcher atlas (#53): idle / spin / watch, 48x48
     menu_loop.mp3        # menu/lobby music loop
     game/stage1..4.mp3   # in-round escalating music (one stage per 15s, holds at 4)
     shot.mp3             # the theme's gunshot one-shot (#48)
+    windup.mp3           # the watcher's wind-up warning cue (~0.8s, #53)
   western/               # same shape; PACK.md documents this pack's specifics
 ```
 
 All paths inside `theme.json` are **relative to the theme's own folder**, so a pack is
 fully self-contained and relocatable. A theme may omit `audio.gameStages` (e.g. before its
 in-round music is generated); the client then falls back to the default theme's stages.
-Likewise `ui.crosshair` (absent → a procedural cross tinted to `ui.reticle`) and
-`audio.shot` (absent → the default `/sounds/gunshot.mp3` crack). Crosshairs are cosmetic
-only: keep the canvas size and centered anchor so aim feel never changes between themes.
+Likewise `ui.crosshair` (absent → a procedural cross tinted to `ui.reticle`),
+`audio.shot` (absent → the default `/sounds/gunshot.mp3` crack), and the Red Light
+watcher's `assets.watcher` / `audio.windup` (absent → the default theme's, #53).
+Crosshairs are cosmetic only: keep the canvas size and centered anchor so aim feel
+never changes between themes.
 
 ## The sprite pool (read this)
 
@@ -96,6 +101,10 @@ scaling (`texture.source.scaleMode = "nearest"`) to keep pixels crisp.
    python3 tools/asset-gen/gen_pack.py . <your_key>     # writes priv/static/themes/<your_key>/
    python3 tools/asset-gen/gen_bullet.py priv/static/themes/<your_key> - cartridge
    ```
+
+   The Red Light watcher (#53) needs a flavor drawn per theme, so `gen_watcher.py` /
+   `gen_windup.py` take a new entry in their own `THEMES` tables (they run for every
+   key at once); until then the pack falls back to the default theme's watcher + cue.
 
    That generates the atlas, backgrounds, bullet, and `theme.json`. Add `menu_loop.mp3`
    (+ optionally `game/stage1..4.mp3`) under the folder with the `gen_music*.py` scripts.
