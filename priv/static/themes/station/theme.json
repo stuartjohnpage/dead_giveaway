@@ -20,7 +20,7 @@
     "finishLine": "finish_line.png",
     "arenaBackground": "arena_bg.png",
     "menuBackground": "menu_bg.png",
-    "lobbyBackground": "lobby_bg.png"
+    "lobbyBackground": "menu_bg.png"
   },
   "ui": {
     "bullet": "bullet.png",

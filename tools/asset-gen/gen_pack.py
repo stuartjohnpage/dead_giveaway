@@ -7,8 +7,7 @@ Palette-driven. Produces, for one theme:
   - floor_tile.png            (seamless tileable arena floor)
   - finish_line.png           (vertical finish strip)
   - arena_bg.png              (full top-down room, 1280x720)
-  - menu_bg.png               (1280x720)
-  - lobby_bg.png              (1280x720)
+  - menu_bg.png               (1280x720; the lobby backdrop reuses it)
   - theme.json                (manifest)
   - preview.png               (contact sheet)
   - walk_preview.gif / run_preview.gif (motion check)
@@ -25,6 +24,7 @@ THEMES = {
     "neon": {
         "display": "Neon Concourse",
         "blurb": "After-hours arcade concourse: black glass floor, humming neon, chrome trim.",
+        "scene": "concourse",   # background composition archetype (see SCENES below)
         "floor": [(18, 16, 32), (24, 20, 44)],      # two-tone dark tile
         "grid_line": (60, 40, 90),
         "accent": [(0, 230, 230), (255, 60, 200), (160, 255, 60)],  # cyan / magenta / lime
@@ -47,7 +47,8 @@ THEMES = {
     },
     "western": {
         "display": "Dead Man's Gulch",
-        "blurb": "Sun-baked frontier main street: packed dirt, plank boardwalks, a noon showdown at the line.",
+        "blurb": "Sun-baked badlands: packed dirt, distant peaks, a showdown at sundown.",
+        "scene": "frontier",
         "floor": [(124, 96, 60), (110, 84, 52)],     # packed-dirt two-tone
         "grid_line": (84, 60, 38),                   # dry plank/dirt seams
         "accent": [(224, 150, 60), (196, 72, 48), (214, 180, 96)],  # sunset orange / barn red / gold
@@ -73,6 +74,7 @@ THEMES = {
     "station": {
         "display": "Derelict Orbital",
         "blurb": "A powered-down orbital station: gunmetal grating, flickering hazard strips, a starboard airlock at the line.",
+        "scene": "orbital",
         "floor": [(44, 50, 60), (36, 42, 52)],       # gunmetal grate two-tone
         "grid_line": (72, 82, 96),                   # panel seams
         "accent": [(255, 150, 50), (232, 72, 58), (96, 190, 220)],  # hazard amber / alert red / signal blue
@@ -293,23 +295,223 @@ def build_atlas(pal, theme_key):
 # ----------------------------------------------------------------------------
 # backgrounds (rendered small, nearest-upscaled for crisp pixels)
 # ----------------------------------------------------------------------------
+# Every theme names a `scene` — the composition archetype its backgrounds are built
+# from (concourse / frontier / orbital). The palette still does all the colouring, so
+# a new theme is still just a THEMES entry: a palette plus whichever scene fits.
+AW, AH = 320, 180          # background design space (x4 = 1280x720)
+BAND = 16                  # wall-band height = game.mjs FLOOR_TOP / SCALE_BG. In-game the
+                           # floor TilingSprite covers y 16..163, so only the two bands
+                           # (and the floor tile itself) are ever visible — they carry
+                           # the arena's whole look.
+
 def up(img):
     return img.resize((img.width * SCALE_BG, img.height * SCALE_BG), Image.NEAREST)
 
-def floor_tile(pal):
-    s = 32
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 255))
-    d = ImageDraw.Draw(img)
-    a, b = pal["floor"]
-    for y in range(s):
-        for x in range(s):
-            d.point((x, y), fill=a if (x // 8 + y // 8) % 2 == 0 else b)
-    # grid seams (seamless: only top & left) — clean tile, no speckle
-    d.line([(0, 0), (s, 0)], fill=pal["grid_line"])
-    d.line([(0, 0), (0, s)], fill=pal["grid_line"])
+def _scene(pal, table):
+    return table[pal.get("scene", "concourse")]
+
+def _over(img, draw_fn):
+    """Draw onto a transparent overlay and composite it down. Required for any
+    semi-transparent ink: ImageDraw on an RGBA image REPLACES pixels (alpha included)
+    rather than blending, which would punch translucent holes in the PNG."""
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw_fn(ImageDraw.Draw(layer))
+    img.alpha_composite(layer)
+
+def _hash01(x, y, seed=0):
+    """Deterministic per-coordinate noise in [0,1) — seamless when fed wrapped coords."""
+    n = (x * 374761393 + y * 668265263 + seed * 2654435761) & 0xFFFFFFFF
+    n = ((n ^ (n >> 13)) * 1274126177) & 0xFFFFFFFF
+    return ((n ^ (n >> 16)) & 0xFFFF) / 65536.0
+
+_BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
+
+def _dither_v(W, H, stops):
+    """Vertical multi-stop gradient, ordered-dithered between quantised levels so the
+    ramp reads as pixel-art shading instead of smooth banding. stops=[(t, colour), ...]
+    with t running 0 (top) to 1 (bottom)."""
+    img = Image.new("RGBA", (W, H))
+    px = img.load()
+    LEVELS = 5
+    for y in range(H):
+        t = y / max(1, H - 1)
+        i = 0
+        while i < len(stops) - 2 and t > stops[i + 1][0]:
+            i += 1
+        (t0, c0), (t1, c1) = stops[i], stops[i + 1]
+        f = 0.0 if t1 <= t0 else max(0.0, min(1.0, (t - t0) / (t1 - t0)))
+        v = f * LEVELS
+        lo = blend(c0, c1, math.floor(v) / LEVELS)
+        hi = blend(c0, c1, min(LEVELS, math.floor(v) + 1) / LEVELS)
+        frac = v - math.floor(v)
+        for x in range(W):
+            th = (_BAYER[y % 4][x % 4] + 0.5) / 16
+            px[x, y] = (hi if frac > th else lo) + (255,)
     return img
 
+def _stars(d, box, n, seed, dim, bright):
+    """Speckle a starfield into box=(x0, y0, x1, y1): mostly dim singles, every ninth a
+    bright one with single-pixel sparkle arms."""
+    rnd = random.Random(seed)
+    x0, y0, x1, y1 = box
+    for i in range(n):
+        x, y = rnd.randrange(x0, x1), rnd.randrange(y0, y1)
+        if i % 9 == 0:
+            d.point((x, y), fill=bright)
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                d.point((x + dx, y + dy), fill=dim)
+        else:
+            d.point((x, y), fill=dim)
+
+# --- desert silhouettes (frontier arena + menu) ------------------------------
+def _peak(d, x0, x1, apex_x, apex_y, y_base, col, seed=5):
+    """One mountain in silhouette: a jagged ridge stepping up to the apex, a notched
+    secondary summit beside it — rugged, not a clean pyramid."""
+    rnd = random.Random(seed)
+    def ridge(xa, xb):
+        pts = []
+        for f, jag in ((0.35, -rnd.randrange(3, 10)), (0.68, rnd.randrange(2, 7))):
+            x = xa + (xb - xa) * f
+            y = y_base + (apex_y - y_base) * f + jag
+            pts.append((x, min(y, y_base - 1)))
+        return pts
+    pts = [(x0, y_base)] + ridge(x0, apex_x) + [(apex_x, apex_y)]
+    pts.append((apex_x + rnd.randrange(4, 9), apex_y + rnd.randrange(3, 8)))
+    pts += list(reversed(ridge(x1, apex_x)))
+    pts.append((x1, y_base))
+    d.polygon(pts, fill=col + (255,))
+
+def _bare_tree(d, x, y, h, col, seed=3):
+    """A dead tree in silhouette: a trunk forking into gnarled boughs and twigs."""
+    rnd = random.Random(seed)
+    c = col + (255,)
+    trunk_top = y - max(3, int(h * 0.42))
+    d.line([(x, y), (x, trunk_top)], fill=c, width=2 if h >= 18 else 1)
+    tips = [(x, trunk_top)]
+    for i in range(5 if h >= 18 else 3):
+        bx, by = tips[rnd.randrange(len(tips))]
+        side = -1 if i % 2 == 0 else 1
+        mx_, my_ = bx + side * rnd.randrange(2, max(3, h // 4)), by - rnd.randrange(2, max(3, h // 4))
+        ex, ey = mx_ + side * rnd.randrange(1, 3), my_ - rnd.randrange(1, max(2, h // 5))
+        d.line([(bx, by), (mx_, my_)], fill=c)
+        d.line([(mx_, my_), (ex, ey)], fill=c)
+        if rnd.random() < 0.7:
+            d.line([(mx_, my_), (mx_ - side, my_ - rnd.randrange(1, 3))], fill=c)
+        tips.append((mx_, my_))
+
+def _cactus(d, x, y, h, col):
+    """A saguaro in silhouette: trunk and one or two upturned arms."""
+    c = col + (255,)
+    d.line([(x, y), (x, y - h)], fill=c, width=2 if h >= 12 else 1)
+    if h >= 6:
+        ay = y - int(h * 0.55)
+        d.line([(x - 2, ay), (x - 2, ay - max(2, h // 3))], fill=c)
+        d.line([(x - 2, ay), (x, ay)], fill=c)
+    if h >= 10:
+        ay = y - int(h * 0.35)
+        d.line([(x + 2, ay), (x + 2, ay - max(2, h // 4))], fill=c)
+        d.line([(x, ay), (x + 2, ay)], fill=c)
+
+def _tumbleweed(d, x, y, r, col):
+    """A tumbleweed: a scraggly ball of arcs."""
+    c = col + (255,)
+    d.ellipse([x - r, y - r, x + r, y + r], outline=c)
+    d.arc([x - r + 1, y - r + 2, x + r - 1, y + r], 20, 200, fill=c)
+    d.arc([x - r + 2, y - r, x + r, y + r - 2], 160, 340, fill=c)
+    d.line([(x - r + 2, y + 1), (x + r - 2, y - 1)], fill=c)
+
+# --- floor tiles (authored 32x32, shipped x2 so a texel is 2 design px) -----
+def floor_tile(pal):
+    tile = _scene(pal, {"concourse": _floor_concourse, "frontier": _floor_frontier,
+                        "orbital": _floor_orbital})(pal)
+    return tile.resize((tile.width * 2, tile.height * 2), Image.NEAREST)
+
+def _floor_concourse(pal):
+    # Black glass panels: quiet mottle, one soft diagonal sheen stripe, seams with a lit
+    # inner edge and a pin-point LED per corner. Low contrast — the runners must pop.
+    s = 32
+    a, b = pal["floor"]
+    img = Image.new("RGBA", (s, s))
+    px = img.load()
+    sheen = blend(a, (110, 130, 180), 0.10)
+    for y in range(s):
+        for x in range(s):
+            c = blend(a, b, 0.65 * _hash01(x, y, 11))
+            diag = (x + y) % s
+            if diag in (10, 11, 12) or (diag in (9, 13) and _hash01(x, y, 5) > 0.5):
+                c = blend(c, sheen, 0.35)
+            px[x, y] = c + (255,)
+    d = ImageDraw.Draw(img)
+    d.line([(0, 0), (s - 1, 0)], fill=pal["grid_line"])
+    d.line([(0, 0), (0, s - 1)], fill=pal["grid_line"])
+    d.line([(1, 1), (s - 1, 1)], fill=blend(a, (130, 150, 200), 0.16))
+    px[1, 1] = blend(pal["grid_line"], vivify(pal["accent"][0]), 0.5) + (255,)
+    return img
+
+def _floor_frontier(pal):
+    # Packed dirt: a 4-tone speckle over coarse blotches, faint wheel-ruts along the
+    # direction of travel, a few pebbles and dry-grass wisps. Organic — no grid.
+    s = 32
+    a, b = pal["floor"]
+    tones = [a, b, shade(a, 1.05), shade(b, 0.93)]
+    img = Image.new("RGBA", (s, s))
+    px = img.load()
+    for y in range(s):
+        for x in range(s):
+            blotch = _hash01((x // 8) % 4, (y // 8) % 4, 31)
+            c = tones[int(_hash01(x, y, 17) * 4) % 4]
+            c = blend(c, b, 0.30 * blotch)
+            if y % 16 in (5, 6) and _hash01(x, y, 23) > 0.3:
+                c = shade(c, 0.92)
+            px[x, y] = c + (255,)
+    rnd = random.Random(77)
+    d = ImageDraw.Draw(img)
+    for _ in range(5):
+        x, y = rnd.randrange(s), rnd.randrange(s)
+        d.point((x, y), fill=shade(b, 0.72))
+        d.point(((x + 1) % s, y), fill=shade(a, 1.14))
+    grass = blend(b, pal["accent"][2], 0.35)
+    for _ in range(3):
+        x, y = rnd.randrange(s), rnd.randrange(s)
+        d.point((x, y), fill=shade(grass, 0.8))
+        d.point((x, (y - 1) % s), fill=grass)
+    return img
+
+def _floor_orbital(pal):
+    # Deck plating: 16px sub-panels in slightly different tones, embossed seams, corner
+    # rivets and sparse wear scratches.
+    s = 32
+    a, b = pal["floor"]
+    img = Image.new("RGBA", (s, s))
+    px = img.load()
+    for y in range(s):
+        for x in range(s):
+            q = (x // 16) + 2 * (y // 16)
+            base = blend(a, b, (0.15, 0.55, 0.7, 0.3)[q])
+            c = blend(base, b, 0.5 * _hash01(x, y, 41))
+            if x % 16 == 0 or y % 16 == 0:
+                c = shade(base, 0.62)
+            elif y % 16 == 1:
+                c = blend(base, pal["grid_line"], 0.55)
+            px[x, y] = c + (255,)
+    d = ImageDraw.Draw(img)
+    for qx in (3, 19):
+        for qy in (3, 19):
+            for rx, ry in ((qx, qy), (qx + 9, qy), (qx, qy + 9), (qx + 9, qy + 9)):
+                d.point((rx, ry), fill=blend(b, (140, 150, 165), 0.3))
+                d.point((rx + 1, ry + 1), fill=shade(a, 0.75))
+    rnd = random.Random(99)
+    for _ in range(4):
+        x, y = rnd.randrange(2, s - 5), rnd.randrange(2, s - 2)
+        d.line([(x, y), (x + rnd.randrange(2, 4), y)], fill=blend(b, (140, 150, 165), 0.35))
+    return img
+
+# --- finish line: the 8px checker stays (legible race line in every theme); only the
+# --- leading edge takes the theme's flavour ---------------------------------
 def finish_line(pal):
+    return up(_finish_strip(pal))
+
+def _finish_strip(pal):
     w, h = 16, 180
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -317,7 +519,25 @@ def finish_line(pal):
     for y in range(h):
         for x in range(w):
             d.point((x, y), fill=c0 if (x // 8 + y // 8) % 2 == 0 else c1)
-    return up(img)
+    scene = pal.get("scene", "concourse")
+    if scene == "concourse":
+        glow = vivify(pal["accent"][0])                     # a lit neon rail
+        d.line([(0, 0), (0, h)], fill=glow)
+        d.line([(1, 0), (1, h)], fill=blend(c1, glow, 0.45))
+    elif scene == "frontier":
+        rope = pal["accent"][2]                             # a knotted rope edge
+        d.line([(0, 0), (0, h)], fill=rope)
+        for y in range(0, h, 7):
+            d.point((0, y), fill=shade(rope, 0.6))
+        d.line([(1, 0), (1, h)], fill=shade(c1, 0.8))
+    else:  # orbital: hazard-striped airlock edge
+        amber = vivify(pal["accent"][0])
+        for y in range(h):
+            c = amber if (y // 4) % 2 == 0 else shade(c1, 0.7)
+            d.point((0, y), fill=c)
+            d.point((1, y), fill=c)
+        d.line([(2, 0), (2, h)], fill=shade(c1, 0.6))
+    return img
 
 def _vignette(img, col):
     w, h = img.size
@@ -331,73 +551,234 @@ def _vignette(img, col):
     return img
 
 def arena_bg(pal):
-    W, H = 320, 180
-    img = Image.new("RGBA", (W, H), pal["wall"] + (255,))
-    tile = floor_tile(pal)
-    # play area inset
-    pad_x, pad_y = 8, 18
-    for ty in range(pad_y, H - pad_y, tile.height):
-        for tx in range(pad_x, W - pad_x, tile.width):
-            img.paste(tile, (tx, ty))
+    img = _scene(pal, {"concourse": _arena_concourse, "frontier": _arena_frontier,
+                       "orbital": _arena_orbital})(pal)
+    return _vignette(up(img), pal["vignette"])
+
+def _arena_base(pal):
+    """Shared skeleton: the real floor tile previewed across the band the client's
+    TilingSprite covers, plus the finish strip at its true in-game spot, so the
+    standalone PNG matches the in-game composite. Bands are painted over by the scene."""
+    img = Image.new("RGBA", (AW, AH), pal["wall"] + (255,))
+    tile = floor_tile(pal).resize((BAND, BAND), Image.NEAREST)
+    for ty in range(BAND, AH - BAND, BAND):
+        for tx in range(0, AW, BAND):
+            img.alpha_composite(tile, (tx, ty))
+    fl = _finish_strip(pal).resize((16, AH - 2 * BAND), Image.NEAREST)
+    img.alpha_composite(fl.crop((0, 0, AW - 306, fl.height)), (306, BAND))
+    return img
+
+def _rail(img, y, color, glow=True, posts=0, post_col=None):
+    """The 2px field boundary at rows y..y+1: bloomed when it's a light, matte with
+    grounding posts when it's paint on wood."""
     d = ImageDraw.Draw(img, "RGBA")
-    # lane rows (subtle) – characters sit on fixed vertical rows
-    rows = 6
-    for i in range(rows):
-        y = pad_y + 6 + i * ((H - 2*pad_y - 12) // (rows - 1))
-        lc = blend(pal["floor"][1], pal["accent"][i % 3], 0.16)
-        d.line([(pad_x, y), (W - pad_x, y)], fill=lc)
-    # start (left) and finish (right) neon posts
-    d.rectangle([pad_x, pad_y, pad_x+2, H-pad_y], fill=pal["accent"][0])
-    fl = finish_line(pal).resize((10, H-2*pad_y), Image.NEAREST)
-    img.paste(fl, (W - pad_x - 10, pad_y))
-    # top & bottom neon trim
-    d.rectangle([0, pad_y-3, W, pad_y-1], fill=pal["accent"][1])
-    d.rectangle([0, H-pad_y+1, W, H-pad_y+3], fill=pal["accent"][2])
-    # solid black below the finish-edge line (no floor beneath it)
-    d.rectangle([0, H-pad_y+4, W, H], fill=pal["wall"])
-    img = up(img)
-    img = _vignette(img, pal["vignette"])
-    return img
+    if glow:
+        img.alpha_composite(_bloom(AW, AH, lambda gd: gd.rectangle(
+            [0, y, AW, y + 1], fill=color + (210,)), 2))
+    d.rectangle([0, y, AW, y + 1], fill=color + (255,))
+    d.line([(0, y), (AW, y)], fill=blend(color, (255, 255, 255), 0.4) + (255,))
+    if posts:
+        for x in range(6, AW, posts):
+            d.rectangle([x, y, x + 1, y + 1], fill=(post_col or shade(color, 0.55)) + (255,))
 
-def _vgradient(W, H, top, bottom):
-    """A vertical top→bottom colour ramp as an opaque RGBA image."""
-    img = Image.new("RGBA", (W, H))
-    px = img.load()
-    for y in range(H):
-        c = blend(top, bottom, y / max(1, H - 1))
-        row = c + (255,)
-        for x in range(W):
-            px[x, y] = row
-    return img
-
-def _silhouette(fr, body, rim):
-    """Recolour a drawn agent frame into a backlit silhouette: its shape filled with a
-    flat dark `body`, plus a 1px accent `rim` light around the edge (the glow behind it)."""
-    a = fr.split()[3]
-    mask = a.point(lambda v: 255 if v > 40 else 0)
-    sil = Image.new("RGBA", fr.size, (0, 0, 0, 0))
-    sil.paste(Image.new("RGBA", fr.size, body + (255,)), (0, 0), mask)
-    grown = a.filter(ImageFilter.MaxFilter(3))
-    px_s, px_a, px_g = sil.load(), a.load(), grown.load()
-    w, h = fr.size
-    for y in range(h):
-        for x in range(w):
-            if px_g[x, y] > 40 and px_a[x, y] <= 40:
-                px_s[x, y] = rim + (255,)
-    return sil
-
-def _crowd_layer(img, pal, n, baseline, scale, body, rim, seed):
-    """Scatter `n` backlit silhouettes standing with their feet at `baseline` (so a layer
-    placed below the canvas edge is cropped into a foreground rank). `scale` sets depth;
-    each figure varies a little in height so the crowd isn't a flat row of clones."""
+def _band_crowd(d, x0, x1, feet, seed, body, rim, gap=10):
+    """Rail-side spectators for the wall bands: 5-7px head-and-shoulder silhouettes with
+    a 1px lit crown. The crowd is the game's premise — the field should feel watched."""
     rnd = random.Random(seed)
-    for _ in range(n):
-        v = rnd.randrange(N_VARIANTS)
-        sc = scale + rnd.choice([0, 0, 1])
-        fr = draw_agent(pal, v, rnd.choice(["idle", "walk"]), rnd.randrange(ANIM["walk"]))
-        fr = _silhouette(fr, body, rim).resize((FW * sc, FH * sc), Image.NEAREST)
-        x = rnd.randrange(-FW, img.width)
-        img.alpha_composite(fr, (x, baseline - FH * sc))
+    x = x0 + rnd.randrange(2, 6)
+    while x < x1 - 7:
+        if rnd.random() < 0.82:
+            h = rnd.randrange(4, 6)
+            top = feet - h - 3
+            d.rectangle([x, feet - h, x + 5, feet], fill=body + (255,))
+            d.rectangle([x + 1, top + 1, x + 4, feet - h], fill=body + (255,))
+            d.line([(x + 1, top + 1), (x + 4, top + 1)], fill=rim + (255,))
+        x += rnd.randrange(8, gap + 4)
+
+def _gate_marks(img, d, pal, top_rows, bot_rows):
+    """Start post (left, over the spawn) and finish chip (right, over the line) echoed
+    on both wall bands — the bands' only hints at the race between them."""
+    c = vivify(pal["accent"][0])
+    f0, f1 = pal["finish"]
+    for (y0, y1) in (top_rows, bot_rows):
+        img.alpha_composite(_bloom(AW, AH, lambda gd: gd.rectangle(
+            [5, y0, 7, y1], fill=c + (230,)), 2))
+        d.rectangle([5, y0, 7, y1], fill=c + (255,))
+        d.line([(5, y0), (5, y1)], fill=blend(c, (255, 255, 255), 0.45) + (255,))
+        for i, x in enumerate(range(312, 320, 2)):
+            for j, yy in enumerate(range(y0, y1 + 1, 2)):
+                col = f0 if (i + j) % 2 == 0 else f1
+                d.rectangle([x, yy, x + 1, yy + 1], fill=col + (255,))
+
+def _arena_concourse(pal):
+    # Far wall: lit back wall with neon sign boards and a gallery crowd behind the
+    # magenta rail. Near wall: black glass catching the boards' reflections, an LED
+    # ticker, the lime rail.
+    img = _arena_base(pal)
+    d = ImageDraw.Draw(img, "RGBA")
+    wall, acc = pal["wall"], pal["accent"]
+    rnd = random.Random(3)
+
+    img.alpha_composite(_dither_v(AW, 14, [(0, shade(wall, 0.55)), (0.75, shade(wall, 1.5)),
+                                           (1, shade(wall, 1.9))]), (0, 0))
+    boards, glyphs = [], []
+    x = 5
+    while x < AW - 26:
+        w = rnd.randrange(12, 24)
+        c = acc[rnd.randrange(3)]
+        boards.append((x, w, c))
+        gx = x + 2
+        while gx < x + w - 2:
+            gw = rnd.randrange(2, 5)
+            glyphs.append((gx, min(gx + gw, x + w - 2), c))
+            gx += gw + 2
+        x += w + rnd.randrange(7, 18)
+    for bx, bw, _ in boards:
+        d.rectangle([bx, 3, bx + bw, 9], fill=shade(wall, 0.4) + (255,))
+        d.rectangle([bx, 3, bx + bw, 9], outline=(70, 75, 95, 255))
+    def draw_glyphs(gd):
+        for g0, g1, c in glyphs:
+            gd.line([(g0, 5), (g1, 5)], fill=vivify(c) + (255,))
+            gd.line([(g0, 7), (g1, 7)], fill=blend(vivify(c), (255, 255, 255), 0.5) + (255,))
+    img.alpha_composite(_bloom(AW, AH, draw_glyphs, 2))
+    draw_glyphs(d)
+    d.line([(0, 11), (AW, 11)], fill=(80, 86, 108, 255))
+    d.rectangle([0, 12, AW, 13], fill=blend(wall, (94, 84, 150), 0.4) + (255,))  # lit walkway
+    _band_crowd(d, 0, AW, 13, seed=8, body=shade(wall, 0.4),
+                rim=blend(wall, vivify(acc[0]), 0.75), gap=8)
+    _rail(img, 14, vivify(acc[1]))
+
+    by = AH - BAND
+    img.alpha_composite(_dither_v(AW, BAND, [(0, shade(wall, 1.35)), (0.5, shade(wall, 1.0)),
+                                             (1, shade(wall, 0.45))]), (0, by))
+    for bx, bw, c in boards:                       # the boards' glow on the glass
+        ref = Image.new("RGBA", (3, 12), vivify(c) + (50,))
+        img.alpha_composite(_vfade_alpha(ref, 0.85, 0.0), (bx + bw // 2 - 1, by + 2))
+    d.rectangle([0, by + 8, AW, by + 10], fill=shade(wall, 0.5) + (255,))   # LED housing
+    d.line([(0, by + 8), (AW, by + 8)], fill=shade(wall, 1.9) + (255,))
+    for x in range(6, AW - 4, 8):
+        c = vivify(acc[(x // 8) % 3])
+        bright = _hash01(x, 1, 27) > 0.72
+        d.point((x, by + 9), fill=(c if bright else blend(c, wall, 0.55)) + (255,))
+    _rail(img, by, vivify(acc[2]))
+
+    _gate_marks(img, d, pal, (10, 13), (by + 4, by + 7))
+    return img
+
+def _arena_frontier(pal):
+    # Far wall: open badlands — the sun setting on the horizon between dark peaks, a
+    # dead tree, a saguaro or two. Near wall: the same plain running on in shadow.
+    # Painted fence rails bound the field.
+    img = _arena_base(pal)
+    d = ImageDraw.Draw(img, "RGBA")
+    acc = pal["accent"]
+
+    img.alpha_composite(_dither_v(AW, 12, [(0, (84, 38, 34)), (0.5, (164, 84, 54)),
+                                           (1, (224, 142, 88))]), (0, 0))
+    sun_x = 84
+    img.alpha_composite(_bloom(AW, AH, lambda gd: gd.ellipse(
+        [sun_x - 5, 6, sun_x + 5, 16], fill=(255, 226, 150, 235)), 4))
+    d.ellipse([sun_x - 5, 6, sun_x + 5, 16], fill=(255, 232, 162, 255))
+    d.ellipse([sun_x - 4, 7, sun_x + 4, 14], fill=(255, 244, 198, 255))
+    _peak(d, -12, 70, 34, 2, 12, (120, 56, 40), seed=11)     # hazy far peak
+    _peak(d, 6, 64, 38, 4, 12, (54, 27, 21), seed=12)
+    _peak(d, 224, 312, 264, 3, 12, (54, 27, 21), seed=13)
+    d.rectangle([0, 12, AW, 13], fill=(64, 31, 22, 255))     # the plain behind the fence
+    for x in range(0, AW, 3):
+        if _hash01(x, 0, 33) > 0.72:
+            d.point((x, 12), fill=(84, 42, 28, 255))
+    _bare_tree(d, 152, 13, 13, (16, 9, 6), seed=6)
+    _cactus(d, 40, 13, 10, (20, 11, 8))
+    _cactus(d, 286, 13, 10, (20, 11, 8))
+    _rail(img, 14, acc[1], glow=False, posts=24, post_col=shade(acc[1], 0.6))
+
+    by = AH - BAND
+    _rail(img, by, acc[2], glow=False, posts=24, post_col=shade(acc[2], 0.6))
+    img.alpha_composite(_dither_v(AW, 14, [(0, (56, 30, 19)), (1, (30, 16, 11))]), (0, by + 2))
+    for yy in range(by + 2, AH):                   # night-side scrub
+        for x in range(AW):
+            n = _hash01(x, yy, 83)
+            if n > 0.94:
+                d.point((x, yy), fill=(22, 12, 8, 255))
+            elif n < 0.05:
+                d.point((x, yy), fill=(74, 42, 26, 255))
+    rnd = random.Random(21)
+    for _ in range(9):                             # stones
+        x, yy = rnd.randrange(4, AW - 4), rnd.randrange(by + 5, AH - 2)
+        d.point((x, yy), fill=(18, 10, 7, 255))
+        d.point((x + 1, yy), fill=(66, 38, 24, 255))
+    grass = blend((30, 16, 11), vivify(acc[2]), 0.3)
+    for _ in range(12):                            # dry tufts
+        x, yy = rnd.randrange(4, AW - 4), rnd.randrange(by + 4, AH - 1)
+        d.point((x, yy), fill=grass + (255,))
+        d.point((x, yy - 1), fill=shade(grass, 0.7) + (255,))
+    _cactus(d, 70, by + 13, 7, (16, 9, 6))
+    _cactus(d, 248, by + 12, 6, (16, 9, 6))
+    img.alpha_composite(Image.new("RGBA", (AW, 2), (0, 0, 0, 70)), (0, by + 2))
+
+    _gate_marks(img, d, pal, (10, 13), (by + 4, by + 7))
+    return img
+
+def _arena_orbital(pal):
+    # Far wall: a viewport strip of stars between struts, a pipe run, status LEDs and
+    # hazard tape over the alert-red rail. Near wall: deck plating with sagging cables,
+    # vents and the signal-blue rail.
+    img = _arena_base(pal)
+    d = ImageDraw.Draw(img, "RGBA")
+    wall, acc = pal["wall"], pal["accent"]
+    steel, hi = (52, 60, 72), (86, 96, 110)
+
+    d.rectangle([0, 0, AW, 1], fill=shade(wall, 0.6) + (255,))
+    d.rectangle([0, 2, AW, 9], fill=(5, 8, 16, 255))
+    _stars(d, (1, 3, AW - 1, 9), 60, 5, (90, 110, 150, 255), (210, 225, 255, 255))
+    d.line([(0, 2), (AW, 2)], fill=(60, 70, 85, 255))
+    d.line([(0, 9), (AW, 9)], fill=(60, 70, 85, 255))
+    d.rectangle([0, 10, AW, 13], fill=shade(wall, 1.25) + (255,))
+    d.rectangle([0, 10, AW, 11], fill=(66, 76, 90, 255))    # pipe run
+    d.line([(0, 10), (AW, 10)], fill=(104, 116, 132, 255))
+    leds = []
+    for x in range(18, AW - 4, 38):                          # struts
+        d.rectangle([x, 2, x + 2, 13], fill=steel + (255,))
+        d.line([(x, 2), (x, 13)], fill=hi + (255,))
+        d.point((x + 1, 4), fill=(28, 32, 42, 255))
+        d.point((x + 1, 7), fill=(28, 32, 42, 255))
+        d.rectangle([x - 1, 10, x + 3, 11], fill=shade(steel, 0.8) + (255,))
+        leds.append(x + 9)
+    for i, x in enumerate(leds):                             # status LEDs
+        c = [vivify(acc[0]), vivify(acc[1]), vivify(acc[2])][i % 3]
+        if i % 4 == 3:
+            c = shade(c, 0.35)                               # a dead one — derelict
+        d.point((x, 12), fill=c + (255,))
+        d.point((x + 1, 12), fill=blend(c, wall, 0.6) + (255,))
+    amber = vivify(acc[0])
+    for x in range(0, AW, 6):                                # hazard tape
+        d.line([(x, 13), (x + 2, 13)], fill=shade(amber, 0.85) + (255,))
+        d.line([(x + 3, 13), (x + 5, 13)], fill=(26, 22, 16, 255))
+    _rail(img, 14, vivify(acc[1]))
+
+    by = AH - BAND
+    _rail(img, by, vivify(acc[2]))
+    img.alpha_composite(_dither_v(AW, 14, [(0, shade(wall, 1.5)), (1, shade(wall, 0.7))]), (0, by + 2))
+    for x in range(0, AW, 24):                               # deck panel seams
+        d.line([(x, by + 2), (x, AH)], fill=shade(wall, 0.55) + (255,))
+    d.line([(0, by + 8), (AW, by + 8)], fill=shade(wall, 0.55) + (255,))
+    d.line([(0, by + 9), (AW, by + 9)], fill=shade(wall, 1.7) + (255,))
+    for x0 in range(2, AW, 46):                              # sagging cable run
+        x1 = min(x0 + 46, AW - 2)
+        mid = (x0 + x1) // 2
+        for (ca, sag) in (((20, 24, 32), 2), ((52, 40, 32), 1)):
+            d.line([(x0, by + 4), (mid, by + 4 + sag)], fill=ca + (255,))
+            d.line([(mid, by + 4 + sag), (x1, by + 4)], fill=ca + (255,))
+        d.rectangle([x0 - 1, by + 3, x0, by + 5], fill=(78, 88, 102, 255))
+    rnd = random.Random(15)
+    for x in range(10, AW - 12, 46):                         # vents + telltale LEDs
+        if rnd.random() < 0.7:
+            d.rectangle([x, by + 11, x + 6, by + 13], fill=shade(wall, 0.5) + (255,))
+            d.line([(x + 1, by + 12), (x + 5, by + 12)], fill=shade(wall, 1.6) + (255,))
+        else:
+            c = vivify(acc[rnd.randrange(3)])
+            d.point((x + 3, by + 12), fill=c + (255,))
+    _gate_marks(img, d, pal, (10, 13), (by + 4, by + 7))
     return img
 
 def _bloom(W, H, draw_fn, radius):
@@ -420,98 +801,204 @@ def _vfade_alpha(layer, top_a, bot_a):
     return layer
 
 def menu_bg(pal):
-    # Atmospheric only — the game renders the title/UI text on top in Pixi/HTML. A lit back
-    # wall with bloomed neon signage, a glowing horizon, a reflective floor, and a two-layer
-    # backlit crowd give it depth instead of the old near-black void.
-    W, H = 320, 180
-    wall = pal["wall"]
-    accent = pal["accent"]
-    horizon = H - 54
+    # Atmospheric only — the page renders all text/UI on top (behind heavy darkening on
+    # home, so big shapes and bright glows are what survive).
+    img = _scene(pal, {"concourse": _menu_concourse, "frontier": _menu_frontier,
+                       "orbital": _menu_orbital})(pal)
+    return _vignette(up(img), pal["vignette"])
 
-    img = _vgradient(W, H, shade(wall, 0.7), blend(wall, accent[2], 0.10))
+def _menu_concourse(pal):
+    # An empty cyberpunk cityscape: three tower ranks full of lit windows under a
+    # crescent moon, neon boards and rooftop beacons, a wet street holding the glow.
+    # Nobody out tonight.
+    W, H = AW, AH
+    wall, acc = pal["wall"], pal["accent"]
+    vacc = [vivify(c) for c in acc]
+    horizon = 132
+    img = _dither_v(W, H, [(0, (4, 3, 10)), (0.55, (16, 11, 34)),
+                           (1, blend(wall, acc[1], 0.12))])
+    d = ImageDraw.Draw(img, "RGBA")
+    _stars(d, (0, 3, W, 60), 46, 23, (62, 68, 104, 255), (140, 150, 200, 255))
 
-    # Back-wall neon signage: fat bars bloomed for glow, with a brighter crisp core.
-    def signage(gd):
-        for i, c in enumerate(accent):
-            x = 26 + i * 96
-            gd.rectangle([x, 22, x + 11, horizon - 16], fill=c + (255,))
-            gd.rectangle([x - 16, 30 + i * 12, x + 52, 34 + i * 12], fill=c + (170,))
-    img.alpha_composite(_bloom(W, H, signage, 5))
-    dcore = ImageDraw.Draw(img, "RGBA")
-    for i, c in enumerate(accent):
-        x = 26 + i * 96
-        dcore.rectangle([x + 4, 22, x + 7, horizon - 16], fill=blend(c, (255, 255, 255), 0.35) + (255,))
-
-    # Glowing horizon where the wall meets the floor.
-    img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle([0, horizon - 2, W, horizon + 2], fill=accent[0] + (210,)), 6))
-
-    # Reflective floor: its own dimmer gradient, with faint vertical reflections of the signs.
-    floor = _vgradient(W, H - horizon, blend(wall, accent[0], 0.07), shade(wall, 0.45))
-
-    def reflections(gd):
-        for i, c in enumerate(accent):
-            gd.rectangle([26 + i * 96, 0, 37 + i * 96, H - horizon], fill=c + (60,))
-
-    floor.alpha_composite(_bloom(W, H - horizon, reflections, 7))
-    img.paste(floor, (0, horizon))
-
-    # Two crowd layers, both standing on the floor: a dense, small, dimly back-lit rank far
-    # off, and a larger near rank cropped by the bottom edge. Rims are dim (blended toward
-    # the wall) so they read as a backlit crowd, not bright outlines.
-    img = _crowd_layer(img, pal, n=20, baseline=H - 2, scale=2, body=shade(wall, 0.5), rim=blend(wall, accent[2], 0.3), seed=7)
-    img = _crowd_layer(img, pal, n=11, baseline=H + 34, scale=3, body=shade(wall, 0.22), rim=blend(wall, accent[0], 0.45), seed=21)
-
-    img = up(img)
-    img = _vignette(img, pal["vignette"])
-    return img
-
-def lobby_bg(pal):
-    # The waiting room as a sleek one-point-perspective light corridor: clean concentric
-    # frames receding to a glowing vanishing point dead centre, with guide lines running
-    # from the corners through every frame corner. It fills the frame edge-to-edge with
-    # quiet geometry and leaves the centre luminous, so the card sits in the lit doorway at
-    # the end of the hall. Palette-driven: each theme keeps its own accent identity.
-    W, H = 320, 180
-    wall = pal["wall"]
-    accent = pal["accent"]
-    cx, cy = W // 2, H // 2
-
-    # Deep gradient: lighter at the vanishing centre is faked by a soft bloom below, so the
-    # base ramp just darkens toward the floor for grounding.
-    img = _vgradient(W, H, shade(wall, 0.62), shade(wall, 0.92))
-
-    # The light at the end of the corridor — a soft cool bloom the card will sit over.
+    mx, my, mr = 251, 25, 9                         # crescent moon
+    sky_c = img.getpixel((mx - mr - 6, my))[:3]
     img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
-        [cx - 30, cy - 30, cx + 30, cy + 30], fill=blend(wall, vivify(accent[2]), 0.85) + (150,)), 20))
+        [mx - mr, my - mr, mx + mr, my + mr], fill=(210, 225, 255, 150)), 6))
+    d.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=(224, 234, 255, 255))
+    d.ellipse([mx - mr - 4, my - mr - 3, mx + mr - 4, my + mr - 3], fill=sky_c + (255,))
 
-    vacc = [vivify(c) for c in accent]   # brightness-equalised accents, so every theme reads
+    boards, beacons = [], []
+    def rank(hmin, hmax, col, wins, win_p, seed, masts=False, signage=False):
+        r = random.Random(seed)
+        x = -r.randrange(2, 8)
+        while x < W:
+            bw = r.randrange(13, 27)
+            bh = r.randrange(hmin, hmax)
+            top = horizon - bh
+            d.rectangle([x, top, x + bw, horizon], fill=col + (255,))
+            if masts and r.random() < 0.4:
+                ax = x + r.randrange(2, max(3, bw - 2))
+                ah = r.randrange(4, 9)
+                d.line([(ax, top - ah), (ax, top)], fill=col + (255,))
+                if r.random() < 0.55:
+                    beacons.append((ax, top - ah))
+            if signage and bh > 24 and r.random() < 0.4:
+                boards.append((x + r.randrange(2, max(3, bw - 6)),
+                               top + r.randrange(3, bh - 18), r.randrange(3)))
+            for wy in range(top + 2, horizon - 3, 3):
+                for wx in range(x + 2, x + bw - 1, 3):
+                    if r.random() < win_p:
+                        d.point((wx, wy), fill=r.choice(wins) + (255,))
+            x += bw + r.randrange(2, 6)
+    rank(34, 66, blend(wall, (22, 17, 46), 0.6), [blend(acc[0], wall, 0.55)], 0.05, 31)
+    rank(18, 46, (10, 8, 24), [blend(acc[0], wall, 0.35), blend(acc[1], wall, 0.4)],
+         0.085, 32, masts=True, signage=True)
+    rank(6, 26, (6, 5, 15), [blend(acc[2], wall, 0.45)], 0.05, 33, masts=True)
 
-    def corridor(gd):
-        # Guide lines from each corner to the vanishing point. Because every frame is the
-        # full frame scaled about the centre, these pass cleanly through all frame corners.
-        for corner in [(0, 0), (W, 0), (0, H), (W, H)]:
-            gd.line([corner, (cx, cy)], fill=blend(wall, vacc[2], 0.7) + (90,), width=1)
-        # Concentric frames from the vanishing point outward; the nearer (larger) a frame,
-        # the brighter and more opaque, so the corridor reads as coming toward the viewer.
-        steps = 8
-        for i in range(steps):
-            f = 0.13 + (1.0 - 0.13) * (i / (steps - 1))   # 0→point, 1→full frame
-            hw, hh = f * (W / 2), f * (H / 2)
-            a = int(80 + 175 * f)
-            gd.rectangle([cx - hw, cy - hh, cx + hw, cy + hh], outline=vacc[i % len(vacc)] + (a,), width=1)
+    for bx_, by_, ci in boards:                     # neon boards on the tower faces
+        d.rectangle([bx_, by_, bx_ + 4, by_ + 13], fill=(5, 4, 12, 255), outline=(58, 62, 82, 255))
+    def board_glyphs(gd):
+        for bx_, by_, ci in boards:
+            for i in range(4):
+                gy = by_ + 2 + i * 3
+                gd.rectangle([bx_ + 1, gy, bx_ + 3, gy + 1], fill=vacc[ci] + (255,))
+    img.alpha_composite(_bloom(W, H, board_glyphs, 2))
+    board_glyphs(d)
+    def beacon_dots(gd):
+        for ax, ay in beacons:
+            gd.point((ax, ay), fill=vacc[1] + (255,))
+    img.alpha_composite(_bloom(W, H, beacon_dots, 2))
+    beacon_dots(d)
 
-    # Draw the corridor once, crisp; use a dimmed blurred copy underneath as the glow and lay
-    # the crisp lines on top at full strength so they read hard-edged rather than fuzzy.
-    sharp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    corridor(ImageDraw.Draw(sharp))
-    glow = sharp.filter(ImageFilter.GaussianBlur(2))
-    glow.putalpha(glow.split()[3].point(lambda v: int(v * 0.55)))
-    img.alpha_composite(glow)
-    img.alpha_composite(sharp)
+    bbx, bby = 148, 56                              # the big rooftop billboard
+    d.line([(bbx + 5, bby + 10), (bbx + 5, bby + 26)], fill=(46, 50, 68, 255))
+    d.line([(bbx + 27, bby + 10), (bbx + 27, bby + 26)], fill=(46, 50, 68, 255))
+    d.rectangle([bbx, bby, bbx + 32, bby + 10], fill=(6, 5, 14, 255), outline=(70, 76, 96, 255))
+    def billboard(gd):
+        r3 = random.Random(9)
+        for gy, c, end in ((bby + 2, vacc[0], 30), (bby + 6, vacc[1], 26)):
+            xx = bbx + 2
+            while xx < bbx + end:
+                gw = r3.randrange(2, 6)
+                gd.rectangle([xx, gy, min(xx + gw, bbx + end), gy + 2], fill=c + (255,))
+                xx += gw + 2
+    img.alpha_composite(_bloom(W, H, billboard, 3))
+    billboard(d)
 
-    img = up(img)
-    img = _vignette(img, pal["vignette"])
+    hor = vacc[0]
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle(
+        [0, horizon - 1, W, horizon], fill=hor + (190,)), 4))
+    d.line([(0, horizon), (W, horizon)], fill=blend(hor, (255, 255, 255), 0.45) + (255,))
+
+    img.paste(_dither_v(W, H - horizon - 1, [(0, blend(wall, acc[0], 0.16)), (0.45, shade(wall, 0.75)),
+                                             (1, (3, 2, 8))]), (0, horizon + 1))
+    streaks = [(bbx + 8, vacc[0]), (bbx + 22, vacc[1])] + \
+              [(bx_ + 1, vacc[ci]) for bx_, by_, ci in boards] + \
+              [(ax - 1, vacc[1]) for ax, ay in beacons[:4]]
+    for sx_, c in streaks:                          # the city smeared on the wet street
+        ref = Image.new("RGBA", (3, 16 + (sx_ % 13)), c + (72,))
+        img.alpha_composite(_vfade_alpha(ref, 0.8, 0.0), (max(0, min(W - 3, sx_)), horizon + 1))
+    _over(img, lambda gd: [gd.line([(0, y), (W, y)], fill=blend(wall, (160, 180, 230), 0.4) + (40,))
+                           for y in range(horizon + 3, H, 5) if _hash01(0, y, 9) > 0.45])
     return img
+
+def _menu_frontier(pal):
+    # Empty desert at sundown: the banded sun sinking onto the horizon between dark
+    # peaks, a dead tree, saguaros, a tumbleweed mid-roll. Nobody for miles.
+    W, H = AW, AH
+    acc = pal["accent"]
+    horizon = 118
+    img = Image.new("RGBA", (W, H))
+    img.paste(_dither_v(W, horizon, [(0, (50, 22, 30)), (0.4, (122, 54, 44)),
+                                     (0.75, (208, 116, 64)), (1.0, (246, 184, 108))]), (0, 0))
+    d = ImageDraw.Draw(img, "RGBA")
+
+    sx, sy, r = W // 2, horizon - 12, 20            # setting: the disc sits on the horizon
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
+        [sx - r, sy - r, sx + r, sy + r], fill=(255, 226, 150, 235)), 8))
+    d.ellipse([sx - r, sy - r, sx + r, sy + r], fill=(255, 232, 160, 255))
+    d.ellipse([sx - r + 2, sy - r + 2, sx + r - 3, sy + r - 6], fill=(255, 244, 196, 255))
+    for gy, gh in ((sy + 4, 2), (sy + 9, 3)):       # the banded cut-outs
+        band = img.getpixel((4, gy))[:3]
+        d.rectangle([sx - r - 2, gy, sx + r + 2, gy + gh - 1], fill=band + (255,))
+    _over(img, lambda gd: [gd.line([(sx - r - 10, hy), (sx + r + 10, hy)],
+                                   fill=(255, 210, 140, 90)) for hy in (sy - 5, sy + 1)])
+
+    def mesas(hmax, col, seed):                     # a low haze ridge behind the peaks
+        r2 = random.Random(seed)
+        x = -20
+        while x < W + 20:
+            mw = r2.randrange(26, 60)
+            mh = r2.randrange(hmax // 2, hmax)
+            s = r2.randrange(4, 9)
+            d.polygon([(x, horizon), (x + s, horizon - mh), (x + mw - s, horizon - mh),
+                       (x + mw, horizon)], fill=col + (255,))
+            x += mw + r2.randrange(10, 30)
+    mesas(12, (158, 76, 54), 61)
+    _peak(d, 4, 122, 56, 62, horizon, (74, 36, 28), seed=14)    # the two mountains
+    _peak(d, 196, 312, 254, 72, horizon, (62, 31, 25), seed=15)
+
+    img.paste(_dither_v(W, H - horizon, [(0, (188, 120, 70)), (0.25, (124, 70, 44)),
+                                         (1, (44, 24, 16))]), (0, horizon))
+    _over(img, lambda gd: [gd.line([(sx + rx * 3, H), (sx + rx, horizon + 6)],
+                                   fill=(70, 40, 26, 120)) for rx in (-24, 26)])
+
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle(
+        [0, horizon - 3, W, horizon + 8], fill=(255, 190, 120, 110)), 6))
+
+    _bare_tree(d, 66, 164, 42, (18, 10, 7), seed=8)             # the dead tree
+    _cactus(d, 30, 148, 11, (30, 16, 11))
+    _cactus(d, 246, 170, 24, (24, 13, 9))
+    _cactus(d, 302, 152, 8, (34, 18, 12))
+    _tumbleweed(d, 284, 162, 5, (44, 24, 15))
+    return img
+
+def _menu_orbital(pal):
+    # The observation deck, deserted: a wall-wide viewport onto a starfield and a
+    # rim-lit planet, hazard-striped struts, a flickering emergency strip. Nobody home.
+    W, H = AW, AH
+    acc = pal["accent"]
+    img = _dither_v(W, H, [(0, (3, 5, 11)), (0.6, (7, 10, 19)), (1, (12, 17, 28))])
+    d = ImageDraw.Draw(img, "RGBA")
+    _stars(d, (0, 8, W, 150), 130, 19, (88, 102, 132, 255), (215, 228, 255, 255))
+
+    pcx, pcy, pr = 235, 262, 168                    # planet limb low in the viewport
+    d.ellipse([pcx - pr, pcy - pr, pcx + pr, pcy + pr], fill=(17, 23, 38, 255))
+    rim = vivify(acc[2])
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.arc(
+        [pcx - pr, pcy - pr, pcx + pr, pcy + pr], 180, 360, fill=rim + (230,), width=2), 4))
+    d.arc([pcx - pr, pcy - pr, pcx + pr, pcy + pr], 180, 360,
+          fill=blend(rim, (255, 255, 255), 0.35) + (255,))
+    _over(img, lambda gd: [gd.arc([pcx - pr + off, pcy - pr + off, pcx + pr - off, pcy + pr - off],
+                                  200, 340, fill=blend(rim, (10, 14, 24), 0.45) + (al,))
+                           for off, al in ((4, 70), (9, 45))])
+
+    _over(img, lambda gd: (gd.line([(60, 18), (150, 64)], fill=(190, 210, 240, 26)),
+                           gd.line([(180, 30), (262, 74)], fill=(190, 210, 240, 20))))
+
+    steel, hi = (36, 42, 54), (64, 74, 90)
+    amber = vivify(acc[0])
+    for x in (34, 282):                             # viewport struts
+        d.rectangle([x, 0, x + 5, H], fill=steel + (255,))
+        d.line([(x, 0), (x, H)], fill=hi + (255,))
+        for ry in range(12, H, 24):
+            d.point((x + 3, ry), fill=hi + (255,))
+        for sy_ in range(118, 134, 4):              # hazard base stripes
+            d.rectangle([x, sy_, x + 5, sy_ + 1], fill=amber + (255,))
+            d.rectangle([x, sy_ + 2, x + 5, sy_ + 3], fill=(26, 22, 16, 255))
+    d.rectangle([0, 0, W, 5], fill=(30, 36, 46, 255))
+    d.line([(0, 5), (W, 5)], fill=(58, 68, 84, 255))
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle(
+        [118, 2, 204, 3], fill=amber + (230,)), 3))
+    d.rectangle([118, 2, 204, 3], fill=amber + (255,))
+    for gx in (146, 178):                           # the strip's dying flicker
+        d.rectangle([gx, 2, gx + 5, 3], fill=blend(amber, (30, 36, 46), 0.75) + (255,))
+    for i, x in enumerate(range(12, W - 12, 22)):   # frame status LEDs
+        d.point((x, 4), fill=vivify(acc[i % 3]) + (255,))
+    return img
+
+# The lobby reuses the menu backdrop (manifest lobbyBackground → menu_bg.png): one
+# strong establishing shot per theme, shown behind the lobby's blur + black/65 scrim.
 
 # ----------------------------------------------------------------------------
 # previews
@@ -551,12 +1038,12 @@ def main():
     sheet.save(os.path.join(base, "agents.png"))
     with open(os.path.join(base, "agents.json"), "w") as f:
         json.dump(atlas, f, indent=1)
+        f.write("\n")
 
     floor_tile(pal).save(os.path.join(base, "floor_tile.png"))
     finish_line(pal).save(os.path.join(base, "finish_line.png"))
     arena_bg(pal).save(os.path.join(base, "arena_bg.png"))
     menu_bg(pal).save(os.path.join(base, "menu_bg.png"))
-    lobby_bg(pal).save(os.path.join(base, "lobby_bg.png"))
 
     manifest = {
         "key": theme_key,
@@ -572,7 +1059,8 @@ def main():
             "finishLine": "finish_line.png",
             "arenaBackground": "arena_bg.png",
             "menuBackground": "menu_bg.png",
-            "lobbyBackground": "lobby_bg.png",
+            # the lobby shows the menu shot behind its scrim — one backdrop per theme
+            "lobbyBackground": "menu_bg.png",
         },
         # The ammo icon + reticle tint the client loads (paths relative to this folder).
         # ui.crosshair is appended below only if the sprite exists (gen_crosshair.py).
@@ -609,13 +1097,13 @@ def main():
 
     with open(os.path.join(base, "theme.json"), "w") as f:
         json.dump(manifest, f, indent=2)
+        f.write("\n")
 
     # previews into outputs (cwd) so they can be shown without polluting the repo
     outdir = os.environ.get("PREVIEW_DIR", ".")
     contact_sheet(pal).save(os.path.join(outdir, "preview_agents.png"))
     arena_bg(pal).save(os.path.join(outdir, "preview_arena.png"))
     menu_bg(pal).save(os.path.join(outdir, "preview_menu.png"))
-    lobby_bg(pal).save(os.path.join(outdir, "preview_lobby.png"))
     make_gif(pal, 0, "walk", os.path.join(outdir, "preview_walk.gif"))
     make_gif(pal, 3, "run", os.path.join(outdir, "preview_run.gif"))
 

@@ -1,6 +1,6 @@
 # Western pack — "Dead Man's Gulch"
 
-Sun-baked frontier showdown. Same structure as the neon pack, plus a themed bullet and music.
+Sun-baked badlands showdown. Same structure as the neon pack, plus a themed bullet and music.
 
 Everything for this theme lives in **this one folder** (`priv/static/themes/western/`),
 served at `/themes/western/`. To add a future theme, drop a sibling folder with the same
@@ -8,7 +8,8 @@ shape and register its key in `DeadGiveaway.Themes`.
 
 Assets in this folder:
 - `agents.png` / `agents.json` — 12 cowboy-hatted variants × {idle, walk, run, dropped}
-- `floor_tile.png`, `finish_line.png`, `arena_bg.png`, `menu_bg.png`, `lobby_bg.png`
+- `floor_tile.png`, `finish_line.png`, `arena_bg.png`, `menu_bg.png` (the manifest's
+  `lobbyBackground` points at `menu_bg.png` too — one establishing shot serves both)
 - `bullet.png` / `bullet_flat.png` — brass cartridge for the ammo counter (flat = no glow)
 - `menu_loop.mp3` — menu/lobby loop (fingerpicked guitar + lonesome whistle, ~22s, 88 BPM)
 - `game/stage1..4.mp3` — in-round escalating stages. **Not generated yet** — the western
