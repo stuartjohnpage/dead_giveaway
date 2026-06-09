@@ -7,8 +7,7 @@ Palette-driven. Produces, for one theme:
   - floor_tile.png            (seamless tileable arena floor)
   - finish_line.png           (vertical finish strip)
   - arena_bg.png              (full top-down room, 1280x720)
-  - menu_bg.png               (1280x720)
-  - lobby_bg.png              (1280x720)
+  - menu_bg.png               (1280x720; the lobby backdrop reuses it)
   - theme.json                (manifest)
   - preview.png               (contact sheet)
   - walk_preview.gif / run_preview.gif (motion check)
@@ -48,7 +47,7 @@ THEMES = {
     },
     "western": {
         "display": "Dead Man's Gulch",
-        "blurb": "Sun-baked frontier main street: packed dirt, plank boardwalks, a noon showdown at the line.",
+        "blurb": "Sun-baked badlands: packed dirt, distant peaks, a showdown at sundown.",
         "scene": "frontier",
         "floor": [(124, 96, 60), (110, 84, 52)],     # packed-dirt two-tone
         "grid_line": (84, 60, 38),                   # dry plank/dirt seams
@@ -364,6 +363,63 @@ def _stars(d, box, n, seed, dim, bright):
         else:
             d.point((x, y), fill=dim)
 
+# --- desert silhouettes (frontier arena + menu) ------------------------------
+def _peak(d, x0, x1, apex_x, apex_y, y_base, col, seed=5):
+    """One mountain in silhouette: a jagged ridge stepping up to the apex, a notched
+    secondary summit beside it — rugged, not a clean pyramid."""
+    rnd = random.Random(seed)
+    def ridge(xa, xb):
+        pts = []
+        for f, jag in ((0.35, -rnd.randrange(3, 10)), (0.68, rnd.randrange(2, 7))):
+            x = xa + (xb - xa) * f
+            y = y_base + (apex_y - y_base) * f + jag
+            pts.append((x, min(y, y_base - 1)))
+        return pts
+    pts = [(x0, y_base)] + ridge(x0, apex_x) + [(apex_x, apex_y)]
+    pts.append((apex_x + rnd.randrange(4, 9), apex_y + rnd.randrange(3, 8)))
+    pts += list(reversed(ridge(x1, apex_x)))
+    pts.append((x1, y_base))
+    d.polygon(pts, fill=col + (255,))
+
+def _bare_tree(d, x, y, h, col, seed=3):
+    """A dead tree in silhouette: a trunk forking into gnarled boughs and twigs."""
+    rnd = random.Random(seed)
+    c = col + (255,)
+    trunk_top = y - max(3, int(h * 0.42))
+    d.line([(x, y), (x, trunk_top)], fill=c, width=2 if h >= 18 else 1)
+    tips = [(x, trunk_top)]
+    for i in range(5 if h >= 18 else 3):
+        bx, by = tips[rnd.randrange(len(tips))]
+        side = -1 if i % 2 == 0 else 1
+        mx_, my_ = bx + side * rnd.randrange(2, max(3, h // 4)), by - rnd.randrange(2, max(3, h // 4))
+        ex, ey = mx_ + side * rnd.randrange(1, 3), my_ - rnd.randrange(1, max(2, h // 5))
+        d.line([(bx, by), (mx_, my_)], fill=c)
+        d.line([(mx_, my_), (ex, ey)], fill=c)
+        if rnd.random() < 0.7:
+            d.line([(mx_, my_), (mx_ - side, my_ - rnd.randrange(1, 3))], fill=c)
+        tips.append((mx_, my_))
+
+def _cactus(d, x, y, h, col):
+    """A saguaro in silhouette: trunk and one or two upturned arms."""
+    c = col + (255,)
+    d.line([(x, y), (x, y - h)], fill=c, width=2 if h >= 12 else 1)
+    if h >= 6:
+        ay = y - int(h * 0.55)
+        d.line([(x - 2, ay), (x - 2, ay - max(2, h // 3))], fill=c)
+        d.line([(x - 2, ay), (x, ay)], fill=c)
+    if h >= 10:
+        ay = y - int(h * 0.35)
+        d.line([(x + 2, ay), (x + 2, ay - max(2, h // 4))], fill=c)
+        d.line([(x, ay), (x + 2, ay)], fill=c)
+
+def _tumbleweed(d, x, y, r, col):
+    """A tumbleweed: a scraggly ball of arcs."""
+    c = col + (255,)
+    d.ellipse([x - r, y - r, x + r, y + r], outline=c)
+    d.arc([x - r + 1, y - r + 2, x + r - 1, y + r], 20, 200, fill=c)
+    d.arc([x - r + 2, y - r, x + r, y + r - 2], 160, 340, fill=c)
+    d.line([(x - r + 2, y + 1), (x + r - 2, y - 1)], fill=c)
+
 # --- floor tiles (authored 32x32, shipped x2 so a texel is 2 design px) -----
 def floor_tile(pal):
     tile = _scene(pal, {"concourse": _floor_concourse, "frontier": _floor_frontier,
@@ -525,10 +581,9 @@ def _rail(img, y, color, glow=True, posts=0, post_col=None):
         for x in range(6, AW, posts):
             d.rectangle([x, y, x + 1, y + 1], fill=(post_col or shade(color, 0.55)) + (255,))
 
-def _band_crowd(d, x0, x1, feet, seed, body, rim, hat=False, helmet=False, gap=10):
+def _band_crowd(d, x0, x1, feet, seed, body, rim, gap=10):
     """Rail-side spectators for the wall bands: 5-7px head-and-shoulder silhouettes with
-    the theme's headgear and a 1px lit crown. The crowd is the game's premise — the
-    field should feel watched."""
+    a 1px lit crown. The crowd is the game's premise — the field should feel watched."""
     rnd = random.Random(seed)
     x = x0 + rnd.randrange(2, 6)
     while x < x1 - 7:
@@ -537,15 +592,7 @@ def _band_crowd(d, x0, x1, feet, seed, body, rim, hat=False, helmet=False, gap=1
             top = feet - h - 3
             d.rectangle([x, feet - h, x + 5, feet], fill=body + (255,))
             d.rectangle([x + 1, top + 1, x + 4, feet - h], fill=body + (255,))
-            cap = top + 1
-            if hat:
-                d.line([(x, top + 1), (x + 5, top + 1)], fill=body + (255,))
-                d.rectangle([x + 1, top, x + 4, top], fill=body + (255,))
-                cap = top
-            elif helmet:
-                d.line([(x + 1, top), (x + 4, top)], fill=body + (255,))
-                cap = top
-            d.line([(x + 1, cap), (x + 4, cap)], fill=rim + (255,))
+            d.line([(x + 1, top + 1), (x + 4, top + 1)], fill=rim + (255,))
         x += rnd.randrange(8, gap + 4)
 
 def _gate_marks(img, d, pal, top_rows, bot_rows):
@@ -619,72 +666,54 @@ def _arena_concourse(pal):
     return img
 
 def _arena_frontier(pal):
-    # Far wall: a dusk sky sliver over false-front rooflines, lit windows, awnings and a
-    # hatted boardwalk crowd. Near wall: the near boardwalk's planks. Painted rails.
+    # Far wall: open badlands — the sun setting on the horizon between dark peaks, a
+    # dead tree, a saguaro or two. Near wall: the same plain running on in shadow.
+    # Painted fence rails bound the field.
     img = _arena_base(pal)
     d = ImageDraw.Draw(img, "RGBA")
-    wall, acc = pal["wall"], pal["accent"]
-    rnd = random.Random(4)
+    acc = pal["accent"]
 
-    img.alpha_composite(_dither_v(AW, 8, [(0, (208, 134, 86)), (1, (122, 66, 44))]), (0, 0))
-    d.rectangle([0, 8, AW, 13], fill=wall + (255,))
-    lit_windows = []
-    x = 0
-    while x < AW:
-        bw = rnd.randrange(22, 42)
-        roof = rnd.randrange(3, 7)
-        col = blend(wall, (12, 7, 5), rnd.choice([0, 0.25, 0.45]))
-        d.rectangle([x, roof, x + bw, 13], fill=col + (255,))
-        if rnd.random() < 0.6:                     # false-front cornice
-            d.line([(x + 1, roof - 1), (x + bw - 1, roof - 1)], fill=col + (255,))
-        for wx in range(x + 3, x + bw - 2, rnd.randrange(5, 9)):
-            if rnd.random() < 0.6:
-                if rnd.random() < 0.55:
-                    lit_windows.append((wx, roof + 3))
-                else:
-                    d.rectangle([wx, roof + 3, wx + 1, roof + 5], fill=shade(wall, 1.8) + (255,))
-        if rnd.random() < 0.45:                    # awning stripes
-            ay = min(roof + 7, 10)
-            for sx in range(x + 2, x + bw - 3, 4):
-                d.rectangle([sx, ay, sx + 1, ay + 1], fill=acc[1] + (255,))
-                d.rectangle([sx + 2, ay, sx + 3, ay + 1], fill=(225, 210, 180, 255))
-        x += bw + 1
-    tx = 233                                       # water tower over the rooflines
-    d.line([(tx + 1, 5), (tx + 1, 9)], fill=(14, 9, 6, 255))
-    d.line([(tx + 6, 5), (tx + 6, 9)], fill=(14, 9, 6, 255))
-    d.rectangle([tx, 1, tx + 7, 5], fill=(16, 10, 7, 255))
-    d.line([(tx - 1, 1), (tx + 8, 1)], fill=(26, 16, 10, 255))
-    d.line([(tx + 7, 2), (tx + 7, 4)], fill=blend((16, 10, 7), (208, 134, 86), 0.35) + (255,))
-    warm = blend(acc[0], (255, 240, 200), 0.35)
-    def windows(gd):
-        for wx, wy in lit_windows:
-            gd.rectangle([wx, wy, wx + 1, wy + 2], fill=warm + (255,))
-    img.alpha_composite(_bloom(AW, AH, windows, 1))
-    windows(d)
-    plank = (96, 72, 44)
-    d.rectangle([0, 12, AW, 13], fill=plank + (255,))   # far boardwalk edge
-    for sx in range(0, AW, 7):
-        d.point((sx, 13), fill=shade(plank, 0.6))
-    _band_crowd(d, 0, AW, 13, seed=9, body=(38, 24, 16), rim=blend((38, 24, 16), vivify(acc[2]), 0.7),
-                hat=True, gap=11)
+    img.alpha_composite(_dither_v(AW, 12, [(0, (84, 38, 34)), (0.5, (164, 84, 54)),
+                                           (1, (224, 142, 88))]), (0, 0))
+    sun_x = 84
+    img.alpha_composite(_bloom(AW, AH, lambda gd: gd.ellipse(
+        [sun_x - 5, 6, sun_x + 5, 16], fill=(255, 226, 150, 235)), 4))
+    d.ellipse([sun_x - 5, 6, sun_x + 5, 16], fill=(255, 232, 162, 255))
+    d.ellipse([sun_x - 4, 7, sun_x + 4, 14], fill=(255, 244, 198, 255))
+    _peak(d, -12, 70, 34, 2, 12, (120, 56, 40), seed=11)     # hazy far peak
+    _peak(d, 6, 64, 38, 4, 12, (54, 27, 21), seed=12)
+    _peak(d, 224, 312, 264, 3, 12, (54, 27, 21), seed=13)
+    d.rectangle([0, 12, AW, 13], fill=(64, 31, 22, 255))     # the plain behind the fence
+    for x in range(0, AW, 3):
+        if _hash01(x, 0, 33) > 0.72:
+            d.point((x, 12), fill=(84, 42, 28, 255))
+    _bare_tree(d, 152, 13, 13, (16, 9, 6), seed=6)
+    _cactus(d, 40, 13, 10, (20, 11, 8))
+    _cactus(d, 286, 13, 10, (20, 11, 8))
     _rail(img, 14, acc[1], glow=False, posts=24, post_col=shade(acc[1], 0.6))
 
     by = AH - BAND
     _rail(img, by, acc[2], glow=False, posts=24, post_col=shade(acc[2], 0.6))
-    for yy in range(by + 2, AH):                   # near boardwalk planks
-        row = (yy - by - 2) % 4
+    img.alpha_composite(_dither_v(AW, 14, [(0, (56, 30, 19)), (1, (30, 16, 11))]), (0, by + 2))
+    for yy in range(by + 2, AH):                   # night-side scrub
         for x in range(AW):
-            seg = (x + 13 * ((yy - by - 2) // 4)) // 34
-            tone = 0.82 + 0.3 * _hash01(seg, (yy - by - 2) // 4, 57)
-            c = shade(plank, tone * (0.62 if row == 3 else 1.0))
-            if row != 3 and _hash01(x, yy, 71) > 0.985:
-                c = shade(c, 0.7)                  # knots
-            d.point((x, yy), fill=c + (255,))
-        if row == 0:
-            for jx in range(int(_hash01((yy - by) // 4, 0, 61) * 34), AW, 34):
-                d.point((jx, yy), fill=shade(plank, 0.5))
-                d.point((jx, yy + 1), fill=shade(plank, 0.5))
-                d.point((jx, yy + 2), fill=shade(plank, 0.5))
+            n = _hash01(x, yy, 83)
+            if n > 0.94:
+                d.point((x, yy), fill=(22, 12, 8, 255))
+            elif n < 0.05:
+                d.point((x, yy), fill=(74, 42, 26, 255))
+    rnd = random.Random(21)
+    for _ in range(9):                             # stones
+        x, yy = rnd.randrange(4, AW - 4), rnd.randrange(by + 5, AH - 2)
+        d.point((x, yy), fill=(18, 10, 7, 255))
+        d.point((x + 1, yy), fill=(66, 38, 24, 255))
+    grass = blend((30, 16, 11), vivify(acc[2]), 0.3)
+    for _ in range(12):                            # dry tufts
+        x, yy = rnd.randrange(4, AW - 4), rnd.randrange(by + 4, AH - 1)
+        d.point((x, yy), fill=grass + (255,))
+        d.point((x, yy - 1), fill=shade(grass, 0.7) + (255,))
+    _cactus(d, 70, by + 13, 7, (16, 9, 6))
+    _cactus(d, 248, by + 12, 6, (16, 9, 6))
     img.alpha_composite(Image.new("RGBA", (AW, 2), (0, 0, 0, 70)), (0, by + 2))
 
     _gate_marks(img, d, pal, (10, 13), (by + 4, by + 7))
@@ -752,39 +781,6 @@ def _arena_orbital(pal):
     _gate_marks(img, d, pal, (10, 13), (by + 4, by + 7))
     return img
 
-def _silhouette(fr, body, rim):
-    """Recolour a drawn agent frame into a backlit silhouette: its shape filled with a
-    flat dark `body`, with a 1px `rim` light along its top contour only — light spilling
-    over heads and shoulders from whatever glows behind, not a sticker outline."""
-    a = fr.split()[3]
-    mask = a.point(lambda v: 255 if v > 40 else 0)
-    sil = Image.new("RGBA", fr.size, (0, 0, 0, 0))
-    sil.paste(Image.new("RGBA", fr.size, body + (255,)), (0, 0), mask)
-    px_s, px_a = sil.load(), a.load()
-    w, h = fr.size
-    for x in range(w):                  # topmost opaque pixel per column only — no
-        for y in range(h):              # speckle from interior gaps (chins, armpits)
-            if px_a[x, y] > 40:
-                px_s[x, y] = rim + (255,)
-                break
-    return sil
-
-def _crowd_layer(img, pal, n, baseline, scale, body, rim, seed):
-    """Scatter `n` backlit silhouettes standing with their feet at `baseline` (so a layer
-    placed below the canvas edge is cropped into a foreground rank). `scale` sets depth;
-    each figure varies a little in height so the crowd isn't a flat row of clones."""
-    rnd = random.Random(seed)
-    for _ in range(n):
-        v = rnd.randrange(N_VARIANTS)
-        sc = scale + rnd.choice([0, 0, 1])
-        fr = draw_agent(pal, v, rnd.choice(["idle", "walk"]), rnd.randrange(ANIM["walk"]))
-        # silhouette AFTER the resize so the rim stays 1px — light catching crowns and
-        # shoulders, not a fat sticker outline
-        fr = _silhouette(fr.resize((FW * sc, FH * sc), Image.NEAREST), body, rim)
-        x = rnd.randrange(-FW, img.width)
-        img.alpha_composite(fr, (x, baseline - FH * sc))
-    return img
-
 def _bloom(W, H, draw_fn, radius):
     """Render onto a transparent layer via draw_fn(ImageDraw), then blur it for a glow."""
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -812,88 +808,103 @@ def menu_bg(pal):
     return _vignette(up(img), pal["vignette"])
 
 def _menu_concourse(pal):
-    # An after-hours arcade street: two skyline ranks with lit windows, neon sign boards
-    # over a glowing horizon, black-glass floor smearing their light, the crowd backlit.
+    # An empty cyberpunk cityscape: three tower ranks full of lit windows under a
+    # crescent moon, neon boards and rooftop beacons, a wet street holding the glow.
+    # Nobody out tonight.
     W, H = AW, AH
     wall, acc = pal["wall"], pal["accent"]
-    horizon = 126
-    img = _dither_v(W, H, [(0, (5, 4, 12)), (0.45, blend(wall, (24, 16, 52), 0.7)),
-                           (1, blend(wall, acc[0], 0.16))])
+    vacc = [vivify(c) for c in acc]
+    horizon = 132
+    img = _dither_v(W, H, [(0, (4, 3, 10)), (0.55, (16, 11, 34)),
+                           (1, blend(wall, acc[1], 0.12))])
     d = ImageDraw.Draw(img, "RGBA")
+    _stars(d, (0, 3, W, 60), 46, 23, (62, 68, 104, 255), (140, 150, 200, 255))
 
-    def skyline(hmin, hmax, col, win_cols, win_p, seed):
+    mx, my, mr = 251, 25, 9                         # crescent moon
+    sky_c = img.getpixel((mx - mr - 6, my))[:3]
+    img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
+        [mx - mr, my - mr, mx + mr, my + mr], fill=(210, 225, 255, 150)), 6))
+    d.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=(224, 234, 255, 255))
+    d.ellipse([mx - mr - 4, my - mr - 3, mx + mr - 4, my + mr - 3], fill=sky_c + (255,))
+
+    boards, beacons = [], []
+    def rank(hmin, hmax, col, wins, win_p, seed, masts=False, signage=False):
         r = random.Random(seed)
-        x = -r.randrange(4, 10)
+        x = -r.randrange(2, 8)
         while x < W:
-            bw = r.randrange(14, 30)
+            bw = r.randrange(13, 27)
             bh = r.randrange(hmin, hmax)
-            d.rectangle([x, horizon - bh, x + bw, horizon], fill=col + (255,))
-            if r.random() < 0.35:                   # rooftop mast
+            top = horizon - bh
+            d.rectangle([x, top, x + bw, horizon], fill=col + (255,))
+            if masts and r.random() < 0.4:
                 ax = x + r.randrange(2, max(3, bw - 2))
-                d.line([(ax, horizon - bh - r.randrange(3, 7)), (ax, horizon - bh)], fill=col + (255,))
-            for wy in range(horizon - bh + 2, horizon - 4, 4):
+                ah = r.randrange(4, 9)
+                d.line([(ax, top - ah), (ax, top)], fill=col + (255,))
+                if r.random() < 0.55:
+                    beacons.append((ax, top - ah))
+            if signage and bh > 24 and r.random() < 0.4:
+                boards.append((x + r.randrange(2, max(3, bw - 6)),
+                               top + r.randrange(3, bh - 18), r.randrange(3)))
+            for wy in range(top + 2, horizon - 3, 3):
                 for wx in range(x + 2, x + bw - 1, 3):
                     if r.random() < win_p:
-                        d.point((wx, wy), fill=r.choice(win_cols) + (255,))
+                        d.point((wx, wy), fill=r.choice(wins) + (255,))
             x += bw + r.randrange(2, 6)
-    skyline(30, 54, blend(wall, (16, 12, 34), 0.5), [blend(acc[0], wall, 0.45)], 0.10, 31)
-    skyline(12, 30, shade(wall, 0.55), [blend(acc[1], wall, 0.5), blend(acc[2], wall, 0.5)], 0.08, 32)
+    rank(34, 66, blend(wall, (22, 17, 46), 0.6), [blend(acc[0], wall, 0.55)], 0.05, 31)
+    rank(18, 46, (10, 8, 24), [blend(acc[0], wall, 0.35), blend(acc[1], wall, 0.4)],
+         0.085, 32, masts=True, signage=True)
+    rank(6, 26, (6, 5, 15), [blend(acc[2], wall, 0.45)], 0.05, 33, masts=True)
 
-    # Sign boards: three tall verticals (the menu's signature) and two low horizontals,
-    # each a chrome-framed plate whose neon glyph segments do the glowing.
-    signs = [("v", 58, 30, 96, vivify(acc[0])), ("v", 152, 26, 100, vivify(acc[1])),
-             ("v", 246, 32, 94, vivify(acc[2])), ("h", 96, 56, 30, vivify(acc[1])),
-             ("h", 196, 64, 26, vivify(acc[2]))]
-    for kind, x, y0, e, c in signs:
-        if kind == "v":
-            d.rectangle([x - 1, y0 - 2, x + 10, e + 2], fill=shade(wall, 0.4) + (255,), outline=(70, 76, 96, 255))
-        else:
-            d.rectangle([x - 2, y0 - 2, x + e + 2, y0 + 7], fill=shade(wall, 0.4) + (255,), outline=(70, 76, 96, 255))
-    def glyphs(gd):
-        r2 = random.Random(5)
-        for kind, x, y0, e, c in signs:
-            if kind == "v":
-                yy = y0 + 2
-                while yy < e - 2:
-                    gh = r2.randrange(2, 6)
-                    gd.rectangle([x + 2, yy, x + 7, min(yy + gh, e - 2)], fill=c + (255,))
-                    yy += gh + 3
-            else:
-                xx = x + 1
-                while xx < x + e - 1:
-                    gw = r2.randrange(2, 6)
-                    gd.rectangle([xx, y0 + 1, min(xx + gw, x + e - 1), y0 + 4], fill=c + (255,))
-                    xx += gw + 3
-    img.alpha_composite(_bloom(W, H, glyphs, 4))
-    img.alpha_composite(_bloom(W, H, glyphs, 1))
-    glyphs(d)
-    _over(img, lambda gd: [gd.line([(x + 4, y0 + 2), (x + 4, e - 2)],
-                                   fill=blend(c, (255, 255, 255), 0.55) + (130,))
-                           for kind, x, y0, e, c in signs if kind == "v"])
+    for bx_, by_, ci in boards:                     # neon boards on the tower faces
+        d.rectangle([bx_, by_, bx_ + 4, by_ + 13], fill=(5, 4, 12, 255), outline=(58, 62, 82, 255))
+    def board_glyphs(gd):
+        for bx_, by_, ci in boards:
+            for i in range(4):
+                gy = by_ + 2 + i * 3
+                gd.rectangle([bx_ + 1, gy, bx_ + 3, gy + 1], fill=vacc[ci] + (255,))
+    img.alpha_composite(_bloom(W, H, board_glyphs, 2))
+    board_glyphs(d)
+    def beacon_dots(gd):
+        for ax, ay in beacons:
+            gd.point((ax, ay), fill=vacc[1] + (255,))
+    img.alpha_composite(_bloom(W, H, beacon_dots, 2))
+    beacon_dots(d)
 
-    hor = vivify(acc[0])
+    bbx, bby = 148, 56                              # the big rooftop billboard
+    d.line([(bbx + 5, bby + 10), (bbx + 5, bby + 26)], fill=(46, 50, 68, 255))
+    d.line([(bbx + 27, bby + 10), (bbx + 27, bby + 26)], fill=(46, 50, 68, 255))
+    d.rectangle([bbx, bby, bbx + 32, bby + 10], fill=(6, 5, 14, 255), outline=(70, 76, 96, 255))
+    def billboard(gd):
+        r3 = random.Random(9)
+        for gy, c, end in ((bby + 2, vacc[0], 30), (bby + 6, vacc[1], 26)):
+            xx = bbx + 2
+            while xx < bbx + end:
+                gw = r3.randrange(2, 6)
+                gd.rectangle([xx, gy, min(xx + gw, bbx + end), gy + 2], fill=c + (255,))
+                xx += gw + 2
+    img.alpha_composite(_bloom(W, H, billboard, 3))
+    billboard(d)
+
+    hor = vacc[0]
     img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle(
-        [0, horizon - 1, W, horizon + 1], fill=hor + (220,)), 5))
-    d.line([(0, horizon), (W, horizon)], fill=blend(hor, (255, 255, 255), 0.5) + (255,))
+        [0, horizon - 1, W, horizon], fill=hor + (190,)), 4))
+    d.line([(0, horizon), (W, horizon)], fill=blend(hor, (255, 255, 255), 0.45) + (255,))
 
-    img.paste(_dither_v(W, H - horizon - 1, [(0, blend(wall, acc[0], 0.18)), (0.4, shade(wall, 0.8)),
-                                             (1, (4, 3, 10))]), (0, horizon + 1))
-    for kind, x, y0, e, c in signs:                 # signs smeared down the glass
-        if kind == "v":
-            ref = Image.new("RGBA", (10, 34), c + (70,))
-            img.alpha_composite(_vfade_alpha(ref, 0.8, 0.0), (x, horizon + 1))
+    img.paste(_dither_v(W, H - horizon - 1, [(0, blend(wall, acc[0], 0.16)), (0.45, shade(wall, 0.75)),
+                                             (1, (3, 2, 8))]), (0, horizon + 1))
+    streaks = [(bbx + 8, vacc[0]), (bbx + 22, vacc[1])] + \
+              [(bx_ + 1, vacc[ci]) for bx_, by_, ci in boards] + \
+              [(ax - 1, vacc[1]) for ax, ay in beacons[:4]]
+    for sx_, c in streaks:                          # the city smeared on the wet street
+        ref = Image.new("RGBA", (3, 16 + (sx_ % 13)), c + (72,))
+        img.alpha_composite(_vfade_alpha(ref, 0.8, 0.0), (max(0, min(W - 3, sx_)), horizon + 1))
     _over(img, lambda gd: [gd.line([(0, y), (W, y)], fill=blend(wall, (160, 180, 230), 0.4) + (40,))
                            for y in range(horizon + 3, H, 5) if _hash01(0, y, 9) > 0.45])
-
-    img = _crowd_layer(img, pal, n=24, baseline=H - 4, scale=2, body=(7, 6, 16),
-                       rim=blend(hor, wall, 0.25), seed=7)
-    img = _crowd_layer(img, pal, n=12, baseline=H + 34, scale=3, body=(3, 3, 8),
-                       rim=blend(hor, wall, 0.62), seed=21)
     return img
 
 def _menu_frontier(pal):
-    # High-noon main street: a banded sun at the end of the road between silhouetted
-    # false-front rows, mesas on the horizon, dust haze, the townsfolk's hats backlit.
+    # Empty desert at sundown: the banded sun sinking onto the horizon between dark
+    # peaks, a dead tree, saguaros, a tumbleweed mid-roll. Nobody for miles.
     W, H = AW, AH
     acc = pal["accent"]
     horizon = 118
@@ -902,18 +913,18 @@ def _menu_frontier(pal):
                                      (0.75, (208, 116, 64)), (1.0, (246, 184, 108))]), (0, 0))
     d = ImageDraw.Draw(img, "RGBA")
 
-    sx, sy, r = W // 2, 86, 18
+    sx, sy, r = W // 2, horizon - 12, 20            # setting: the disc sits on the horizon
     img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
         [sx - r, sy - r, sx + r, sy + r], fill=(255, 226, 150, 235)), 8))
     d.ellipse([sx - r, sy - r, sx + r, sy + r], fill=(255, 232, 160, 255))
     d.ellipse([sx - r + 2, sy - r + 2, sx + r - 3, sy + r - 6], fill=(255, 244, 196, 255))
-    for gy, gh in ((sy + 6, 2), (sy + 11, 3)):      # the banded cut-outs
+    for gy, gh in ((sy + 4, 2), (sy + 9, 3)):       # the banded cut-outs
         band = img.getpixel((4, gy))[:3]
         d.rectangle([sx - r - 2, gy, sx + r + 2, gy + gh - 1], fill=band + (255,))
     _over(img, lambda gd: [gd.line([(sx - r - 10, hy), (sx + r + 10, hy)],
-                                   fill=(255, 210, 140, 90)) for hy in (sy - 4, sy + 2)])
+                                   fill=(255, 210, 140, 90)) for hy in (sy - 5, sy + 1)])
 
-    def mesas(hmax, col, seed):
+    def mesas(hmax, col, seed):                     # a low haze ridge behind the peaks
         r2 = random.Random(seed)
         x = -20
         while x < W + 20:
@@ -923,67 +934,35 @@ def _menu_frontier(pal):
             d.polygon([(x, horizon), (x + s, horizon - mh), (x + mw - s, horizon - mh),
                        (x + mw, horizon)], fill=col + (255,))
             x += mw + r2.randrange(10, 30)
-    mesas(20, (150, 70, 52), 61)
-    mesas(11, (96, 44, 36), 62)
+    mesas(12, (158, 76, 54), 61)
+    _peak(d, 4, 122, 56, 62, horizon, (74, 36, 28), seed=14)    # the two mountains
+    _peak(d, 196, 312, 254, 72, horizon, (62, 31, 25), seed=15)
 
     img.paste(_dither_v(W, H - horizon, [(0, (188, 120, 70)), (0.25, (124, 70, 44)),
                                          (1, (44, 24, 16))]), (0, horizon))
     _over(img, lambda gd: [gd.line([(sx + rx * 3, H), (sx + rx, horizon + 6)],
-                                   fill=(70, 40, 26, 120)) for rx in (-66, -24, 26, 70)])
-
-    def storefronts(side, seed):
-        r2 = random.Random(seed)
-        for depth in (3, 2, 1, 0):                  # far first, near drawn over
-            bw = (44, 34, 26, 20)[depth] + r2.randrange(0, 8)
-            bh = (78, 56, 40, 28)[depth] + r2.randrange(0, 6)
-            base = horizon + (42, 24, 12, 5)[depth]
-            edge = 0 if side < 0 else W
-            inset = sum((46, 36, 27, 21)[k] for k in range(depth))
-            x0 = edge + side * inset if side > 0 else edge + inset
-            x0 = x0 - bw if side > 0 else x0
-            col = blend((24, 13, 9), (70, 34, 24), depth * 0.22)
-            top = base - bh
-            d.rectangle([x0, top, x0 + bw, base], fill=col + (255,))
-            d.line([(x0 - 1, top), (x0 + bw + 1, top)], fill=shade(col, 1.45) + (255,))  # cornice
-            r3 = random.Random(seed * 7 + depth)
-            for wx in range(x0 + 3, x0 + bw - 2, 6):
-                if r3.random() < 0.5:
-                    lit = r3.random() < 0.6
-                    wc = (255, 196, 110) if lit else (14, 8, 6)
-                    d.rectangle([wx, top + 4, wx + 1, top + 6], fill=wc + (255,))
-            if depth < 2:                           # porch posts on the near fronts
-                for px_ in range(x0 + 2, x0 + bw - 1, 7):
-                    d.line([(px_, base - 8), (px_, base)], fill=shade(col, 0.55) + (255,))
-                d.line([(x0, base - 8), (x0 + bw, base - 8)], fill=shade(col, 0.7) + (255,))
-    storefronts(-1, 63)
-    storefronts(+1, 64)
-
-    for px_, ph in ((92, 34), (228, 30)):           # telegraph poles
-        d.line([(px_, horizon - ph), (px_, horizon + 8)], fill=(20, 11, 8, 255))
-        d.line([(px_ - 4, horizon - ph + 3), (px_ + 4, horizon - ph + 3)], fill=(20, 11, 8, 255))
-        d.line([(px_ - 3, horizon - ph + 6), (px_ + 3, horizon - ph + 6)], fill=(20, 11, 8, 255))
-    _over(img, lambda gd: gd.line([(96, horizon - 31), (160, horizon - 24), (224, horizon - 27)],
-                                  fill=(20, 11, 8, 110)))
+                                   fill=(70, 40, 26, 120)) for rx in (-24, 26)])
 
     img.alpha_composite(_bloom(W, H, lambda gd: gd.rectangle(
         [0, horizon - 3, W, horizon + 8], fill=(255, 190, 120, 110)), 6))
 
-    img = _crowd_layer(img, pal, n=22, baseline=H - 4, scale=2, body=(24, 13, 9),
-                       rim=(255, 214, 140), seed=7)
-    img = _crowd_layer(img, pal, n=12, baseline=H + 34, scale=3, body=(13, 8, 6),
-                       rim=(214, 140, 80), seed=21)
+    _bare_tree(d, 66, 164, 42, (18, 10, 7), seed=8)             # the dead tree
+    _cactus(d, 30, 148, 11, (30, 16, 11))
+    _cactus(d, 246, 170, 24, (24, 13, 9))
+    _cactus(d, 302, 152, 8, (34, 18, 12))
+    _tumbleweed(d, 284, 162, 5, (44, 24, 15))
     return img
 
 def _menu_orbital(pal):
-    # The observation deck: a wall-wide viewport onto a starfield and a rim-lit planet,
-    # hazard-striped struts, a flickering emergency strip, helmeted crowd in silhouette.
+    # The observation deck, deserted: a wall-wide viewport onto a starfield and a
+    # rim-lit planet, hazard-striped struts, a flickering emergency strip. Nobody home.
     W, H = AW, AH
-    wall, acc = pal["wall"], pal["accent"]
+    acc = pal["accent"]
     img = _dither_v(W, H, [(0, (3, 5, 11)), (0.6, (7, 10, 19)), (1, (12, 17, 28))])
     d = ImageDraw.Draw(img, "RGBA")
     _stars(d, (0, 8, W, 150), 130, 19, (88, 102, 132, 255), (215, 228, 255, 255))
 
-    pcx, pcy, pr = 235, 262, 168                    # planet limb cresting over the crowd
+    pcx, pcy, pr = 235, 262, 168                    # planet limb low in the viewport
     d.ellipse([pcx - pr, pcy - pr, pcx + pr, pcy + pr], fill=(17, 23, 38, 255))
     rim = vivify(acc[2])
     img.alpha_composite(_bloom(W, H, lambda gd: gd.arc(
@@ -1016,164 +995,10 @@ def _menu_orbital(pal):
         d.rectangle([gx, 2, gx + 5, 3], fill=blend(amber, (30, 36, 46), 0.75) + (255,))
     for i, x in enumerate(range(12, W - 12, 22)):   # frame status LEDs
         d.point((x, 4), fill=vivify(acc[i % 3]) + (255,))
-
-    img = _crowd_layer(img, pal, n=20, baseline=H - 4, scale=2, body=(6, 9, 15),
-                       rim=blend(rim, (255, 255, 255), 0.2), seed=7)
-    img = _crowd_layer(img, pal, n=11, baseline=H + 34, scale=3, body=(3, 5, 9),
-                       rim=blend(amber, wall, 0.25), seed=21)
     return img
 
-# The lobby is one shared idea — a one-point corridor receding to a lit end where the
-# card sits — materialised per scene: neon arch gates, lantern-lit timber frames, or
-# octagonal airlock ribs. Bold shapes only: it lives behind a 2px blur + black/65 scrim.
-GATE_STEPS = (0.16, 0.27, 0.40, 0.55, 0.72, 0.90, 1.08)   # innermost → past the viewer
-
-def _gate_rect(f):
-    return [AW / 2 - f * AW / 2, AH / 2 - f * AH / 2, AW / 2 + f * AW / 2, AH / 2 + f * AH / 2]
-
-def _crisp_glow(img, draw_fn, blur=2, dim=0.55):
-    """Draw once crisp over a dimmed blurred copy of itself — hard edges with a halo."""
-    sharp = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    draw_fn(ImageDraw.Draw(sharp))
-    glow = sharp.filter(ImageFilter.GaussianBlur(blur))
-    glow.putalpha(glow.split()[3].point(lambda v: int(v * dim)))
-    img.alpha_composite(glow)
-    img.alpha_composite(sharp)
-
-def _corridor_joins(img, col, floor_a=110):
-    """Floor edges linking consecutive gates' bottom corners — grounds the corridor
-    without rebuilding a wall-to-wall X."""
-    def lines(gd):
-        for i in range(len(GATE_STEPS) - 1):
-            ra, rb = _gate_rect(GATE_STEPS[i]), _gate_rect(GATE_STEPS[i + 1])
-            gd.line([(ra[0], ra[3]), (rb[0], rb[3])], fill=col + (floor_a,))
-            gd.line([(ra[2], ra[3]), (rb[2], rb[3])], fill=col + (floor_a,))
-    _over(img, lines)
-
-def lobby_bg(pal):
-    img = _scene(pal, {"concourse": _lobby_concourse, "frontier": _lobby_frontier,
-                       "orbital": _lobby_orbital})(pal)
-    return _vignette(up(img), pal["vignette"])
-
-def _lobby_concourse(pal):
-    # Neon arch gates down a glass hall, each catching on the floor as a short smear.
-    W, H = AW, AH
-    wall, acc = pal["wall"], pal["accent"]
-    vacc = [vivify(c) for c in acc]
-    cx, cy = W // 2, H // 2
-    img = _dither_v(W, H, [(0, shade(wall, 0.6)), (1, shade(wall, 1.05))])
-    d = ImageDraw.Draw(img, "RGBA")
-    img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
-        [cx - 54, cy - 30, cx + 54, cy + 30], fill=blend(wall, vacc[2], 0.9) + (150,)), 20))
-    _corridor_joins(img, blend(wall, vacc[2], 0.55))
-    def gates(gd):
-        for i, f in enumerate(GATE_STEPS):
-            a = int(70 + 185 * min(1, f))
-            c = vacc[i % 3]
-            r = _gate_rect(f)
-            gd.rounded_rectangle(r, radius=max(2, int(9 * f)), outline=c + (a,), width=1)
-            gd.line([(cx - 2, r[1]), (cx + 2, r[1])], fill=blend(c, (255, 255, 255), 0.6) + (a,))
-    _crisp_glow(img, gates)
-    for i, f in enumerate(GATE_STEPS[:-1]):         # gate light pooling on the glass
-        r = _gate_rect(f)
-        c = vacc[i % 3]
-        for gx in (int(r[0]), int(r[2])):
-            ref = Image.new("RGBA", (1, 5), c + (80,))
-            img.alpha_composite(_vfade_alpha(ref, 0.8, 0.0), (gx, int(r[3]) + 1))
-    return img
-
-def _lobby_frontier(pal):
-    # Lantern-lit timber frames receding to daylight — the gulch's mine adit. Warm wood,
-    # joint pegs, dust hanging in the light.
-    W, H = AW, AH
-    acc = pal["accent"]
-    cx, cy = W // 2, H // 2
-    gold = vivify(acc[2])
-    img = _dither_v(W, H, [(0, (20, 12, 9)), (1, (40, 25, 16))])
-    d = ImageDraw.Draw(img, "RGBA")
-    img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
-        [cx - 56, cy - 30, cx + 56, cy + 30], fill=blend((32, 20, 13), gold, 0.85) + (170,)), 20))
-    _corridor_joins(img, (120, 82, 46), floor_a=150)
-    wood = (158, 112, 62)
-    def beams(gd):
-        for i, f in enumerate(GATE_STEPS):
-            a = int(130 + 125 * min(1, f))
-            r = _gate_rect(f)
-            t = 1 if f < 0.3 else 2
-            tone = blend(wood, acc[0], 0.10 if i % 2 else 0.0)
-            gd.rectangle([r[0], r[1], r[2], r[1] + t], fill=tone + (a,))               # lintel
-            gd.rectangle([r[0], r[3] - t, r[2], r[3]], fill=shade(tone, 0.6) + (a,))   # sill
-            gd.rectangle([r[0], r[1], r[0] + t, r[3]], fill=shade(tone, 0.85) + (a,))  # posts
-            gd.rectangle([r[2] - t, r[1], r[2], r[3]], fill=shade(tone, 0.85) + (a,))
-            gd.line([(r[0], r[1]), (r[2], r[1])], fill=blend(gold, (255, 255, 255), 0.25) + (a,))
-            gd.line([(r[0] + t, r[1]), (r[0] + t, r[3])],                              # lamplit post edges
-                    fill=blend(gold, wood, 0.45) + (int(a * 0.8),))
-            gd.line([(r[2] - t, r[1]), (r[2] - t, r[3])],
-                    fill=blend(gold, wood, 0.45) + (int(a * 0.8),))
-            for (nx, ny) in ((r[0] + 1, r[1] + 1), (r[2] - 1, r[1] + 1),
-                             (r[0] + 1, r[3] - 1), (r[2] - 1, r[3] - 1)):
-                gd.point((nx, ny), fill=(20, 13, 8, a))                                # joint pegs
-    _crisp_glow(img, beams, blur=2, dim=0.4)
-    lamp = vivify(acc[0])
-    for i, off in ((4, -38), (5, 30)):              # lanterns on the gates the card clears
-        r = _gate_rect(GATE_STEPS[i])
-        lx, ly = int(cx + off * GATE_STEPS[i]), int(r[1]) + 3
-        img.alpha_composite(_bloom(W, H, lambda gd, lx=lx, ly=ly: gd.rectangle(
-            [lx - 1, ly, lx + 1, ly + 2], fill=lamp + (220,)), 3))
-        d.line([(lx, int(r[1])), (lx, ly - 1)], fill=(20, 13, 8, 255))
-        d.rectangle([lx - 1, ly - 1, lx + 1, ly + 3], fill=(24, 16, 10, 255))
-        d.rectangle([lx - 1, ly + 1, lx + 1, ly + 2], fill=blend(lamp, (255, 255, 220), 0.45) + (255,))
-    def motes(gd):
-        rnd = random.Random(8)
-        for _ in range(46):                         # dust motes in the lamplight
-            mx = cx + int((rnd.random() - 0.5) * 150)
-            my = cy + int((rnd.random() - 0.5) * 90)
-            dist = abs(mx - cx) / 75 + abs(my - cy) / 45
-            if dist < 1.2 and rnd.random() > dist * 0.6:
-                gd.point((mx, my), fill=(255, 224, 168, rnd.randrange(40, 110)))
-    _over(img, motes)
-    return img
-
-def _lobby_orbital(pal):
-    # Octagonal airlock ribs marching toward a lit lock, vertex status lights, hazard
-    # chamfers on the nearest full rib.
-    W, H = AW, AH
-    acc = pal["accent"]
-    vacc = [vivify(c) for c in acc]
-    cx, cy = W // 2, H // 2
-    img = _dither_v(W, H, [(0, (7, 10, 17)), (1, (15, 20, 30))])
-    d = ImageDraw.Draw(img, "RGBA")
-    img.alpha_composite(_bloom(W, H, lambda gd: gd.ellipse(
-        [cx - 50, cy - 28, cx + 50, cy + 28], fill=(170, 205, 240, 165)), 18))
-    _corridor_joins(img, (58, 68, 84), floor_a=120)
-    def oct_pts(r, cut=0.34):
-        x0, y0, x1, y1 = r
-        c = cut * min(x1 - x0, y1 - y0) / 2
-        return [(x0 + c, y0), (x1 - c, y0), (x1, y0 + c), (x1, y1 - c),
-                (x1 - c, y1), (x0 + c, y1), (x0, y1 - c), (x0, y0 + c)]
-    def ribs(gd):
-        for i, f in enumerate(GATE_STEPS):
-            a = int(80 + 175 * min(1, f))
-            r = _gate_rect(f)
-            pts = oct_pts(r)
-            gd.line(pts + [pts[0]], fill=(96, 108, 124, a), width=2, joint="curve")
-            inner = oct_pts([r[0] + 2, r[1] + 2, r[2] - 2, r[3] - 2])
-            gd.line(inner + [inner[0]], fill=vacc[i % 3] + (int(a * 0.85),), width=1, joint="curve")
-    _crisp_glow(img, ribs, blur=2, dim=0.5)
-    for i in (1, 3, 5):                             # vertex status lights
-        pts = oct_pts(_gate_rect(GATE_STEPS[i]))
-        for j, (px_, py_) in enumerate(pts):
-            c = vacc[(i + j) % 3]
-            d.point((int(px_), int(py_)), fill=blend(c, (255, 255, 255), 0.4) + (255,))
-    amber = vacc[0]
-    pts = oct_pts(_gate_rect(0.90))                 # hazard dashes on the chamfers
-    for k in (1, 3, 5, 7):
-        (xa, ya), (xb, yb) = pts[k], pts[(k + 1) % 8]
-        for t in range(0, 8, 2):
-            f0, f1 = t / 8, (t + 1) / 8
-            d.line([(xa + (xb - xa) * f0, ya + (yb - ya) * f0),
-                    (xa + (xb - xa) * f1, ya + (yb - ya) * f1)], fill=shade(amber, 0.9) + (255,))
-    return img
+# The lobby reuses the menu backdrop (manifest lobbyBackground → menu_bg.png): one
+# strong establishing shot per theme, shown behind the lobby's blur + black/65 scrim.
 
 # ----------------------------------------------------------------------------
 # previews
@@ -1219,7 +1044,6 @@ def main():
     finish_line(pal).save(os.path.join(base, "finish_line.png"))
     arena_bg(pal).save(os.path.join(base, "arena_bg.png"))
     menu_bg(pal).save(os.path.join(base, "menu_bg.png"))
-    lobby_bg(pal).save(os.path.join(base, "lobby_bg.png"))
 
     manifest = {
         "key": theme_key,
@@ -1235,7 +1059,8 @@ def main():
             "finishLine": "finish_line.png",
             "arenaBackground": "arena_bg.png",
             "menuBackground": "menu_bg.png",
-            "lobbyBackground": "lobby_bg.png",
+            # the lobby shows the menu shot behind its scrim — one backdrop per theme
+            "lobbyBackground": "menu_bg.png",
         },
         # The ammo icon + reticle tint the client loads (paths relative to this folder).
         # ui.crosshair is appended below only if the sprite exists (gen_crosshair.py).
@@ -1279,7 +1104,6 @@ def main():
     contact_sheet(pal).save(os.path.join(outdir, "preview_agents.png"))
     arena_bg(pal).save(os.path.join(outdir, "preview_arena.png"))
     menu_bg(pal).save(os.path.join(outdir, "preview_menu.png"))
-    lobby_bg(pal).save(os.path.join(outdir, "preview_lobby.png"))
     make_gif(pal, 0, "walk", os.path.join(outdir, "preview_walk.gif"))
     make_gif(pal, 3, "run", os.path.join(outdir, "preview_run.gif"))
 

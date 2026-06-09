@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Show a lobby_bg as the player actually sees it: bg-cover at 1280x720, behind the
-lobby's 2px backdrop-blur + bg-black/65 scrim, with the centred card blocked out so we
-judge only the visible framing around it. Usage: scrim_preview.py <lobby_bg.png> <out.png>"""
+"""Show a lobby backdrop (the theme's menu_bg) as the player actually sees it: bg-cover
+at 1280x720, behind the lobby's 2px backdrop-blur + bg-black/65 scrim, with the centred
+card blocked out so we judge only the visible framing around it.
+Usage: scrim_preview.py <menu_bg.png> <out.png>"""
 import sys
 from PIL import Image, ImageDraw, ImageFilter
 

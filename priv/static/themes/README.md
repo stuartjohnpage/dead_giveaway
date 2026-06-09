@@ -15,7 +15,7 @@ backgrounds + manifest), `gen_bullet.py` (ammo icon), `gen_crosshair.py` (reticl
 `gen_gunshot.py` (firing SFX), and `gen_music*.py` / `gen_game_music*.py` (music), plus
 `stems/` (raw layers for future WebAudio mixing). Two preview tools render a pack the way
 players actually see it: `arena_preview.py` (arena_bg + tiled floor + finish + sprites)
-and `scrim_preview.py` (lobby_bg behind the lobby card's blur + scrim).
+and `scrim_preview.py` (menu_bg behind the lobby card's blur + scrim).
 
 ```
 themes/
@@ -28,8 +28,8 @@ themes/
     floor_tile.png       # seamless tileable arena floor
     finish_line.png      # vertical finish strip
     arena_bg.png         # full top-down room (1280x720)
-    menu_bg.png          # main-menu backdrop (1280x720, no baked text)
-    lobby_bg.png         # between-rounds lobby backdrop (1280x720, no baked text)
+    menu_bg.png          # menu backdrop (1280x720, no baked text); the manifest's
+                         # lobbyBackground points here too — one shot serves both
     bullet.png           # ammo-counter icon (+ bullet_flat.png, the no-glow variant)
     crosshair.png        # the theme's reticle (38x38, centered) — yours and peers' (#48)
     menu_loop.mp3        # menu/lobby music loop
@@ -88,9 +88,9 @@ scaling (`texture.source.scaleMode = "nearest"`) to keep pixels crisp.
 1. Open `tools/asset-gen/gen_pack.py`, copy the `"neon"` block in `THEMES`, rename the key,
    and change the colours (`floor`, `accent`, `shirts`, `hairs`, `skins`, `wall`, `finish`,
    and the `bullet`/`reticle` UI hints). Pick a `scene` — the composition archetype the
-   backgrounds are drawn with (`concourse` = neon signage + black glass, `frontier` =
-   storefronts + boardwalk + dirt, `orbital` = viewports + deck plating); the palette does
-   the colouring. Then, from the repo root:
+   backgrounds are drawn with (`concourse` = cyberpunk neon + black glass, `frontier` =
+   desert badlands + dirt, `orbital` = viewports + deck plating); the palette does the
+   colouring. Then, from the repo root:
 
    ```bash
    python3 tools/asset-gen/gen_pack.py . <your_key>     # writes priv/static/themes/<your_key>/

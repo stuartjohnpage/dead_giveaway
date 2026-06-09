@@ -1,7 +1,7 @@
 {
   "key": "western",
   "display": "Dead Man's Gulch",
-  "blurb": "Sun-baked frontier main street: packed dirt, plank boardwalks, a noon showdown at the line.",
+  "blurb": "Sun-baked badlands: packed dirt, distant peaks, a showdown at sundown.",
   "frameSize": {
     "w": 32,
     "h": 32
@@ -20,7 +20,7 @@
     "finishLine": "finish_line.png",
     "arenaBackground": "arena_bg.png",
     "menuBackground": "menu_bg.png",
-    "lobbyBackground": "lobby_bg.png"
+    "lobbyBackground": "menu_bg.png"
   },
   "ui": {
     "bullet": "bullet_flat.png",
