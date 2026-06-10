@@ -369,6 +369,7 @@ export async function boot() {
   // highlight — so the find-yourself opening is untouched (DESIGN §2).
   let myBodyId = null; // our body's entity id, or null when we don't drive one
   let predictedX = null; // its predicted world x; null until a snapshot seeds it
+  let lastServerX = null; // its x in the previous snapshot — "is the server's body still moving?"
   // Reflect the remaining count: show the number, and once it hits 0 drop the bullet icon.
   const setAmmo = (n) => {
     ammoCount.textContent = String(n);
@@ -692,6 +693,7 @@ export async function boot() {
     dead = false; // fresh round → back in play (a previous round's death is cleared)
     myBodyId = null; // the room re-sends our body id ("you") right after round_start
     predictedX = null;
+    lastServerX = null;
     clearPeerCrosses(); // last round's reticles don't carry into this one
     setCrosshairVisible(true); // fresh round → fresh clip (DESIGN §5)
     showAmmo(true); // (re)load the ammo HUD to a full clip for the new round
@@ -704,6 +706,7 @@ export async function boot() {
     setCrosshairVisible(false);
     myBodyId = null; // our corpse is just another body now — back to plain interpolation
     predictedX = null;
+    lastServerX = null;
   });
   // The room privately told us which body we drive (#41) — at round start, and again
   // when a takeover moves us into a bot body (§7). Reset the prediction to seed from
@@ -713,6 +716,7 @@ export async function boot() {
     if (typeof p.id !== "number") return;
     myBodyId = p.id;
     predictedX = null;
+    lastServerX = null;
     sendVerb();
   });
   // Private lives update for our HUD (DESIGN §7): the room sends our starting count at
@@ -728,6 +732,7 @@ export async function boot() {
     setCrosshairVisible(false); // no firing while the card is up
     myBodyId = null; // stop predicting too, or held keys would slide us across the freeze
     predictedX = null;
+    lastServerX = null;
     showAmmo(false); // the round's done — pull the HUD with the card up
     showChances(false); // pull the lives HUD too
     // Stay in the game: float the card over the frozen final frame, and duck the music to
@@ -797,12 +802,16 @@ export async function boot() {
       // expected in-flight trail of a moving body is left alone (prediction.mjs). The
       // ticker below re-targets this sprite from the prediction every frame.
       if (mine && e.alive) {
-        predictedX = predictedX === null ? e.x : reconcile(predictedX, e.x, verb() !== "stop");
+        const serverMoving = lastServerX !== null && e.x !== lastServerX;
+        predictedX =
+          predictedX === null ? e.x : reconcile(predictedX, e.x, verb() !== "stop", serverMoving);
+        lastServerX = e.x;
       } else if (mine) {
         // Our body shows dropped before the private "out"/"you" lands — stop predicting
         // now; that signal then settles whether we're out or in a new body (§7).
         myBodyId = null;
         predictedX = null;
+        lastServerX = null;
       }
     }
     for (const [id, s] of sprites) {

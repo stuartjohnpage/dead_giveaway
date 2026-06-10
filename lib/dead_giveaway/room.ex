@@ -197,6 +197,9 @@ defmodule DeadGiveaway.Room do
       # for unit tests that don't want a room vanishing under them.
       empty_after_ms: Keyword.get(opts, :empty_after_ms),
       expire_ref: nil,
+      # The absolute (monotonic ms) deadline of the most recently scheduled tick —
+      # what schedule_tick anchors the next delay to so timer lateness can't compound.
+      next_tick_at: System.monotonic_time(:millisecond),
       # The pure lobby-and-scoreboard core: the monotonic-slot roster, name policy,
       # and the cumulative scoreboard (incl. the shared Bot tally). Room threads it
       # through state and delegates every roster read/write and scoring decision to it.
@@ -214,7 +217,7 @@ defmodule DeadGiveaway.Room do
 
     # The tick timer (if any) runs for the room's lifetime; it idles while no
     # round is in progress, so round resets never double-schedule it.
-    if tick_ms, do: schedule_tick(tick_ms)
+    state = if tick_ms, do: schedule_tick(state), else: state
     # List the room straight away if it was created public (the host flow starts
     # private, so this only fires for an explicitly-public start, e.g. in tests).
     {:ok, sync_presence(state)}
@@ -395,8 +398,7 @@ defmodule DeadGiveaway.Room do
   @impl true
   def handle_info(:tick, state) do
     {state, _snapshot} = do_tick(state)
-    schedule_tick(state.tick_ms)
-    {:noreply, state}
+    {:noreply, schedule_tick(state)}
   end
 
   # The empty-room countdown elapsed. Stop only if still empty — a player may
@@ -615,7 +617,22 @@ defmodule DeadGiveaway.Room do
   defp update_world(%{world: nil} = state, _fun), do: state
   defp update_world(state, fun), do: %{state | world: fun.(state.world)}
 
-  defp schedule_tick(tick_ms), do: Process.send_after(self(), :tick, tick_ms)
+  # Schedule the next tick against an absolute deadline, not relative to "after this
+  # tick's work": send_after fires late by the work time plus the OS timer quantum
+  # (~15.6ms on Windows), and rescheduling relative-to-now compounds that lateness into
+  # a permanently slower tick rate (measured ~24% slow on Windows — 62ms per nominal
+  # 50ms tick). Clients assume exactly tick_ms per tick when predicting their own
+  # motion (#41), so a slow room makes every prediction race ahead and snap back.
+  # Anchoring each delay to the running deadline lets a late tick shorten the next
+  # delay, pinning the *average* period to tick_ms. A room that falls more than a full
+  # tick behind (a suspended VM, a long stall) re-bases to now rather than
+  # burst-ticking through the backlog.
+  defp schedule_tick(state) do
+    now = System.monotonic_time(:millisecond)
+    deadline = max(state.next_tick_at + state.tick_ms, now)
+    Process.send_after(self(), :tick, deadline - now)
+    %{state | next_tick_at: deadline}
+  end
 
   # Arm the shutdown timer when the room empties (no-op if expiry is disabled or
   # the room still has players). Always clears any prior timer first so leaves
