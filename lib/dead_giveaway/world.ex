@@ -18,7 +18,14 @@ defmodule DeadGiveaway.World do
             shots: %{},
             chances: %{},
             # {move_ticks, stop_ticks} ranges for this round's pace (#17).
-            pace_ticks: nil
+            pace_ticks: nil,
+            # Game mode (#53): :classic, or :red_light with the watcher's light below.
+            mode: :classic,
+            # The Red Light / Green Light state — :green | :windup | :red while the
+            # mode is :red_light, nil in classic. `light_left` is the ticks this
+            # phase has still to run.
+            light: nil,
+            light_left: 0
 
   # Movement speeds, in world units per tick (dev values).
   @walk_speed 1.25
@@ -46,6 +53,23 @@ defmodule DeadGiveaway.World do
   }
   @default_pace :fast
 
+  # Red Light / Green Light (#53). Durations in ticks (20Hz: 1 tick = 50ms), all
+  # initial values tuned by feel. The light cycles green → wind-up → red → green;
+  # green/red durations re-roll per cycle so there's no rhythm to memorize, the
+  # wind-up is the fixed warning (the watcher's spin). After red goes live, every
+  # body gets @grace_ticks of safety; from then until green, anything still moving
+  # is killed by the watcher. Each moving bot stops @bot_stop_delay ticks into red —
+  # always inside the grace, so no bot ever dies. That delay window is the blend
+  # target: a human stopping inside it reads bot-like; stopping during the wind-up
+  # (no bot anticipates) or after it (no bot lags) is a soft tell to armed rivals,
+  # and the gap between the last bot stop and the end of grace is free distance
+  # anyone can take — in full view. Greed vs exposure is the mode's core trade.
+  @green_ticks 80..160
+  @windup_ticks 16
+  @red_ticks 40..80
+  @grace_ticks 15
+  @bot_stop_delay 3..10
+
   # Vertical distance between adjacent rows, so the crosshair (a continuous x/y
   # point) can pick the nearest body across rows.
   @row_spacing 10.0
@@ -70,6 +94,15 @@ defmodule DeadGiveaway.World do
   @doc "The default pace when none (or an unknown one) is given."
   def default_pace, do: @default_pace
 
+  @doc "The valid game modes (#53), so callers validate against one source of truth."
+  def modes, do: [:classic, :red_light]
+  @doc "The default mode when none (or an unknown one) is given."
+  def default_mode, do: :classic
+  @doc "Safe ticks after red goes live before the watcher kills anything moving (#53)."
+  def red_grace_ticks, do: @grace_ticks
+  @doc "The tick range in which a moving bot stops after red goes live (#53)."
+  def bot_stop_delay_ticks, do: @bot_stop_delay
+
   @doc """
   Build a fresh world. Options:
 
@@ -83,6 +116,8 @@ defmodule DeadGiveaway.World do
       on death instead, spending a life — DESIGN §7)
     * `:pace` — round tempo `:slow | :medium | :fast` (#17), setting the bot move:stop
       ratio (default `:fast`, the original tempo; an unknown value falls back to it)
+    * `:mode` — `:classic | :red_light` (#53). Red Light overlays the classic race
+      with the watcher's light cycle; anything else (including the default) is classic.
   """
   def new(opts) do
     seed = Keyword.fetch!(opts, :seed)
@@ -122,6 +157,20 @@ defmodule DeadGiveaway.World do
     # Every human starts the round with `max_chances` lives (DESIGN §7).
     chances = for p <- humans, into: %{}, do: {p, max_chances}
 
+    # Red Light rounds open on a fresh green (#53); classic consumes no extra rng,
+    # so a classic world is bit-identical to one built before the mode existed.
+    mode = if Keyword.get(opts, :mode) == :red_light, do: :red_light, else: :classic
+
+    {light, light_left, rng} =
+      case mode do
+        :red_light ->
+          {ticks, rng} = roll_in(@green_ticks, rng)
+          {:green, ticks, rng}
+
+        :classic ->
+          {nil, 0, rng}
+      end
+
     %__MODULE__{
       entities: entities,
       finish_x: finish_x,
@@ -129,7 +178,10 @@ defmodule DeadGiveaway.World do
       slot_of: slot_of,
       max_ammo: max_ammo,
       chances: chances,
-      pace_ticks: pace_ticks
+      pace_ticks: pace_ticks,
+      mode: mode,
+      light: light,
+      light_left: light_left
     }
   end
 
@@ -150,15 +202,18 @@ defmodule DeadGiveaway.World do
 
   @doc "Advance the simulation by one tick."
   def tick(%__MODULE__{} = world) do
+    world = advance_light(world)
+
     {entities, rng} =
       world.entities
       |> Enum.sort_by(fn {row, _} -> row end)
       |> Enum.reduce({%{}, world.rng}, fn {row, e}, {acc, rng} ->
-        {e, rng} = step_entity(e, world.pace_ticks, rng)
+        {e, rng} = step_entity(e, world.light, world.pace_ticks, rng)
         {Map.put(acc, row, e), rng}
       end)
 
     %{world | entities: entities, rng: rng}
+    |> enforce_red()
   end
 
   @doc """
@@ -234,7 +289,13 @@ defmodule DeadGiveaway.World do
     end
   end
 
-  @doc "Public view of the world. Never leaks the human/bot mapping."
+  @doc """
+  Public view of the world. Never leaks the human/bot mapping.
+
+  In Red Light mode the snapshot also carries the watcher's `light` (#53) — it's
+  room-global and drives every client's watcher pose/cue. Classic snapshots omit
+  the key entirely, so the classic wire format is unchanged.
+  """
   def snapshot(%__MODULE__{} = world) do
     entities =
       world.entities
@@ -242,7 +303,12 @@ defmodule DeadGiveaway.World do
       |> Enum.sort_by(& &1.id)
       |> Enum.map(&%{id: &1.id, row: &1.row, x: &1.x, verb: &1.verb, alive: &1.alive})
 
-    %{entities: entities, finish_x: world.finish_x}
+    snapshot = %{entities: entities, finish_x: world.finish_x}
+
+    case world.mode do
+      :red_light -> Map.put(snapshot, :light, world.light)
+      :classic -> snapshot
+    end
   end
 
   # --- Internals ---
@@ -259,7 +325,11 @@ defmodule DeadGiveaway.World do
       player: player,
       # Bot move/stop cycle state (unused for humans, who move by their verb).
       phase: :stopped,
-      phase_left: 0
+      phase_left: 0,
+      # Red Light state (#53): the bot's reaction delay into the current red, and
+      # this body's remaining watcher-safe ticks. Both are re-armed at red onset.
+      stop_delay: 0,
+      grace_left: 0
     }
   end
 
@@ -314,7 +384,10 @@ defmodule DeadGiveaway.World do
 
   # Move `player` into the bot body at `row`: that body becomes human-driven (idle until
   # they pick it up, since they don't yet know it's theirs), the old body stays a corpse,
-  # and `slot_of` now points at the new row so input/fire/aim follow them there.
+  # and `slot_of` now points at the new row so input/fire/aim follow them there. A body
+  # inherited under a red light starts its own grace window (#53): the owner's client
+  # re-asserts held keys onto it (#41), and no body may die before its owner could react
+  # — without this, one held key during a red would chain through every life.
   defp inhabit(world, player, row) do
     old_row = world.slot_of[player]
 
@@ -323,10 +396,20 @@ defmodule DeadGiveaway.World do
     |> put_in([Access.key(:entities), old_row, :human?], false)
     |> update_in(
       [Access.key(:entities), row],
-      &%{&1 | human?: true, player: player, verb: :stop, speed: 0.0}
+      &%{
+        &1
+        | human?: true,
+          player: player,
+          verb: :stop,
+          speed: 0.0,
+          grace_left: fresh_grace(world)
+      }
     )
     |> put_in([Access.key(:slot_of), player], row)
   end
+
+  defp fresh_grace(%{light: :red}), do: @grace_ticks
+  defp fresh_grace(_world), do: 0
 
   # Which free body a respawning player inherits: the living bot furthest back (smallest
   # x). The rule is deliberate — it's deterministic (no rng, so the sim stays replayable),
@@ -395,16 +478,29 @@ defmodule DeadGiveaway.World do
   end
 
   # Dead characters are out for the round — frozen, can't win, can't be re-shot.
-  defp step_entity(%{alive: false} = e, _ticks, rng), do: {e, rng}
+  defp step_entity(%{alive: false} = e, _light, _ticks, rng), do: {e, rng}
 
-  # Humans move by their player-set verb; their verb is never auto-changed.
-  defp step_entity(%{human?: true} = e, _ticks, rng), do: {advance(e), rng}
+  # Humans move by their player-set verb; their verb is never auto-changed — not
+  # even under a red light (#53): the game forces nothing, the watcher enforces.
+  defp step_entity(%{human?: true} = e, _light, _ticks, rng), do: {advance(e), rng}
+
+  # Red freezes the bot phase machine (#53): a bot caught moving walks out its
+  # reaction delay, then holds. `phase`/`phase_left` are untouched, so green resumes
+  # the interrupted phase — reds neither sync the crowd into waves nor skew the
+  # tempo's move:stop ratio.
+  defp step_entity(%{human?: false} = e, :red, _ticks, rng) do
+    case e.stop_delay do
+      0 -> {e, rng}
+      1 -> {%{advance(e) | stop_delay: 0, verb: :stop, speed: 0.0}, rng}
+      n -> {advance(%{e | stop_delay: n - 1}), rng}
+    end
+  end
 
   # A bot counts down its current phase; when it elapses it flips move↔stop and
   # rolls a fresh duration (from this round's pace ranges) for the new phase. Steady
   # speed within a phase = no jiggle; per-bot durations = a desynced crowd. A bot never
-  # runs (§4).
-  defp step_entity(%{human?: false} = e, ticks, rng) do
+  # runs (§4). The wind-up changes nothing for a bot — only red onset does (#53).
+  defp step_entity(%{human?: false} = e, _light, ticks, rng) do
     {e, rng} = advance_phase(e, ticks, rng)
     {advance(e), rng}
   end
@@ -432,6 +528,101 @@ defmodule DeadGiveaway.World do
     {i, rng} = :rand.uniform_s(max - min + 1, rng)
     {min + i - 1, rng}
   end
+
+  # --- Red Light / Green Light (#53) ---
+
+  # Run the watcher's light one tick: when the current phase has no ticks left the
+  # light transitions (and the transition tick runs under the NEW light), so a
+  # phase rolled at N ticks runs for exactly N ticks. Classic worlds skip all of it.
+  defp advance_light(%{mode: :classic} = world), do: world
+
+  defp advance_light(world) do
+    world = if world.light_left == 0, do: light_transition(world), else: world
+    %{world | light_left: world.light_left - 1}
+  end
+
+  # green → wind-up: the warning. The watcher spins; nothing is enforced yet, and
+  # bots don't react until red goes live — which is exactly why a human stopping
+  # during the wind-up reads "too early" to a careful observer.
+  defp light_transition(%{light: :green} = world) do
+    %{world | light: :windup, light_left: @windup_ticks}
+  end
+
+  # wind-up → red: the light goes live. Arm every living body's grace window, and
+  # roll each moving bot's reaction delay.
+  defp light_transition(%{light: :windup} = world) do
+    {ticks, rng} = roll_in(@red_ticks, world.rng)
+    red_onset(%{world | light: :red, light_left: ticks, rng: rng})
+  end
+
+  # red → green: the crowd resumes. Bots pick their interrupted phase back up.
+  defp light_transition(%{light: :red} = world) do
+    {ticks, rng} = roll_in(@green_ticks, world.rng)
+    green_onset(%{world | light: :green, light_left: ticks, rng: rng})
+  end
+
+  defp red_onset(world) do
+    {entities, rng} =
+      world.entities
+      |> Enum.sort_by(fn {row, _} -> row end)
+      |> Enum.reduce({%{}, world.rng}, fn {row, e}, {acc, rng} ->
+        {e, rng} = arm_for_red(e, rng)
+        {Map.put(acc, row, e), rng}
+      end)
+
+    %{world | entities: entities, rng: rng}
+  end
+
+  # Every living body gets the watcher's grace; a bot caught mid-move also rolls
+  # its reaction delay — the stop window a blending human mimics. The delay range
+  # sits well inside the grace, so no bot ever dies to the watcher.
+  defp arm_for_red(%{alive: false} = e, rng), do: {e, rng}
+
+  defp arm_for_red(%{human?: false, phase: :moving} = e, rng) do
+    {delay, rng} = roll_in(@bot_stop_delay, rng)
+    {%{e | grace_left: @grace_ticks, stop_delay: delay}, rng}
+  end
+
+  defp arm_for_red(e, rng), do: {%{e | grace_left: @grace_ticks, stop_delay: 0}, rng}
+
+  defp green_onset(world) do
+    entities = Map.new(world.entities, fn {row, e} -> {row, wake_from_red(e)} end)
+    %{world | entities: entities}
+  end
+
+  # A bot that red froze mid-move-phase starts walking again; everything else
+  # (stopped bots, humans, the dead) wakes exactly as it stood.
+  defp wake_from_red(%{alive: true, human?: false, phase: :moving} = e),
+    do: %{e | verb: :walk, speed: @bot_speed}
+
+  defp wake_from_red(e), do: e
+
+  # The watcher's kill check, after movement has applied: under a red light, any
+  # living body that is moving with its grace spent is dropped — same death
+  # pipeline as a bullet (the body ghosts, a takeover may fire, §7). The grace
+  # counts down per body, not per red, so a mid-red takeover (which re-arms it in
+  # `inhabit`) gets its own reaction window. Walking and running die the same.
+  defp enforce_red(%{light: :red} = world) do
+    doomed =
+      world.entities
+      |> Map.values()
+      |> Enum.filter(&(&1.alive and &1.verb != :stop and &1.grace_left == 0))
+      |> Enum.sort_by(& &1.row)
+
+    entities =
+      Map.new(world.entities, fn
+        {row, %{alive: true, grace_left: g} = e} when g > 0 -> {row, %{e | grace_left: g - 1}}
+        pair -> pair
+      end)
+
+    Enum.reduce(doomed, %{world | entities: entities}, fn e, w ->
+      w
+      |> put_in([Access.key(:entities), e.row, :alive], false)
+      |> maybe_takeover(e)
+    end)
+  end
+
+  defp enforce_red(world), do: world
 
   # Seed each bot mid-cycle with a random phase + duration so the field starts
   # desynchronised (humans keep the default idle phase, which they never use).

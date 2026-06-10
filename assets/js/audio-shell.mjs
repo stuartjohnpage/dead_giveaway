@@ -24,6 +24,9 @@ export const DEFAULT_GAME_STAGES = [1, 2, 3, 4].map(
 // The firing SFX for packs that don't declare their own (#48) — the theme-agnostic
 // /sounds clip, so a shot always has a sound even with every theme folder empty.
 export const DEFAULT_SHOT = "/sounds/gunshot.mp3";
+// The Red Light watcher's wind-up cue (#53) falls back to the default theme's, same
+// rule as the music stages — the light must be audible without watching the line.
+export const DEFAULT_WINDUP = `/themes/${DEFAULT_THEME}/windup.mp3`;
 
 let shell = null;
 
@@ -40,6 +43,8 @@ let shell = null;
  *   applyMusicGain(): void,
  *   playShot(): void,
  *   setShotUrl(url: string): void,
+ *   playWindup(): void,
+ *   setWindupUrl(url: string): void,
  *   armUnlock(): void,
  *   enterMenu(): void,
  *   resumeMusic(): void,
@@ -77,25 +82,35 @@ function create() {
     (music.inGame ? gameMusic : lobbyMusic).setGain(musicGain());
   };
 
-  // Firing SFX — preloaded so the first shot isn't silent while the asset decodes.
-  // cloneNode lets overlapping shots both play (the server broadcasts every peer's
-  // fire). Per-theme (#48): loadTheme retargets it via setShotUrl, mirroring how the
-  // music loops are repointed, and a swap preloads the new clip the same way; packs
-  // without a shot stay on DEFAULT_SHOT (Pixabay, credited in sounds/CREDITS.md).
-  let shotSfx = new Audio(DEFAULT_SHOT);
-  shotSfx.preload = "auto";
-  let shotUrl = DEFAULT_SHOT;
-  const setShotUrl = (url) => {
-    if (url === shotUrl) return; // recurring lobby broadcasts — don't re-fetch
-    shotUrl = url;
-    shotSfx = new Audio(url);
-    shotSfx.preload = "auto";
+  // A retargetable one-shot SFX slot — preloaded so the first play isn't silent while
+  // the asset decodes, re-preloading the same way when a theme swap repoints it, and
+  // cloned per play so overlapping plays don't cut each other off. play() swallows the
+  // autoplay rejection before the first gesture; in-game the click IS the gesture.
+  const createOneShot = (defaultUrl) => {
+    let sfx = new Audio(defaultUrl);
+    sfx.preload = "auto";
+    let current = defaultUrl;
+    return {
+      setUrl(url) {
+        if (url === current) return; // recurring lobby broadcasts — don't re-fetch
+        current = url;
+        sfx = new Audio(url);
+        sfx.preload = "auto";
+      },
+      play() {
+        const s = sfx.cloneNode();
+        s.volume = sfxGain(volume);
+        s.play().catch(() => {});
+      },
+    };
   };
-  const playShot = () => {
-    const s = shotSfx.cloneNode();
-    s.volume = sfxGain(volume);
-    s.play().catch(() => {}); // autoplay is rejected until the first gesture; in-game the click is the gesture
-  };
+
+  // Firing SFX, per-theme (#48): loadTheme retargets it, mirroring how the music loops
+  // are repointed; packs without a shot stay on DEFAULT_SHOT (Pixabay, credited in
+  // sounds/CREDITS.md). The wind-up cue (#53) is the Red Light watcher's audible
+  // warning, retargeted the same way.
+  const shot = createOneShot(DEFAULT_SHOT);
+  const windup = createOneShot(DEFAULT_WINDUP);
 
   // Return to the splash/menu from anywhere — the home page calls this on mount, which
   // (post client-side nav) may be arriving back from a live game. Reset the director to the
@@ -155,8 +170,10 @@ function create() {
     volume,
     musicGain,
     applyMusicGain,
-    playShot,
-    setShotUrl,
+    playShot: shot.play,
+    setShotUrl: shot.setUrl,
+    playWindup: windup.play,
+    setWindupUrl: windup.setUrl,
     armUnlock,
     enterMenu,
     resumeMusic,

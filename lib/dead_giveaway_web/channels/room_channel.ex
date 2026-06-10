@@ -140,6 +140,13 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:reply, :ok, socket}
   end
 
+  # The game-mode knob (#53), same host-only shape. The Room validates the value
+  # ("classic"/"red_light") and broadcasts it to every lobby.
+  def handle_in("set_config", %{"mode" => mode}, socket) when is_binary(mode) do
+    if socket.assigns.host, do: Room.set_mode(socket.assigns.room, mode)
+    {:reply, :ok, socket}
+  end
+
   # Public/private visibility (issue #43), same host-only shape. The Room lists or unlists
   # the lobby in the directory and broadcasts the new value so every lobby view reflects it.
   def handle_in("set_config", %{"public" => public}, socket) when is_boolean(public) do
