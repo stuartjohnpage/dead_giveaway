@@ -115,6 +115,23 @@ export async function boot() {
   const entityLayer = new Container();
   world.addChild(entityLayer);
 
+  // The wind-up telegraph (#60): the watcher's spin alone wasn't reading — players'
+  // eyes are on their own runner, not the line — so the whole arena carries the
+  // warning. A rim around the field pulses amber through the wind-up ("about to
+  // turn"), then holds red while the light is red: dropping it at the exact moment
+  // moving becomes lethal would read as the all-clear. Gone on green and in classic.
+  const RIM_W = 10;
+  const RIM_WINDUP = 0xffb020;
+  const RIM_RED = 0xff2d3f;
+  const lightRim = new Graphics()
+    .rect(0, 0, DESIGN_W, RIM_W)
+    .rect(0, DESIGN_H - RIM_W, DESIGN_W, RIM_W)
+    .rect(0, RIM_W, RIM_W, DESIGN_H - 2 * RIM_W)
+    .rect(DESIGN_W - RIM_W, RIM_W, RIM_W, DESIGN_H - 2 * RIM_W)
+    .fill(0xffffff); // white base — the live colour comes from tint per light state
+  lightRim.visible = false;
+  world.addChild(lightRim);
+
   // The Red Light watcher (#53): the landmark on the finish line, present only while
   // snapshots carry a `light`. Its pose tracks the room-global light — facing away
   // (green), spinning (wind-up), facing the crowd (red) — and the wind-up cue makes
@@ -147,6 +164,9 @@ export async function boot() {
     light = next;
     // The spin is the warning (#53) — make it heard even off-screen-focus.
     if (next === "windup") playWindup();
+    lightRim.visible = next === "windup" || next === "red";
+    lightRim.tint = next === "red" ? RIM_RED : RIM_WINDUP;
+    lightRim.alpha = next === "red" ? 0.9 : 1; // wind-up alpha is pulsed by the ticker
     ensureWatcher();
     if (!watcher) return; // no watcher art anywhere — the light still enforces server-side
     watcher.visible = !!next;
@@ -933,6 +953,9 @@ export async function boot() {
 
   // --- Render loop: interpolate other entities toward the latest snapshot ---
   app.ticker.add((ticker) => {
+    // Throb the wind-up rim (#60) off the clock, not frames, so the pulse reads the
+    // same at any refresh rate.
+    if (light === "windup") lightRim.alpha = 0.4 + 0.6 * Math.abs(Math.sin(performance.now() / 130));
     for (const s of sprites.values()) {
       s.sprite.x += (s.tx - s.sprite.x) * 0.25;
       s.sprite.y += (s.ty - s.sprite.y) * 0.25;
