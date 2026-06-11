@@ -50,16 +50,6 @@
         Hide among the crowd. Cross the finish.
         <span class="text-[var(--dg-magenta)]">Don't get spotted.</span>
       </p>
-      <%!-- One-breath pitch + call to action (#18): what the game is and how to start,
-            for someone landing here cold. --%>
-      <p
-        class="dg-rise mx-auto mt-2 max-w-xl text-xs leading-5 text-slate-400"
-        style="animation-delay:.24s"
-      >
-        A hidden-identity race: one runner in the crowd is you, the rest just act like you.
-        Blend in, spot your friends before they spot you, and spend your scarce bullets well —
-        first across the line wins. Pick a name below, then create a lobby or join one with a code.
-      </p>
     </div>
 
     <%!-- Identity card: your name as a persistent thing of its own (#43 follow-up), pulled
@@ -117,12 +107,9 @@
         id="claim-form"
         action={~p"/claim"}
         method="post"
-        class="flex items-center justify-between gap-3"
+        class="flex justify-end"
       >
         <input type="hidden" id="claim-name" name="name" />
-        <span class="font-mono text-[0.6rem] uppercase tracking-[0.2em] text-slate-500">
-          Optional — guests play free; claiming keeps your wins
-        </span>
         <button
           type="submit"
           class="dg-btn shrink-0 border border-emerald-400/40 px-3 py-1.5 text-xs font-bold text-emerald-200 transition hover:bg-emerald-400/10 hover:text-white"
