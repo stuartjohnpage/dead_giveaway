@@ -2,7 +2,7 @@
 // and renders the authoritative snapshots with Pixi. Pure math lives in
 // coords.mjs (unit-tested); this module is the Pixi + socket + input glue.
 
-import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from "pixi.js";
+import { Application, AnimatedSprite, Assets, Container, Graphics, Rectangle, Sprite, Texture, TilingSprite } from "pixi.js";
 import { openChannel } from "./socket.mjs";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { advance, reconcile } from "./prediction.mjs";
@@ -102,9 +102,12 @@ export async function boot() {
   world.addChild(floor);
 
   // worldW always equals finish_x, so the finish maps to the right margin regardless
-  // of the configured value — its screen position is fixed.
+  // of the configured value — its screen position is fixed. Every pack paints its line
+  // along the texture's LEFT edge, so anchoring that edge on the logical line puts the
+  // paint exactly where the win fires (#56); loadTheme crops the art so the checker
+  // sliver past the line ends flush with the arena instead of spilling off it.
   const finish = new Sprite(Texture.EMPTY);
-  finish.anchor.set(0.5, 0);
+  finish.anchor.set(0, 0);
   finish.x = DESIGN_W - PAD;
   finish.y = FLOOR_TOP;
   world.addChild(finish);
@@ -527,7 +530,12 @@ export async function boot() {
     arena.width = DESIGN_W;
     arena.height = DESIGN_H;
     floor.texture = floorTex;
-    finish.texture = finishTex;
+    // Only PAD design px fit between the logical line and the arena's right edge, so
+    // crop the finish art to that slice — the painted line plus a checker sliver (#56).
+    finish.texture = new Texture({
+      source: finishTex.source,
+      frame: new Rectangle(0, 0, PAD, finishTex.height),
+    });
     finish.height = FLOOR_H;
     sheet = newSheet;
     variants = manifest.variants || VARIANTS;

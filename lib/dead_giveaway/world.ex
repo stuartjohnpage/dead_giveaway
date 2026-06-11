@@ -654,10 +654,19 @@ defmodule DeadGiveaway.World do
   defp advance(%{verb: :stop} = e), do: e
   defp advance(e), do: %{e | x: e.x + e.speed}
 
+  # A crossing is judged at the runner's visible leading edge, not its centre (#56):
+  # clients draw bodies 48 design px wide, centre-anchored, on a track that maps
+  # [0, finish_x] across 1232 design px — so a body's front edge runs half a sprite
+  # (24/1232 of the track) ahead of its x. Firing the win there lands it exactly when
+  # the sprite touches the painted line on screen.
+  @leading_edge 24 / 1232
+
   defp crossers(world) do
+    line = world.finish_x * (1 - @leading_edge)
+
     world.entities
     |> Map.values()
-    |> Enum.filter(&(&1.alive and &1.x >= world.finish_x))
+    |> Enum.filter(&(&1.alive and &1.x >= line))
   end
 
   defp leader_past_line(world) do

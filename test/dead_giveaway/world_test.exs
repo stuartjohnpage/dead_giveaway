@@ -156,6 +156,17 @@ defmodule DeadGiveaway.WorldTest do
       assert World.outcome(world) == :wash
     end
 
+    test "the crossing fires at the runner's leading edge, just before finish_x (#56)" do
+      world =
+        World.new(seed: 1, humans: ["alice"], bots: 0, finish_x: 100.0)
+        |> World.set_verb("alice", :walk)
+
+      # 79 walk ticks put alice at 98.75 — short of finish_x but past the leading-edge
+      # threshold (~98.05, half a sprite ahead of her centre), so the win fires there.
+      refute World.finished?(tick_n(world, 78))
+      assert World.finished?(tick_n(world, 79))
+    end
+
     test "when a human runs past a bot to the line, the human wins" do
       world = World.new(seed: 5, humans: ["alice"], bots: 1, finish_x: 10 * World.run_speed())
       world = world |> World.set_verb("alice", :run) |> tick_n(10)
