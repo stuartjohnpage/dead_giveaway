@@ -563,13 +563,16 @@ defmodule DeadGiveaway.Room do
     end
   end
 
-  # The crosshairs to ship with this snapshot: each still-armed player's last-aimed
-  # point, keyed by name. The channel anonymises this before it reaches any browser —
-  # drops the names and the recipient's own — so a reticle never reveals whose it is
-  # or which body it sits on (DESIGN §5).
+  # The crosshairs to ship with this snapshot: each still-armed, still-alive player's
+  # last-aimed point, keyed by name. The channel anonymises this before it reaches any
+  # browser — drops the names and the recipient's own — so a reticle never reveals whose
+  # it is or which body it sits on (DESIGN §5). A player out of lives loses their reticle
+  # for everyone (#61) — a takeover repoints them at the new body the same tick, so this
+  # only drops players who are fully out.
   defp visible_crosshairs(state, world) do
     for {name, {x, y}} <- state.crosshairs,
         state.world_mod.armed?(world, name),
+        state.world_mod.player_alive?(world, name),
         into: %{},
         do: {name, %{x: round(x), y: round(y)}}
   end

@@ -327,6 +327,27 @@ defmodule DeadGiveaway.RoomTest do
       refute Map.has_key?(snap2.crosshairs, "alice")
     end
 
+    test "a player out of lives loses their crosshair for everyone (#61)" do
+      {:ok, room} = Room.start_link(id: "aim-4", seed: 1, bots: 0, max_ammo: 2)
+      Room.join(room, "alice")
+      Room.join(room, "bob")
+      Room.go(room)
+
+      Room.aim(room, "alice", {1.0, 2.0})
+      Room.aim(room, "bob", {3.0, 4.0})
+      {:ok, snap} = Room.tick(room)
+      assert Map.has_key?(snap.crosshairs, "alice")
+      assert Map.has_key?(snap.crosshairs, "bob")
+
+      # alice drops bob's body; on one life he's out. His reticle goes with him even
+      # though his bullets are unspent, while alice — alive and still armed — keeps hers.
+      bob_row = :sys.get_state(room).world.slot_of["bob"]
+      assert Room.fire(room, "alice", {0.0, bob_row * World.row_spacing()}) == :fired
+      {:ok, snap2} = Room.tick(room)
+      refute Map.has_key?(snap2.crosshairs, "bob")
+      assert Map.has_key?(snap2.crosshairs, "alice")
+    end
+
     test "an aim sent outside a live round is dropped, not stashed" do
       {:ok, room} = Room.start_link(id: "aim-3", seed: 1, bots: 0)
       Room.join(room, "alice")
