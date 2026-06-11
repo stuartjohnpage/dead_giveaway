@@ -410,6 +410,36 @@ defmodule DeadGiveaway.RoomTest do
     end
   end
 
+  describe "bot headcount scales with the lobby (#37)" do
+    test "a round seats ~6 bots per human" do
+      {:ok, room} = Room.start_link(id: "scale-1", seed: 1)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      {:ok, snap} = Room.tick(room)
+      assert length(snap.entities) == 1 + 6
+    end
+
+    test "bots only fill what's left of the target headcount" do
+      {:ok, room} = Room.start_link(id: "scale-2", seed: 1)
+      for n <- 1..8, do: Room.join(room, "p#{n}")
+      Room.go(room)
+
+      # 8 humans would want 48 bots, but the 30-body target leaves room for 22.
+      {:ok, snap} = Room.tick(room)
+      assert length(snap.entities) == 30
+    end
+
+    test "an explicit :bots opt pins the count" do
+      {:ok, room} = Room.start_link(id: "scale-3", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      {:ok, snap} = Room.tick(room)
+      assert length(snap.entities) == 3
+    end
+  end
+
   describe "lobby rename (#63)" do
     test "renames in the lobby and broadcasts the refreshed roster" do
       Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("rn-1"))

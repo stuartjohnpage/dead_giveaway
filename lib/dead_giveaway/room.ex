@@ -177,7 +177,9 @@ defmodule DeadGiveaway.Room do
       id: Keyword.fetch!(opts, :id),
       world_mod: Keyword.get(opts, :world, World),
       seed: Keyword.get(opts, :seed, :erlang.unique_integer([:positive])),
-      bots: Keyword.get(opts, :bots, 0),
+      # Fixed bot count when given (tests, tuning); nil scales the crowd to the
+      # lobby at each round start (#37) — see scaled_bots/1.
+      bots: Keyword.get(opts, :bots),
       finish_x: Keyword.get(opts, :finish_x),
       # Host-configurable bullets per player per round; defaults to one (DESIGN §5).
       max_ammo: clamp(Keyword.get(opts, :max_ammo, 1), @min_ammo, @max_ammo),
@@ -453,12 +455,24 @@ defmodule DeadGiveaway.Room do
     %{state | host: new_host}
   end
 
+  # The crowd scales with the lobby (#37, DESIGN §4/§8): ~6 bots per human, but bots
+  # only fill what's left of the target headcount once the humans are seated. The
+  # target is the MVP's ~30 (the design's eventual ceiling is ~100).
+  @bots_per_human 6
+  @target_headcount 30
+
+  defp scaled_bots(humans) do
+    min(humans * @bots_per_human, @target_headcount - humans) |> max(0)
+  end
+
   defp start_round(state) do
+    humans = Session.names(state.session)
+
     opts =
       [
         seed: state.seed,
-        humans: Session.names(state.session),
-        bots: state.bots,
+        humans: humans,
+        bots: state.bots || scaled_bots(length(humans)),
         max_ammo: state.max_ammo,
         max_chances: state.max_chances,
         pace: state.pace,

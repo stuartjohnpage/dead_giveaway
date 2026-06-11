@@ -15,10 +15,10 @@ defmodule DeadGiveawayWeb.RoomChannel do
   alias DeadGiveaway.{PlayerName, Profanity, Room, Rooms}
 
   # Production room shape; overridable via `config :dead_giveaway, :room, ...`
-  # (tests use a tiny tick and no bots for determinism).
+  # (tests use a tiny tick and no bots for determinism). No :bots here — the Room
+  # scales the crowd to the player count at each round start (#37).
   @default_room_opts [
     tick_ms: 50,
-    bots: 24,
     finish_x: 500.0,
     stats: DeadGiveaway.Accounts,
     # Abandoned lobbies (and their codes) shut down a minute after the last
