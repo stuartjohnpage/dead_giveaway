@@ -410,6 +410,26 @@ defmodule DeadGiveaway.RoomTest do
     end
   end
 
+  describe "lobby rename (#63)" do
+    test "renames in the lobby and broadcasts the refreshed roster" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("rn-1"))
+      {:ok, room} = Room.start_link(id: "rn-1", seed: 1, bots: 0)
+      Room.join(room, "alice")
+
+      assert {:ok, "alicia"} = Room.rename(room, "alice", "alicia")
+      # The host privilege follows the renaming host into the new name.
+      assert_receive {:lobby, %{players: ["alicia"], host: "alicia"}}, 500
+    end
+
+    test "a mid-round rename is refused — names are identity during a round" do
+      {:ok, room} = Room.start_link(id: "rn-2", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      assert Room.rename(room, "alice", "bob") == :error
+    end
+  end
+
   describe "firing" do
     test "a spent bullet broadcasts an anonymous shot to the room" do
       Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("shot-1"))

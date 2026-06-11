@@ -118,6 +118,33 @@ defmodule DeadGiveaway.Session do
     %{session | players: players, scores: Map.delete(session.scores, name)}
   end
 
+  @doc """
+  Rename a seated player (#63). The new name goes through the same naming policy as
+  a join — kept unless another player holds it, then disambiguated `"name (2)"`, … —
+  and the player's score tally follows them: unlike a leave, a rename is still the
+  same person. Returns `{:ok, assigned_name, session}`, or `:error` if nobody bears
+  `old`.
+  """
+  @spec rename(t(), name(), name() | nil) :: {:ok, name(), t()} | :error
+  def rename(%__MODULE__{} = session, old, new) do
+    case Enum.find(session.players, fn {_slot, p} -> p.name == old end) do
+      nil ->
+        :error
+
+      {slot, player} ->
+        name = session.namer.(new, slot, names(session) -- [old])
+        players = Map.put(session.players, slot, %{player | name: name})
+
+        scores =
+          case Map.pop(session.scores, old) do
+            {nil, scores} -> scores
+            {tally, scores} -> Map.put(scores, name, tally)
+          end
+
+        {:ok, name, %{session | players: players, scores: scores}}
+    end
+  end
+
   # --- Roster queries ---
 
   @doc "Names of everyone seated, in slot order (the lobby roster / `World.new` humans list)."

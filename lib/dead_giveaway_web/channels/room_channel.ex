@@ -160,6 +160,21 @@ defmodule DeadGiveawayWeb.RoomChannel do
   # a malformed knob simply does nothing.
   def handle_in("set_config", _payload, socket), do: {:reply, :ok, socket}
 
+  # Change your display name while in the lobby (#63). The raw value passes the same
+  # trim/profanity chokepoint as a join, and the Room applies the same collision
+  # disambiguation — then broadcasts the refreshed roster to everyone. The lobby-only
+  # gate lives in the Room (mid-round names are identity). A blank or failed rename
+  # keeps the current name; either way the reply carries the name now in force so the
+  # client can adopt the canonical form.
+  def handle_in("rename", %{"name" => raw}, socket) do
+    with new when not is_nil(new) <- normalize_name(raw),
+         {:ok, name} <- Room.rename(socket.assigns.room, socket.assigns.name, new) do
+      {:reply, {:ok, %{name: name}}, assign(socket, name: name)}
+    else
+      _ -> {:reply, {:ok, %{name: socket.assigns.name}}, socket}
+    end
+  end
+
   # Backing out of the lobby. The host tears the whole room down (everyone is sent
   # `closed`); a guest just frees their own slot and heads home on their own.
   def handle_in("leave", _payload, socket) do

@@ -14,6 +14,7 @@ import {
   DEFAULT_WINDUP,
 } from "./audio-shell.mjs";
 import { navigate } from "./router.mjs";
+import { rememberName } from "./identity.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -477,13 +478,62 @@ export async function boot() {
     const rows = scores
       ? Object.entries(scores)
           .sort((a, b) => b[1] - a[1])
-          .map(([n, w]) => (n === myName ? `${n} (you): ${w}` : `${n}: ${w}`))
-      : roster.map((n) => (n === myName ? `${n} (you)` : n));
-    for (const text of rows) {
+          .map(([n, w]) => [n, `: ${w}`])
+      : roster.map((n) => [n, ""]);
+    for (const [n, suffix] of rows) {
       const li = document.createElement("li");
-      li.textContent = text;
+      li.textContent = (n === myName ? `${n} (you)` : n) + suffix;
+      // Your own roster row carries the rename control (#63) — lobby roster only;
+      // the post-round standings and the round itself pin names.
+      if (!scores && n === myName) li.appendChild(renameButton(li));
       lobbyList.appendChild(li);
     }
+  };
+
+  // The in-lobby rename (#63): swap my roster row for an input; Enter (or leaving the
+  // field) pushes the new name, and the reply's canonical form — trimmed, redacted and
+  // uniquified by the same path a join takes — becomes my identity everywhere (the
+  // refreshed roster reaches the rest of the lobby via the lobby broadcast).
+  const renameButton = (li) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "✎";
+    btn.title = "Change name";
+    btn.className = "ml-2 align-middle font-mono text-xs text-cyan-300/80 hover:text-cyan-200";
+    btn.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 16; // mirrors the splash field and the server's length cap
+      input.value = myName;
+      input.className =
+        "w-36 border border-cyan-400/30 bg-transparent px-1 text-sm text-white outline-none";
+      li.replaceChildren(input);
+      input.focus();
+      input.select();
+      let done = false; // Enter also blurs the input — submit only once
+      const submit = () => {
+        if (done) return;
+        done = true;
+        const next = input.value.trim();
+        if (!next || next === myName) return renderLobby(); // unchanged → restore the row
+        channel.push("rename", { name: next }).receive("ok", (resp) => {
+          if (resp && resp.name) {
+            myName = resp.name;
+            rememberName(myName); // follow the player into their next lobby too
+          }
+          renderLobby(); // don't wait on the lobby broadcast to un-stick the row
+        });
+      };
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") submit();
+        else if (ev.key === "Escape") {
+          done = true;
+          renderLobby();
+        }
+      });
+      input.addEventListener("blur", submit);
+    });
+    return btn;
   };
   // The themed lobby backdrop (a CSS url(...), set by loadTheme) and whether the full
   // lobby is currently showing it. The post-round overlay card hides it (the frozen

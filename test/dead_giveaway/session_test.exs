@@ -92,6 +92,35 @@ defmodule DeadGiveaway.SessionTest do
     end
   end
 
+  describe "renaming (#63)" do
+    test "renames in place and the score tally follows" do
+      {_, _, s} = Session.join(Session.new(), "alice")
+      s = Session.award(s, {:winner, "alice"})
+
+      assert {:ok, "alicia", s} = Session.rename(s, "alice", "alicia")
+      assert Session.names(s) == ["alicia"]
+      assert Session.score(s, "alicia") == 1
+      assert Session.score(s, "alice") == 0
+    end
+
+    test "a collision with another player disambiguates like a join" do
+      {_, _, s} = Session.join(Session.new(), "alice")
+      {_, _, s} = Session.join(s, "bob")
+
+      assert {:ok, "alice (2)", s} = Session.rename(s, "bob", "alice")
+      assert Session.names(s) == ["alice", "alice (2)"]
+    end
+
+    test "renaming to your own current name is not a collision" do
+      {_, _, s} = Session.join(Session.new(), "alice")
+      assert {:ok, "alice", _} = Session.rename(s, "alice", "alice")
+    end
+
+    test "renaming a name nobody bears fails" do
+      assert Session.rename(Session.new(), "ghost", "x") == :error
+    end
+  end
+
   describe "scoring" do
     setup do
       {_, _, s} = Session.join(Session.new(), "alice")

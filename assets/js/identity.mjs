@@ -61,3 +61,9 @@ function write(value) {
     /* storage unavailable — the in-page field still works for this session */
   }
 }
+
+// Adopt a name chosen outside the splash field (the in-lobby rename, #63) as the
+// remembered identity, so it follows the player into their next lobby too.
+export function rememberName(name) {
+  write(name);
+}

@@ -64,6 +64,15 @@ defmodule DeadGiveaway.Room do
   def leave(room, player), do: GenServer.call(room, {:leave, player})
 
   @doc """
+  Rename a seated player while the room sits in the lobby (#63). The new name gets
+  the same collision disambiguation a join does, and the refreshed roster is
+  broadcast to everyone. Returns `{:ok, assigned_name}`, or `:error` when a round is
+  live (names are identity mid-round — input/fire/aim are all keyed by them) or the
+  player isn't seated.
+  """
+  def rename(room, player, new_name), do: GenServer.call(room, {:rename, player, new_name})
+
+  @doc """
   Tear the room down entirely (the host backing out of the lobby). Tells every
   connected client the lobby has `:closed` so they can drop back home, then stops
   the room — freeing its code immediately rather than waiting for the empty timer.
@@ -252,6 +261,23 @@ defmodule DeadGiveaway.Room do
 
     {:reply, :ok, state}
   end
+
+  def handle_call({:rename, player, new_name}, _from, %{world: nil} = state) do
+    case Session.rename(state.session, player, new_name) do
+      {:ok, name, session} ->
+        # The host privilege is tracked by name — it must follow a renaming host.
+        host = if state.host == player, do: name, else: state.host
+        state = broadcast_lobby(%{state | session: session, host: host})
+        {:reply, {:ok, name}, state}
+
+      :error ->
+        {:reply, :error, state}
+    end
+  end
+
+  # Mid-round, names are pinned: every input/fire/aim and the world's slot map key on
+  # them, so a rename waits for the lobby.
+  def handle_call({:rename, _player, _new_name}, _from, state), do: {:reply, :error, state}
 
   def handle_call(:close, _from, state) do
     # Notify the room (the closing host included) before we go, so every client
