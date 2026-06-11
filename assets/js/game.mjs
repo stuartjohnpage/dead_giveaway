@@ -398,14 +398,21 @@ export async function boot() {
     ammoCount.textContent = String(n);
     ammoBullet.hidden = n <= 0;
   };
+  // Touch devices get on-screen movement buttons (#40), revealed only for the round
+  // window below — desktop never sees them.
+  const isTouch = window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window;
+  const touchControls = document.getElementById("touch-controls");
+
   // The HUD only belongs on screen during a live round, not the lobby or the card.
-  // Showing it (re)loads a full clip for the round just starting.
+  // Showing it (re)loads a full clip for the round just starting. The touch movement
+  // buttons (#40) ride the same round window.
   const showAmmo = (visible) => {
     if (visible) {
       ammo = maxAmmo;
       setAmmo(ammo);
     }
     hudAmmo.hidden = !visible;
+    touchControls.hidden = !(visible && isTouch);
   };
 
   // --- In-round lives HUD: your remaining lives this round (DESIGN §7) ---
@@ -943,9 +950,47 @@ export async function boot() {
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
 
+  // Touch movement (#40): the on-screen Walk/Run buttons drive the same walking/running
+  // flags the keyboard does — press-and-hold moves, release stops — so everything
+  // downstream (verb(), prediction, the server protocol) is shared, not duplicated.
+  // Pointer capture keeps the release firing even when the finger slides off the button.
+  const bindHoldButton = (el, press, release) => {
+    el.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault(); // no synthetic mouse click, no focus steal mid-round
+      el.setPointerCapture?.(ev.pointerId);
+      press();
+      sendVerb();
+    });
+    for (const evName of ["pointerup", "pointercancel"]) {
+      el.addEventListener(evName, () => {
+        release();
+        sendVerb();
+      });
+    }
+  };
+  bindHoldButton(
+    document.getElementById("touch-walk"),
+    () => (walking = true),
+    () => (walking = false),
+  );
+  bindHoldButton(
+    document.getElementById("touch-run"),
+    () => (running = true),
+    () => (running = false),
+  );
+
   // --- Mouse aim + the one bullet (§5) ---
   let mouse = { x: app.screen.width / 2, y: app.screen.height / 2 };
   app.canvas.addEventListener("mousemove", (ev) => {
+    const r = app.canvas.getBoundingClientRect();
+    mouse = { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  });
+  // Tap-to-fire (#40): touch has no hover, so the tap IS the aim. Moving the shared
+  // `mouse` to the touch point is enough — the reticle, the aim stream, and the click
+  // the browser synthesizes after the tap all read from it, so the shot lands where
+  // the finger did, through the exact same fire path as a mouse click.
+  app.canvas.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType !== "touch") return;
     const r = app.canvas.getBoundingClientRect();
     mouse = { x: ev.clientX - r.left, y: ev.clientY - r.top };
   });
