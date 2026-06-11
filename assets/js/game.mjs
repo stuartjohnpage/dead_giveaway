@@ -612,7 +612,7 @@ export async function boot() {
     // The gunshot follows the pack too, preloading on swap so the round's first shot
     // isn't silent; a pack without one keeps the default crack. Same for the watcher's
     // wind-up cue (#53).
-    setShotUrl(audio.shot ? url(audio.shot) : DEFAULT_SHOT);
+    setShotUrl(audio.shot ? url(audio.shot) : DEFAULT_SHOT, audio.shotGain);
     setWindupUrl(audio.windup ? url(audio.windup) : DEFAULT_WINDUP);
 
     currentTheme = key;

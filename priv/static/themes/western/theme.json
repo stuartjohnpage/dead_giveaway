@@ -74,6 +74,7 @@
       "game/stage4.mp3"
     ],
     "shot": "shot.mp3",
+    "shotGain": 2,
     "windup": "windup.mp3"
   }
 }

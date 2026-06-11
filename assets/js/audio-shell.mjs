@@ -90,8 +90,10 @@ function create() {
     let sfx = new Audio(defaultUrl);
     sfx.preload = "auto";
     let current = defaultUrl;
+    let gain = 1; // per-pack boost for clips mastered quiet (#54); volume caps at 1
     return {
-      setUrl(url) {
+      setUrl(url, packGain = 1) {
+        gain = packGain;
         if (url === current) return; // recurring lobby broadcasts — don't re-fetch
         current = url;
         sfx = new Audio(url);
@@ -99,7 +101,7 @@ function create() {
       },
       play() {
         const s = sfx.cloneNode();
-        s.volume = sfxGain(volume);
+        s.volume = Math.min(1, sfxGain(volume) * gain);
         s.play().catch(() => {});
       },
     };
