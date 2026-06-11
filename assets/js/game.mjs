@@ -893,8 +893,18 @@ export async function boot() {
     const { wx, wy } = mouseToWorld();
     channel.push("aim", { x: wx, y: wy });
   };
+  // Alt-tabbing back must not waste a bullet (#65): the click that refocuses the window
+  // lands on the canvas like any other, but the player meant "give me the game back",
+  // not "fire". The browser fires `focus` before the click it granted focus for, so a
+  // short grace after regaining focus swallows exactly that click; clicks made while
+  // the game already had focus are unaffected.
+  const REFOCUS_GRACE_MS = 300;
+  let refocusedAt = -Infinity;
+  const onWindowFocus = () => (refocusedAt = performance.now());
+  window.addEventListener("focus", onWindowFocus);
   app.canvas.addEventListener("click", () => {
     if (dead || !myCross.visible || ammo <= 0) return; // out of bullets or out of the round
+    if (performance.now() - refocusedAt < REFOCUS_GRACE_MS) return; // refocus click (#65)
     const { wx, wy } = mouseToWorld();
     // Firing reveals nothing about what you hit — only that you've spent a bullet (§5).
     // The SFX plays when the server broadcasts the shot back (the "shot" handler
@@ -958,6 +968,7 @@ export async function boot() {
     window.removeEventListener("resize", layout);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
+    window.removeEventListener("focus", onWindowFocus);
     // Destroy the Pixi app first: its render loop pushes "aim" over the channel, so stop
     // the ticker before we leave the room. `removeView` drops the canvas (the router's
     // content swap would discard it anyway, but don't rely on that here).
