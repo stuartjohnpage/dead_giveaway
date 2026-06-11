@@ -23,9 +23,6 @@ defmodule DeadGiveawayWeb.Router do
     get "/play/new", GameController, :new
     post "/join", GameController, :join
     get "/play/:room", GameController, :show
-    get "/leaderboard", LeaderboardController, :index
-    # Claim your splash name as a registered account so wins persist (#38).
-    post "/claim", AccountController, :claim
   end
 
   # Other scopes may use custom stacks.

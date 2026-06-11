@@ -82,41 +82,6 @@
         maxlength="16"
         class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-2.5 text-center text-lg font-semibold text-white transition placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
       />
-
-      <%!-- Claim-a-name onboarding (#38, DESIGN §9): guests just play, but claiming
-            registers the name so wins persist to the leaderboard. `claim-name` is a
-            hidden mirror of the field above, filled by router.mjs on submit (like the
-            join form's). Once this browser has claimed, show the badge instead. --%>
-      <div
-        :if={@registered_name}
-        class="flex items-center justify-between font-mono text-[0.65rem] uppercase tracking-[0.2em]"
-      >
-        <span class="text-emerald-300/90">
-          ✓ Registered as {@registered_name} — wins persist
-        </span>
-        <a
-          href={~p"/leaderboard"}
-          class="text-cyan-300/70 underline-offset-2 hover:text-cyan-200 hover:underline"
-        >
-          Leaderboard
-        </a>
-      </div>
-      <.form
-        :if={!@registered_name}
-        for={to_form(%{})}
-        id="claim-form"
-        action={~p"/claim"}
-        method="post"
-        class="flex justify-end"
-      >
-        <input type="hidden" id="claim-name" name="name" />
-        <button
-          type="submit"
-          class="dg-btn shrink-0 border border-emerald-400/40 px-3 py-1.5 text-xs font-bold text-emerald-200 transition hover:bg-emerald-400/10 hover:text-white"
-        >
-          Claim name
-        </button>
-      </.form>
     </div>
 
     <%!-- Play card: create a fresh lobby or join one by code. Both pull the name from the

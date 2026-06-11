@@ -256,8 +256,8 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   # A chosen name from the client: trimmed, length-capped, then profanity-redacted (#13);
   # blank → nil (the room then auto-names the player "Player N"). The rule itself lives
-  # in PlayerName.normalize/1, shared with the account claim flow (#38), so a crafted
-  # payload can't reach a path the filter doesn't cover.
+  # in PlayerName.normalize/1 — the single chokepoint both join and rename flow through —
+  # so a crafted payload can't reach a path the filter doesn't cover.
   defp normalize_name(name), do: PlayerName.normalize(name)
 
   defp to_verb("walk"), do: :walk
