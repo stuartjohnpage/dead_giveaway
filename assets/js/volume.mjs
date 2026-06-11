@@ -2,16 +2,17 @@
 // the home page (where they're configured) and the game (where the gain is applied).
 // `enabled` is the master on/off switch and gates both music and SFX; each channel is
 // a 0–100 percentage and master scales the lot. Effective gain is enabled × master ×
-// channel. Sound starts OFF: nothing plays until the player switches it on, which is
-// itself a user gesture — so audio never fights the browser's autoplay block.
+// channel. Sound defaults ON (#62), but the browser's autoplay block still applies:
+// nothing actually sounds until the first user gesture resumes the audio context
+// (the existing unlock priming), so audio never fights the autoplay policy.
 //
 // Storage is sessionStorage, not localStorage: the choice is remembered as the player
-// moves menu→game and across reloads in the same tab, but a fresh visit (new tab) always
-// starts from the defaults (sound off). So music is never on by surprise on arrival.
+// moves menu→game and across reloads in the same tab; a fresh visit (new tab) starts
+// from the defaults.
 
 const VOL_KEY = "dg:volume";
 const SLIDER_KEYS = ["master", "sfx"];
-const DEFAULTS = { enabled: false, master: 10, sfx: 70 };
+const DEFAULTS = { enabled: true, master: 10, sfx: 70 };
 
 export function loadVolume() {
   try {

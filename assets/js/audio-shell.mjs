@@ -42,7 +42,7 @@ let shell = null;
  *   musicGain(): number,
  *   applyMusicGain(): void,
  *   playShot(): void,
- *   setShotUrl(url: string): void,
+ *   setShotUrl(url: string, packGain?: number): void,
  *   playWindup(): void,
  *   setWindupUrl(url: string): void,
  *   armUnlock(): void,
