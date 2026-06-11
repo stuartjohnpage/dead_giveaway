@@ -474,8 +474,33 @@ defmodule DeadGiveaway.Room do
     state = %{state | world: world}
     notify_watcher_kills(state, states_before)
 
-    state = if state.world_mod.finished?(world), do: finish_round(state), else: state
+    state = maybe_finish(state, world)
     {state, snapshot}
+  end
+
+  # The three ways a round ends, judged once the tick's dust settles. A crossing is
+  # checked first so winning the race always beats a same-tick walkover. Beyond the
+  # line (#55, #59) it's down to who's still alive: every human out → game over with
+  # no winner (watching the bots amble on helps no one); exactly one human left of
+  # several → they win on the spot rather than strolling to an unthreatened line.
+  # The walkover needs the round to have begun with company — a solo round must
+  # still be raced (though a solo death still ends it).
+  defp maybe_finish(state, world) do
+    alive = state.world_mod.alive_players(world)
+
+    cond do
+      state.world_mod.finished?(world) ->
+        finish_round(state)
+
+      alive == [] ->
+        finish_round(state, :wipe)
+
+      match?([_], alive) and length(state.world_mod.players(world)) > 1 ->
+        finish_round(state, {:winner, hd(alive)})
+
+      true ->
+        state
+    end
   end
 
   # A body dropped by the watcher rides the exact same private signals as one dropped
@@ -586,8 +611,9 @@ defmodule DeadGiveaway.Room do
     %{snapshot | entities: Enum.map(entities, &%{&1 | x: round(&1.x)})}
   end
 
-  defp finish_round(state) do
-    outcome = state.world_mod.outcome(state.world)
+  defp finish_round(state), do: finish_round(state, state.world_mod.outcome(state.world))
+
+  defp finish_round(state, outcome) do
     # Award first so the broadcast carries the up-to-date session scoreboard.
     state = award(state, outcome)
     broadcast(state.id, {:round_over, outcome, Session.scoreboard(state.session)})

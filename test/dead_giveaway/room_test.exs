@@ -297,6 +297,58 @@ defmodule DeadGiveaway.RoomTest do
       assert scores["alice"] == 0
       assert Room.score(room, "Bot") == 1
     end
+
+    test "the round ends with no winner the moment every human is out (#55)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("wipe-1"))
+
+      {:ok, room} = Room.start_link(id: "wipe-1", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # alice (the only human) shoots her own body: every human is now out, and the
+      # next tick ends the round — the bots don't get to amble on to the line.
+      alice_row = :sys.get_state(room).world.slot_of["alice"]
+      assert Room.fire(room, "alice", {0.0, alice_row * World.row_spacing()}) == :fired
+      Room.tick(room)
+
+      assert_receive {:round_over, :wipe, scores}, 500
+      # Nobody takes the round — not even the shared Bot tally.
+      assert scores["Bot"] == 0
+      assert scores["alice"] == 0
+      # The room is back in the lobby, not still running bots.
+      assert Room.status(room) == :waiting
+    end
+
+    test "the last human standing wins on the spot (#59)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("last-1"))
+
+      {:ok, room} = Room.start_link(id: "last-1", seed: 1, bots: 2, max_ammo: 2)
+      Room.join(room, "alice")
+      Room.join(room, "bob")
+      Room.go(room)
+
+      # bob's body drops; alice is the last human alive of two, so she wins
+      # immediately — no walk to the line against nothing.
+      bob_row = :sys.get_state(room).world.slot_of["bob"]
+      assert Room.fire(room, "alice", {0.0, bob_row * World.row_spacing()}) == :fired
+      Room.tick(room)
+
+      assert_receive {:round_over, {:winner, "alice"}, scores}, 500
+      assert scores["alice"] == 1
+    end
+
+    test "a round that began solo is not an instant walkover (#59)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("last-2"))
+
+      {:ok, room} = Room.start_link(id: "last-2", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+      Room.tick(room)
+
+      # alice is the sole human and alive — but she started alone, so the round runs.
+      refute_receive {:round_over, _, _}, 100
+      assert Room.status(room) == :running
+    end
   end
 
   describe "crosshairs riding the snapshot (DESIGN §5)" do

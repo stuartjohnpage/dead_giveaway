@@ -444,6 +444,18 @@ defmodule DeadGiveaway.World do
   end
 
   @doc """
+  Names of this round's human players whose current body is still standing — the
+  round's survivors (`player_alive?/2` over the whole roster). Like the per-player
+  query, a private server-side view: never part of the public snapshot (DESIGN §5).
+  """
+  def alive_players(%__MODULE__{} = world) do
+    for {name, row} <- world.slot_of, world.entities[row].alive, do: name
+  end
+
+  @doc "Names of every human player in this round, alive or knocked out."
+  def players(%__MODULE__{} = world), do: Map.keys(world.slot_of)
+
+  @doc """
   The entity id of the body `player` currently drives, or `nil` if they're not in
   this round. It changes when a takeover moves them into a bot body (DESIGN §7).
 

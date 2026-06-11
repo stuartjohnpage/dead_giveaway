@@ -722,8 +722,9 @@ export async function boot() {
     if (typeof p.chances === "number") setChances(p.chances);
   });
   channel.on("round_over", (p) => {
-    // The winner is always set now — a player name, or "Bot" when a bot crossed first.
-    banner = p.winner ? `🏁 ${p.winner} wins!` : "Round over";
+    // A player name, "Bot" when a bot crossed first, or null when every human was
+    // knocked out and the round ended with no winner at all (#55).
+    banner = p.winner ? `🏁 ${p.winner} wins!` : "💀 Everyone's out";
     scores = p.scores || {};
     clearPeerCrosses(); // the round's frozen — drop the peers' reticles with the card up
     setCrosshairVisible(false); // no firing while the card is up

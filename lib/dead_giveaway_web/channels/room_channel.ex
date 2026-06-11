@@ -261,6 +261,8 @@ defmodule DeadGiveawayWeb.RoomChannel do
   defp encode_outcome({:winner, player}), do: %{winner: player}
   # A bot crossed first — the shared Bot opponent takes the round (no more "wash").
   defp encode_outcome(:wash), do: %{winner: Room.bot_name()}
+  # Every human is out (#55) — game over with nobody, not even the Bot, taking the round.
+  defp encode_outcome(:wipe), do: %{winner: nil}
 
   # The room keys crosshairs by name (it's the trusted authority); a browser must
   # never see that. Strip the recipient's own reticle — their client draws it live
