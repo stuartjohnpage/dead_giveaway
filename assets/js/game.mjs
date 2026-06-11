@@ -702,6 +702,7 @@ export async function boot() {
   channel.on("out", () => {
     dead = true;
     setCrosshairVisible(false);
+    setChances(0); // "out" means no lives left; no takeover follows, so no chances update will (#64)
     myBodyId = null; // our corpse is just another body now — back to plain interpolation
     predictedX = null;
   });
