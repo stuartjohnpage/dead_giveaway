@@ -4,8 +4,9 @@ defmodule DeadGiveaway.Profanity do
 
   A name is the only free text players control, and it's shown to the whole lobby and the
   scoreboard, so we mask slurs/swears before the name is stored or broadcast. This runs
-  from `DeadGiveawayWeb.RoomChannel.normalize_name/1` — the single server-side chokepoint
-  every join flows through — so a crafted client/websocket payload can't slip one past it.
+  from `DeadGiveaway.PlayerName.normalize/1` — the single server-side chokepoint every
+  join, rename and account claim flows through — so a crafted client/websocket payload
+  can't slip one past it.
 
   Detection folds common leetspeak (`4→a 3→e 1→i 0→o 5→s 7→t @→a $→s`) and ASCII case into
   a **1:1 codepoint map** — no codepoints added or removed — so a match in the normalised

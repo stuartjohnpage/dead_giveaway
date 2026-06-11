@@ -44,6 +44,13 @@ export async function initRouter(mount) {
       const joinName = document.getElementById("join-name");
       if (joinName) joinName.value = currentName();
       navigate(form.action, { method: "POST", body: new FormData(form) });
+    } else if (form.id === "claim-form") {
+      // Claiming a name (#38) registers exactly the name in the identity card — same
+      // hidden-field mirroring as the join.
+      e.preventDefault();
+      const claimName = document.getElementById("claim-name");
+      if (claimName) claimName.value = currentName();
+      navigate(form.action, { method: "POST", body: new FormData(form) });
     }
   });
 
