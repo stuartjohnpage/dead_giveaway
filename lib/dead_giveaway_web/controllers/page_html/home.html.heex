@@ -22,7 +22,8 @@
   <div class="relative z-10 flex items-center justify-between px-6 py-3 font-mono text-[0.65rem] uppercase tracking-[0.3em] text-cyan-300/70 sm:px-10">
     <span class="flex items-center gap-2">
       <span class="dg-blink inline-block h-2 w-2 rounded-full bg-[var(--dg-magenta)] shadow-[0_0_8px_var(--dg-magenta)]">
-      </span> Surveillance · Live
+      </span>
+      Surveillance · Live
     </span>
     <span class="hidden sm:inline">Sector 07 // Death Race</span>
   </div>
@@ -96,11 +97,17 @@
             registers the name so wins persist to the leaderboard. `claim-name` is a
             hidden mirror of the field above, filled by router.mjs on submit (like the
             join form's). Once this browser has claimed, show the badge instead. --%>
-      <div :if={@registered_name} class="flex items-center justify-between font-mono text-[0.65rem] uppercase tracking-[0.2em]">
+      <div
+        :if={@registered_name}
+        class="flex items-center justify-between font-mono text-[0.65rem] uppercase tracking-[0.2em]"
+      >
         <span class="text-emerald-300/90">
           ✓ Registered as {@registered_name} — wins persist
         </span>
-        <a href={~p"/leaderboard"} class="text-cyan-300/70 underline-offset-2 hover:text-cyan-200 hover:underline">
+        <a
+          href={~p"/leaderboard"}
+          class="text-cyan-300/70 underline-offset-2 hover:text-cyan-200 hover:underline"
+        >
           Leaderboard
         </a>
       </div>
@@ -199,7 +206,10 @@
         </h2>
         <p class="text-sm leading-5 text-slate-300">
           Dead Giveaway is a hidden-identity party game. Do you know who your friends are? Do you know who you are?
-          This game is heavily inspired by (if not an outright rip-off of) the Death Race game-mode in <a class="text-[var(--dg-magenta)]" href="https://store.steampowered.com/app/303590/Hidden_in_Plain_Sight/">Hidden in Plain Sight</a>. Go play this most excellent game!
+          This game is heavily inspired by (if not an outright rip-off of) the Death Race game-mode in <a
+            class="text-[var(--dg-magenta)]"
+            href="https://store.steampowered.com/app/303590/Hidden_in_Plain_Sight/"
+          >Hidden in Plain Sight</a>. Go play this most excellent game!
         </p>
       </section>
 
@@ -215,7 +225,7 @@
             </span>
             Will has already beaten me at the game; I am considering handicapping him.
           </li>
-          <li> Mowgli does not feature in this game at all; I need to change that.</li>
+          <li>Mowgli does not feature in this game at all; I need to change that.</li>
           <li>David is also working on a version with his own hands (not using Clankers).</li>
           <li>V1 launch!</li>
         </ul>
