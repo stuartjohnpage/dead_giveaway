@@ -297,6 +297,58 @@ defmodule DeadGiveaway.RoomTest do
       assert scores["alice"] == 0
       assert Room.score(room, "Bot") == 1
     end
+
+    test "the round ends with no winner the moment every human is out (#55)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("wipe-1"))
+
+      {:ok, room} = Room.start_link(id: "wipe-1", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      # alice (the only human) shoots her own body: every human is now out, and the
+      # next tick ends the round — the bots don't get to amble on to the line.
+      alice_row = :sys.get_state(room).world.slot_of["alice"]
+      assert Room.fire(room, "alice", {0.0, alice_row * World.row_spacing()}) == :fired
+      Room.tick(room)
+
+      assert_receive {:round_over, :wipe, scores}, 500
+      # Nobody takes the round — not even the shared Bot tally.
+      assert scores["Bot"] == 0
+      assert scores["alice"] == 0
+      # The room is back in the lobby, not still running bots.
+      assert Room.status(room) == :waiting
+    end
+
+    test "the last human standing wins on the spot (#59)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("last-1"))
+
+      {:ok, room} = Room.start_link(id: "last-1", seed: 1, bots: 2, max_ammo: 2)
+      Room.join(room, "alice")
+      Room.join(room, "bob")
+      Room.go(room)
+
+      # bob's body drops; alice is the last human alive of two, so she wins
+      # immediately — no walk to the line against nothing.
+      bob_row = :sys.get_state(room).world.slot_of["bob"]
+      assert Room.fire(room, "alice", {0.0, bob_row * World.row_spacing()}) == :fired
+      Room.tick(room)
+
+      assert_receive {:round_over, {:winner, "alice"}, scores}, 500
+      assert scores["alice"] == 1
+    end
+
+    test "a round that began solo is not an instant walkover (#59)" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("last-2"))
+
+      {:ok, room} = Room.start_link(id: "last-2", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+      Room.tick(room)
+
+      # alice is the sole human and alive — but she started alone, so the round runs.
+      refute_receive {:round_over, _, _}, 100
+      assert Room.status(room) == :running
+    end
   end
 
   describe "crosshairs riding the snapshot (DESIGN §5)" do
@@ -327,6 +379,27 @@ defmodule DeadGiveaway.RoomTest do
       refute Map.has_key?(snap2.crosshairs, "alice")
     end
 
+    test "a player out of lives loses their crosshair for everyone (#61)" do
+      {:ok, room} = Room.start_link(id: "aim-4", seed: 1, bots: 0, max_ammo: 2)
+      Room.join(room, "alice")
+      Room.join(room, "bob")
+      Room.go(room)
+
+      Room.aim(room, "alice", {1.0, 2.0})
+      Room.aim(room, "bob", {3.0, 4.0})
+      {:ok, snap} = Room.tick(room)
+      assert Map.has_key?(snap.crosshairs, "alice")
+      assert Map.has_key?(snap.crosshairs, "bob")
+
+      # alice drops bob's body; on one life he's out. His reticle goes with him even
+      # though his bullets are unspent, while alice — alive and still armed — keeps hers.
+      bob_row = :sys.get_state(room).world.slot_of["bob"]
+      assert Room.fire(room, "alice", {0.0, bob_row * World.row_spacing()}) == :fired
+      {:ok, snap2} = Room.tick(room)
+      refute Map.has_key?(snap2.crosshairs, "bob")
+      assert Map.has_key?(snap2.crosshairs, "alice")
+    end
+
     test "an aim sent outside a live round is dropped, not stashed" do
       {:ok, room} = Room.start_link(id: "aim-3", seed: 1, bots: 0)
       Room.join(room, "alice")
@@ -334,6 +407,56 @@ defmodule DeadGiveaway.RoomTest do
       # No Go — the world is nil, so a stray lobby aim doesn't accumulate.
       Room.aim(room, "alice", {1.0, 2.0})
       assert :sys.get_state(room).crosshairs == %{}
+    end
+  end
+
+  describe "bot headcount scales with the lobby (#37)" do
+    test "a round seats ~6 bots per human" do
+      {:ok, room} = Room.start_link(id: "scale-1", seed: 1)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      {:ok, snap} = Room.tick(room)
+      assert length(snap.entities) == 1 + 6
+    end
+
+    test "bots only fill what's left of the target headcount" do
+      {:ok, room} = Room.start_link(id: "scale-2", seed: 1)
+      for n <- 1..8, do: Room.join(room, "p#{n}")
+      Room.go(room)
+
+      # 8 humans would want 48 bots, but the 30-body target leaves room for 22.
+      {:ok, snap} = Room.tick(room)
+      assert length(snap.entities) == 30
+    end
+
+    test "an explicit :bots opt pins the count" do
+      {:ok, room} = Room.start_link(id: "scale-3", seed: 1, bots: 2)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      {:ok, snap} = Room.tick(room)
+      assert length(snap.entities) == 3
+    end
+  end
+
+  describe "lobby rename (#63)" do
+    test "renames in the lobby and broadcasts the refreshed roster" do
+      Phoenix.PubSub.subscribe(DeadGiveaway.PubSub, Room.topic("rn-1"))
+      {:ok, room} = Room.start_link(id: "rn-1", seed: 1, bots: 0)
+      Room.join(room, "alice")
+
+      assert {:ok, "alicia"} = Room.rename(room, "alice", "alicia")
+      # The host privilege follows the renaming host into the new name.
+      assert_receive {:lobby, %{players: ["alicia"], host: "alicia"}}, 500
+    end
+
+    test "a mid-round rename is refused — names are identity during a round" do
+      {:ok, room} = Room.start_link(id: "rn-2", seed: 1, bots: 0)
+      Room.join(room, "alice")
+      Room.go(room)
+
+      assert Room.rename(room, "alice", "bob") == :error
     end
   end
 

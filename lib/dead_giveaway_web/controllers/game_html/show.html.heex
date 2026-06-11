@@ -47,6 +47,28 @@
   </span>
 </div>
 
+<%!-- Touch movement controls (#40): coarse-pointer devices can't hold Space/Shift, so
+      they get hold-to-move buttons instead — press walks/runs, release stops, exactly
+      the keyboard's model. game.mjs reveals this only on touch devices and only while
+      a round is live; firing needs no button (tapping the play area aims and fires).
+      Bottom corner: under the lane band, so the crowd stays unobscured. --%>
+<div id="touch-controls" hidden class="fixed bottom-5 right-5 z-10 flex select-none gap-4">
+  <button
+    id="touch-walk"
+    type="button"
+    class="h-20 w-20 touch-none rounded-full bg-black/50 font-display text-sm font-bold uppercase tracking-widest text-cyan-200 ring-1 ring-cyan-400/40 backdrop-blur-sm active:bg-cyan-400/30"
+  >
+    Walk
+  </button>
+  <button
+    id="touch-run"
+    type="button"
+    class="h-20 w-20 touch-none rounded-full bg-black/50 font-display text-sm font-bold uppercase tracking-widest text-rose-200 ring-1 ring-rose-400/40 backdrop-blur-sm active:bg-rose-400/30"
+  >
+    Run
+  </button>
+</div>
+
 <%!-- Lobby / between-rounds screen. Shown by default and on round_over; game.mjs
       hides it once a round is live. Lists who has joined (or the standings after
       a round); the Go button starts the round. --%>
@@ -115,7 +137,7 @@
           </label>
           <select
             id="mode-select"
-            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="w-48 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="classic" selected>Classic</option>
             <option value="red_light">Red Light, Green Light</option>
@@ -135,7 +157,7 @@
           </label>
           <select
             id="setup-select"
-            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="w-48 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="standard" selected>Standard</option>
             <option value="custom">Custom</option>
@@ -150,7 +172,7 @@
           </label>
           <select
             id="ammo-select"
-            class="dg-custom-option w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 font-mono text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="dg-custom-option w-48 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 font-mono text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="1">1</option>
             <option value="2">2</option>
@@ -170,7 +192,7 @@
           </label>
           <select
             id="chances-select"
-            class="dg-custom-option w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 font-mono text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="dg-custom-option w-48 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 font-mono text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="1">1</option>
             <option value="2">2</option>
@@ -190,7 +212,7 @@
           </label>
           <select
             id="pace-select"
-            class="dg-custom-option w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="dg-custom-option w-48 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="slow">Slow</option>
             <option value="medium">Medium</option>
@@ -207,7 +229,7 @@
           </label>
           <select
             id="theme-select"
-            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="w-48 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option :for={t <- @themes} value={t.key}>{t.display}</option>
           </select>
@@ -223,7 +245,7 @@
           </label>
           <select
             id="visibility-select"
-            class="w-40 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
+            class="w-48 border border-white/10 bg-[var(--dg-ink)]/80 px-3 py-1.5 text-white transition focus:border-cyan-400/50 focus:outline-none disabled:opacity-50"
           >
             <option value="private" selected>Private</option>
             <option value="public">Public</option>

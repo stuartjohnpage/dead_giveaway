@@ -25,4 +25,17 @@ defmodule DeadGiveaway.PlayerName do
   def trim(name) do
     name |> to_string() |> String.trim() |> String.slice(0, @max_length)
   end
+
+  @doc """
+  The full inbound chokepoint for a chosen name: `trim/1`, then profanity-redact
+  (#13); a blank name becomes `nil` (callers fall back to auto-naming, or reject).
+  The room channel's join and rename both go through here, so the filter can't
+  drift between paths.
+  """
+  def normalize(name) do
+    case trim(name) do
+      "" -> nil
+      n -> DeadGiveaway.Profanity.redact(n)
+    end
+  end
 end

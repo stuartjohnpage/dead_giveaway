@@ -23,7 +23,6 @@ defmodule DeadGiveawayWeb.Router do
     get "/play/new", GameController, :new
     post "/join", GameController, :join
     get "/play/:room", GameController, :show
-    get "/leaderboard", LeaderboardController, :index
   end
 
   # Other scopes may use custom stacks.

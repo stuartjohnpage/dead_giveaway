@@ -64,6 +64,15 @@ defmodule DeadGiveaway.Room do
   def leave(room, player), do: GenServer.call(room, {:leave, player})
 
   @doc """
+  Rename a seated player while the room sits in the lobby (#63). The new name gets
+  the same collision disambiguation a join does, and the refreshed roster is
+  broadcast to everyone. Returns `{:ok, assigned_name}`, or `:error` when a round is
+  live (names are identity mid-round — input/fire/aim are all keyed by them) or the
+  player isn't seated.
+  """
+  def rename(room, player, new_name), do: GenServer.call(room, {:rename, player, new_name})
+
+  @doc """
   Tear the room down entirely (the host backing out of the lobby). Tells every
   connected client the lobby has `:closed` so they can drop back home, then stops
   the room — freeing its code immediately rather than waiting for the empty timer.
@@ -168,7 +177,9 @@ defmodule DeadGiveaway.Room do
       id: Keyword.fetch!(opts, :id),
       world_mod: Keyword.get(opts, :world, World),
       seed: Keyword.get(opts, :seed, :erlang.unique_integer([:positive])),
-      bots: Keyword.get(opts, :bots, 0),
+      # Fixed bot count when given (tests, tuning); nil scales the crowd to the
+      # lobby at each round start (#37) — see scaled_bots/1.
+      bots: Keyword.get(opts, :bots),
       finish_x: Keyword.get(opts, :finish_x),
       # Host-configurable bullets per player per round; defaults to one (DESIGN §5).
       max_ammo: clamp(Keyword.get(opts, :max_ammo, 1), @min_ammo, @max_ammo),
@@ -252,6 +263,23 @@ defmodule DeadGiveaway.Room do
 
     {:reply, :ok, state}
   end
+
+  def handle_call({:rename, player, new_name}, _from, %{world: nil} = state) do
+    case Session.rename(state.session, player, new_name) do
+      {:ok, name, session} ->
+        # The host privilege is tracked by name — it must follow a renaming host.
+        host = if state.host == player, do: name, else: state.host
+        state = broadcast_lobby(%{state | session: session, host: host})
+        {:reply, {:ok, name}, state}
+
+      :error ->
+        {:reply, :error, state}
+    end
+  end
+
+  # Mid-round, names are pinned: every input/fire/aim and the world's slot map key on
+  # them, so a rename waits for the lobby.
+  def handle_call({:rename, _player, _new_name}, _from, state), do: {:reply, :error, state}
 
   def handle_call(:close, _from, state) do
     # Notify the room (the closing host included) before we go, so every client
@@ -427,12 +455,24 @@ defmodule DeadGiveaway.Room do
     %{state | host: new_host}
   end
 
+  # The crowd scales with the lobby (#37, DESIGN §4/§8): ~6 bots per human, but bots
+  # only fill what's left of the target headcount once the humans are seated. The
+  # target is the MVP's ~30 (the design's eventual ceiling is ~100).
+  @bots_per_human 6
+  @target_headcount 30
+
+  defp scaled_bots(humans) do
+    min(humans * @bots_per_human, @target_headcount - humans) |> max(0)
+  end
+
   defp start_round(state) do
+    humans = Session.names(state.session)
+
     opts =
       [
         seed: state.seed,
-        humans: Session.names(state.session),
-        bots: state.bots,
+        humans: humans,
+        bots: state.bots || scaled_bots(length(humans)),
         max_ammo: state.max_ammo,
         max_chances: state.max_chances,
         pace: state.pace,
@@ -474,8 +514,33 @@ defmodule DeadGiveaway.Room do
     state = %{state | world: world}
     notify_watcher_kills(state, states_before)
 
-    state = if state.world_mod.finished?(world), do: finish_round(state), else: state
+    state = maybe_finish(state, world)
     {state, snapshot}
+  end
+
+  # The three ways a round ends, judged once the tick's dust settles. A crossing is
+  # checked first so winning the race always beats a same-tick walkover. Beyond the
+  # line (#55, #59) it's down to who's still alive: every human out → game over with
+  # no winner (watching the bots amble on helps no one); exactly one human left of
+  # several → they win on the spot rather than strolling to an unthreatened line.
+  # The walkover needs the round to have begun with company — a solo round must
+  # still be raced (though a solo death still ends it).
+  defp maybe_finish(state, world) do
+    alive = state.world_mod.alive_players(world)
+
+    cond do
+      state.world_mod.finished?(world) ->
+        finish_round(state)
+
+      alive == [] ->
+        finish_round(state, :wipe)
+
+      match?([_], alive) and length(state.world_mod.players(world)) > 1 ->
+        finish_round(state, {:winner, hd(alive)})
+
+      true ->
+        state
+    end
   end
 
   # A body dropped by the watcher rides the exact same private signals as one dropped
@@ -563,13 +628,16 @@ defmodule DeadGiveaway.Room do
     end
   end
 
-  # The crosshairs to ship with this snapshot: each still-armed player's last-aimed
-  # point, keyed by name. The channel anonymises this before it reaches any browser —
-  # drops the names and the recipient's own — so a reticle never reveals whose it is
-  # or which body it sits on (DESIGN §5).
+  # The crosshairs to ship with this snapshot: each still-armed, still-alive player's
+  # last-aimed point, keyed by name. The channel anonymises this before it reaches any
+  # browser — drops the names and the recipient's own — so a reticle never reveals whose
+  # it is or which body it sits on (DESIGN §5). A player out of lives loses their reticle
+  # for everyone (#61) — a takeover repoints them at the new body the same tick, so this
+  # only drops players who are fully out.
   defp visible_crosshairs(state, world) do
     for {name, {x, y}} <- state.crosshairs,
         state.world_mod.armed?(world, name),
+        state.world_mod.player_alive?(world, name),
         into: %{},
         do: {name, %{x: round(x), y: round(y)}}
   end
@@ -583,8 +651,9 @@ defmodule DeadGiveaway.Room do
     %{snapshot | entities: Enum.map(entities, &%{&1 | x: round(&1.x)})}
   end
 
-  defp finish_round(state) do
-    outcome = state.world_mod.outcome(state.world)
+  defp finish_round(state), do: finish_round(state, state.world_mod.outcome(state.world))
+
+  defp finish_round(state, outcome) do
     # Award first so the broadcast carries the up-to-date session scoreboard.
     state = award(state, outcome)
     broadcast(state.id, {:round_over, outcome, Session.scoreboard(state.session)})

@@ -4,7 +4,10 @@
       and grain; the neon reticle motif frames the play card so it reads as a lock
       acquired on *you*. Cosmetic only — the create/join forms keep their ids, names,
       actions and methods (router.mjs intercepts both on submit). --%>
-<div class="dg-scanlines relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat font-display text-slate-100">
+<%!-- image-rendering:pixelated keeps the 1280×720 pixel-art backdrop crisp when CSS
+      cover stretches it across larger/hi-dpi screens (#18) — scaled the way the game
+      scales its sprites, instead of bilinear mush. --%>
+<div class="dg-scanlines relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat font-display text-slate-100 [image-rendering:pixelated]">
   <%!-- Darken + vignette the crowd so the neon UI reads cleanly on top of it. Grain
         rides this overlay's ::before (its own free pseudo) rather than the root's —
         the root's ::before/::after are already the scanline texture + scan-sweep, and
@@ -19,7 +22,8 @@
   <div class="relative z-10 flex items-center justify-between px-6 py-3 font-mono text-[0.65rem] uppercase tracking-[0.3em] text-cyan-300/70 sm:px-10">
     <span class="flex items-center gap-2">
       <span class="dg-blink inline-block h-2 w-2 rounded-full bg-[var(--dg-magenta)] shadow-[0_0_8px_var(--dg-magenta)]">
-      </span> Surveillance · Live
+      </span>
+      Surveillance · Live
     </span>
     <span class="hidden sm:inline">Sector 07 // Death Race</span>
   </div>
@@ -154,7 +158,10 @@
         </h2>
         <p class="text-sm leading-5 text-slate-300">
           Dead Giveaway is a hidden-identity party game. Do you know who your friends are? Do you know who you are?
-          This game is heavily inspired by (if not an outright rip-off of) the Death Race game-mode in <a class="text-[var(--dg-magenta)]" href="https://store.steampowered.com/app/303590/Hidden_in_Plain_Sight/">Hidden in Plain Sight</a>. Go play this most excellent game!
+          This game is heavily inspired by (if not an outright rip-off of) the Death Race game-mode in <a
+            class="text-[var(--dg-magenta)]"
+            href="https://store.steampowered.com/app/303590/Hidden_in_Plain_Sight/"
+          >Hidden in Plain Sight</a>. Go play this most excellent game!
         </p>
       </section>
 
@@ -170,7 +177,7 @@
             </span>
             Will has already beaten me at the game; I am considering handicapping him.
           </li>
-          <li> Mowgli does not feature in this game at all; I need to change that.</li>
+          <li>Mowgli does not feature in this game at all; I need to change that.</li>
           <li>David is also working on a version with his own hands (not using Clankers).</li>
           <li>V1 launch!</li>
         </ul>

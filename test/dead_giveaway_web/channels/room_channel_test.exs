@@ -59,6 +59,20 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert reply.name == "****Lord"
   end
 
+  test "a lobby rename is normalized, applied, and the roster re-broadcast (#63)" do
+    {reply, socket} = join_room("chan-rename")
+    assert reply.name == "Player 1"
+
+    # The same trim + profanity chokepoint as a join guards the new name.
+    ref = push(socket, "rename", %{"name" => "  ShitLord  "})
+    assert_reply ref, :ok, %{name: "****Lord"}
+    assert_push "lobby", %{players: ["****Lord"]}, 500
+
+    # A blank rename keeps the current name rather than auto-renaming.
+    ref = push(socket, "rename", %{"name" => "   "})
+    assert_reply ref, :ok, %{name: "****Lord"}
+  end
+
   test "clients receive the lobby roster" do
     join_room("chan-lobby")
     join_room("chan-lobby")

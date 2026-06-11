@@ -444,6 +444,18 @@ defmodule DeadGiveaway.World do
   end
 
   @doc """
+  Names of this round's human players whose current body is still standing — the
+  round's survivors (`player_alive?/2` over the whole roster). Like the per-player
+  query, a private server-side view: never part of the public snapshot (DESIGN §5).
+  """
+  def alive_players(%__MODULE__{} = world) do
+    for {name, row} <- world.slot_of, world.entities[row].alive, do: name
+  end
+
+  @doc "Names of every human player in this round, alive or knocked out."
+  def players(%__MODULE__{} = world), do: Map.keys(world.slot_of)
+
+  @doc """
   The entity id of the body `player` currently drives, or `nil` if they're not in
   this round. It changes when a takeover moves them into a bot body (DESIGN §7).
 
@@ -642,10 +654,19 @@ defmodule DeadGiveaway.World do
   defp advance(%{verb: :stop} = e), do: e
   defp advance(e), do: %{e | x: e.x + e.speed}
 
+  # A crossing is judged at the runner's visible leading edge, not its centre (#56):
+  # clients draw bodies 48 design px wide, centre-anchored, on a track that maps
+  # [0, finish_x] across 1232 design px — so a body's front edge runs half a sprite
+  # (24/1232 of the track) ahead of its x. Firing the win there lands it exactly when
+  # the sprite touches the painted line on screen.
+  @leading_edge 24 / 1232
+
   defp crossers(world) do
+    line = world.finish_x * (1 - @leading_edge)
+
     world.entities
     |> Map.values()
-    |> Enum.filter(&(&1.alive and &1.x >= world.finish_x))
+    |> Enum.filter(&(&1.alive and &1.x >= line))
   end
 
   defp leader_past_line(world) do

@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-// volume.mjs persists through sessionStorage (session-scoped: a fresh visit starts off);
+// volume.mjs persists through sessionStorage (session-scoped: a fresh visit starts from
+// the defaults — sound on, #62);
 // give it a minimal in-memory one so the load/save path runs under Node. (The bindings
 // touch the DOM and aren't covered here.)
 class FakeStorage {
@@ -19,9 +20,9 @@ globalThis.sessionStorage = new FakeStorage();
 
 const { loadVolume, saveVolume, sfxGain } = await import("./volume.mjs");
 
-test("sound starts off by default", () => {
+test("sound starts on by default", () => {
   globalThis.sessionStorage = new FakeStorage(); // empty store
-  assert.deepEqual(loadVolume(), { enabled: false, master: 10, sfx: 70 });
+  assert.deepEqual(loadVolume(), { enabled: true, master: 10, sfx: 70 });
 });
 
 test("stored settings merge over the defaults", () => {
@@ -40,7 +41,7 @@ test("save then load round-trips", () => {
 test("a corrupt stored value falls back to defaults", () => {
   globalThis.sessionStorage = new FakeStorage();
   sessionStorage.setItem("dg:volume", "{not json");
-  assert.deepEqual(loadVolume(), { enabled: false, master: 10, sfx: 70 });
+  assert.deepEqual(loadVolume(), { enabled: true, master: 10, sfx: 70 });
 });
 
 test("sfxGain is master × sfx when enabled", () => {

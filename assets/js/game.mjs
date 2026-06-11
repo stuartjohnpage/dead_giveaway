@@ -2,7 +2,7 @@
 // and renders the authoritative snapshots with Pixi. Pure math lives in
 // coords.mjs (unit-tested); this module is the Pixi + socket + input glue.
 
-import { Application, AnimatedSprite, Assets, Container, Graphics, Sprite, Texture, TilingSprite } from "pixi.js";
+import { Application, AnimatedSprite, Assets, Container, Graphics, Rectangle, Sprite, Texture, TilingSprite } from "pixi.js";
 import { openChannel } from "./socket.mjs";
 import { worldToScreen, screenToWorld } from "./coords.mjs";
 import { advance, reconcile } from "./prediction.mjs";
@@ -14,6 +14,7 @@ import {
   DEFAULT_WINDUP,
 } from "./audio-shell.mjs";
 import { navigate } from "./router.mjs";
+import { rememberName } from "./identity.mjs";
 
 const PAD = 24;
 const ROW_SPACING = 10; // must match DeadGiveaway.World @row_spacing
@@ -102,15 +103,35 @@ export async function boot() {
   world.addChild(floor);
 
   // worldW always equals finish_x, so the finish maps to the right margin regardless
-  // of the configured value — its screen position is fixed.
+  // of the configured value — its screen position is fixed. Every pack paints its line
+  // along the texture's LEFT edge, so anchoring that edge on the logical line puts the
+  // paint exactly where the win fires (#56); loadTheme crops the art so the checker
+  // sliver past the line ends flush with the arena instead of spilling off it.
   const finish = new Sprite(Texture.EMPTY);
-  finish.anchor.set(0.5, 0);
+  finish.anchor.set(0, 0);
   finish.x = DESIGN_W - PAD;
   finish.y = FLOOR_TOP;
   world.addChild(finish);
 
   const entityLayer = new Container();
   world.addChild(entityLayer);
+
+  // The wind-up telegraph (#60): the watcher's spin alone wasn't reading — players'
+  // eyes are on their own runner, not the line — so the whole arena carries the
+  // warning. A rim around the field pulses amber through the wind-up ("about to
+  // turn"), then holds red while the light is red: dropping it at the exact moment
+  // moving becomes lethal would read as the all-clear. Gone on green and in classic.
+  const RIM_W = 10;
+  const RIM_WINDUP = 0xffb020;
+  const RIM_RED = 0xff2d3f;
+  const lightRim = new Graphics()
+    .rect(0, 0, DESIGN_W, RIM_W)
+    .rect(0, DESIGN_H - RIM_W, DESIGN_W, RIM_W)
+    .rect(0, RIM_W, RIM_W, DESIGN_H - 2 * RIM_W)
+    .rect(DESIGN_W - RIM_W, RIM_W, RIM_W, DESIGN_H - 2 * RIM_W)
+    .fill(0xffffff); // white base — the live colour comes from tint per light state
+  lightRim.visible = false;
+  world.addChild(lightRim);
 
   // The Red Light watcher (#53): the landmark on the finish line, present only while
   // snapshots carry a `light`. Its pose tracks the room-global light — facing away
@@ -144,6 +165,9 @@ export async function boot() {
     light = next;
     // The spin is the warning (#53) — make it heard even off-screen-focus.
     if (next === "windup") playWindup();
+    lightRim.visible = next === "windup" || next === "red";
+    lightRim.tint = next === "red" ? RIM_RED : RIM_WINDUP;
+    lightRim.alpha = next === "red" ? 0.9 : 1; // wind-up alpha is pulsed by the ticker
     ensureWatcher();
     if (!watcher) return; // no watcher art anywhere — the light still enforces server-side
     watcher.visible = !!next;
@@ -374,14 +398,21 @@ export async function boot() {
     ammoCount.textContent = String(n);
     ammoBullet.hidden = n <= 0;
   };
+  // Touch devices get on-screen movement buttons (#40), revealed only for the round
+  // window below — desktop never sees them.
+  const isTouch = window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window;
+  const touchControls = document.getElementById("touch-controls");
+
   // The HUD only belongs on screen during a live round, not the lobby or the card.
-  // Showing it (re)loads a full clip for the round just starting.
+  // Showing it (re)loads a full clip for the round just starting. The touch movement
+  // buttons (#40) ride the same round window.
   const showAmmo = (visible) => {
     if (visible) {
       ammo = maxAmmo;
       setAmmo(ammo);
     }
     hudAmmo.hidden = !visible;
+    touchControls.hidden = !(visible && isTouch);
   };
 
   // --- In-round lives HUD: your remaining lives this round (DESIGN §7) ---
@@ -454,13 +485,62 @@ export async function boot() {
     const rows = scores
       ? Object.entries(scores)
           .sort((a, b) => b[1] - a[1])
-          .map(([n, w]) => (n === myName ? `${n} (you): ${w}` : `${n}: ${w}`))
-      : roster.map((n) => (n === myName ? `${n} (you)` : n));
-    for (const text of rows) {
+          .map(([n, w]) => [n, `: ${w}`])
+      : roster.map((n) => [n, ""]);
+    for (const [n, suffix] of rows) {
       const li = document.createElement("li");
-      li.textContent = text;
+      li.textContent = (n === myName ? `${n} (you)` : n) + suffix;
+      // Your own roster row carries the rename control (#63) — lobby roster only;
+      // the post-round standings and the round itself pin names.
+      if (!scores && n === myName) li.appendChild(renameButton(li));
       lobbyList.appendChild(li);
     }
+  };
+
+  // The in-lobby rename (#63): swap my roster row for an input; Enter (or leaving the
+  // field) pushes the new name, and the reply's canonical form — trimmed, redacted and
+  // uniquified by the same path a join takes — becomes my identity everywhere (the
+  // refreshed roster reaches the rest of the lobby via the lobby broadcast).
+  const renameButton = (li) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "✎";
+    btn.title = "Change name";
+    btn.className = "ml-2 align-middle font-mono text-xs text-cyan-300/80 hover:text-cyan-200";
+    btn.addEventListener("click", () => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 16; // mirrors the splash field and the server's length cap
+      input.value = myName;
+      input.className =
+        "w-36 border border-cyan-400/30 bg-transparent px-1 text-sm text-white outline-none";
+      li.replaceChildren(input);
+      input.focus();
+      input.select();
+      let done = false; // Enter also blurs the input — submit only once
+      const submit = () => {
+        if (done) return;
+        done = true;
+        const next = input.value.trim();
+        if (!next || next === myName) return renderLobby(); // unchanged → restore the row
+        channel.push("rename", { name: next }).receive("ok", (resp) => {
+          if (resp && resp.name) {
+            myName = resp.name;
+            rememberName(myName); // follow the player into their next lobby too
+          }
+          renderLobby(); // don't wait on the lobby broadcast to un-stick the row
+        });
+      };
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") submit();
+        else if (ev.key === "Escape") {
+          done = true;
+          renderLobby();
+        }
+      });
+      input.addEventListener("blur", submit);
+    });
+    return btn;
   };
   // The themed lobby backdrop (a CSS url(...), set by loadTheme) and whether the full
   // lobby is currently showing it. The post-round overlay card hides it (the frozen
@@ -527,7 +607,12 @@ export async function boot() {
     arena.width = DESIGN_W;
     arena.height = DESIGN_H;
     floor.texture = floorTex;
-    finish.texture = finishTex;
+    // Only PAD design px fit between the logical line and the arena's right edge, so
+    // crop the finish art to that slice — the painted line plus a checker sliver (#56).
+    finish.texture = new Texture({
+      source: finishTex.source,
+      frame: new Rectangle(0, 0, PAD, finishTex.height),
+    });
     finish.height = FLOOR_H;
     sheet = newSheet;
     variants = manifest.variants || VARIANTS;
@@ -612,7 +697,7 @@ export async function boot() {
     // The gunshot follows the pack too, preloading on swap so the round's first shot
     // isn't silent; a pack without one keeps the default crack. Same for the watcher's
     // wind-up cue (#53).
-    setShotUrl(audio.shot ? url(audio.shot) : DEFAULT_SHOT);
+    setShotUrl(audio.shot ? url(audio.shot) : DEFAULT_SHOT, audio.shotGain);
     setWindupUrl(audio.windup ? url(audio.windup) : DEFAULT_WINDUP);
 
     currentTheme = key;
@@ -702,6 +787,7 @@ export async function boot() {
   channel.on("out", () => {
     dead = true;
     setCrosshairVisible(false);
+    setChances(0); // "out" means no lives left; no takeover follows, so no chances update will (#64)
     myBodyId = null; // our corpse is just another body now — back to plain interpolation
     predictedX = null;
   });
@@ -721,8 +807,9 @@ export async function boot() {
     if (typeof p.chances === "number") setChances(p.chances);
   });
   channel.on("round_over", (p) => {
-    // The winner is always set now — a player name, or "Bot" when a bot crossed first.
-    banner = p.winner ? `🏁 ${p.winner} wins!` : "Round over";
+    // A player name, "Bot" when a bot crossed first, or null when every human was
+    // knocked out and the round ended with no winner at all (#55).
+    banner = p.winner ? `🏁 ${p.winner} wins!` : "💀 Everyone's out";
     scores = p.scores || {};
     clearPeerCrosses(); // the round's frozen — drop the peers' reticles with the card up
     setCrosshairVisible(false); // no firing while the card is up
@@ -863,9 +950,47 @@ export async function boot() {
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
 
+  // Touch movement (#40): the on-screen Walk/Run buttons drive the same walking/running
+  // flags the keyboard does — press-and-hold moves, release stops — so everything
+  // downstream (verb(), prediction, the server protocol) is shared, not duplicated.
+  // Pointer capture keeps the release firing even when the finger slides off the button.
+  const bindHoldButton = (el, press, release) => {
+    el.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault(); // no synthetic mouse click, no focus steal mid-round
+      el.setPointerCapture?.(ev.pointerId);
+      press();
+      sendVerb();
+    });
+    for (const evName of ["pointerup", "pointercancel"]) {
+      el.addEventListener(evName, () => {
+        release();
+        sendVerb();
+      });
+    }
+  };
+  bindHoldButton(
+    document.getElementById("touch-walk"),
+    () => (walking = true),
+    () => (walking = false),
+  );
+  bindHoldButton(
+    document.getElementById("touch-run"),
+    () => (running = true),
+    () => (running = false),
+  );
+
   // --- Mouse aim + the one bullet (§5) ---
   let mouse = { x: app.screen.width / 2, y: app.screen.height / 2 };
   app.canvas.addEventListener("mousemove", (ev) => {
+    const r = app.canvas.getBoundingClientRect();
+    mouse = { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  });
+  // Tap-to-fire (#40): touch has no hover, so the tap IS the aim. Moving the shared
+  // `mouse` to the touch point is enough — the reticle, the aim stream, and the click
+  // the browser synthesizes after the tap all read from it, so the shot lands where
+  // the finger did, through the exact same fire path as a mouse click.
+  app.canvas.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType !== "touch") return;
     const r = app.canvas.getBoundingClientRect();
     mouse = { x: ev.clientX - r.left, y: ev.clientY - r.top };
   });
@@ -892,8 +1017,18 @@ export async function boot() {
     const { wx, wy } = mouseToWorld();
     channel.push("aim", { x: wx, y: wy });
   };
+  // Alt-tabbing back must not waste a bullet (#65): the click that refocuses the window
+  // lands on the canvas like any other, but the player meant "give me the game back",
+  // not "fire". The browser fires `focus` before the click it granted focus for, so a
+  // short grace after regaining focus swallows exactly that click; clicks made while
+  // the game already had focus are unaffected.
+  const REFOCUS_GRACE_MS = 300;
+  let refocusedAt = -Infinity;
+  const onWindowFocus = () => (refocusedAt = performance.now());
+  window.addEventListener("focus", onWindowFocus);
   app.canvas.addEventListener("click", () => {
     if (dead || !myCross.visible || ammo <= 0) return; // out of bullets or out of the round
+    if (performance.now() - refocusedAt < REFOCUS_GRACE_MS) return; // refocus click (#65)
     const { wx, wy } = mouseToWorld();
     // Firing reveals nothing about what you hit — only that you've spent a bullet (§5).
     // The SFX plays when the server broadcasts the shot back (the "shot" handler
@@ -913,6 +1048,9 @@ export async function boot() {
 
   // --- Render loop: interpolate other entities toward the latest snapshot ---
   app.ticker.add((ticker) => {
+    // Throb the wind-up rim (#60) off the clock, not frames, so the pulse reads the
+    // same at any refresh rate.
+    if (light === "windup") lightRim.alpha = 0.4 + 0.6 * Math.abs(Math.sin(performance.now() / 130));
     for (const s of sprites.values()) {
       s.sprite.x += (s.tx - s.sprite.x) * 0.25;
       s.sprite.y += (s.ty - s.sprite.y) * 0.25;
@@ -957,6 +1095,7 @@ export async function boot() {
     window.removeEventListener("resize", layout);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
+    window.removeEventListener("focus", onWindowFocus);
     // Destroy the Pixi app first: its render loop pushes "aim" over the channel, so stop
     // the ticker before we leave the room. `removeView` drops the canvas (the router's
     // content swap would discard it anyway, but don't rely on that here).

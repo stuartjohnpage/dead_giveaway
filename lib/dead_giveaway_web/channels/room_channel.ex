@@ -12,13 +12,13 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   use Phoenix.Channel
 
-  alias DeadGiveaway.{PlayerName, Profanity, Room, Rooms}
+  alias DeadGiveaway.{PlayerName, Room, Rooms}
 
   # Production room shape; overridable via `config :dead_giveaway, :room, ...`
-  # (tests use a tiny tick and no bots for determinism).
+  # (tests use a tiny tick and no bots for determinism). No :bots here — the Room
+  # scales the crowd to the player count at each round start (#37).
   @default_room_opts [
     tick_ms: 50,
-    bots: 24,
     finish_x: 500.0,
     stats: DeadGiveaway.Accounts,
     # Abandoned lobbies (and their codes) shut down a minute after the last
@@ -160,6 +160,21 @@ defmodule DeadGiveawayWeb.RoomChannel do
   # a malformed knob simply does nothing.
   def handle_in("set_config", _payload, socket), do: {:reply, :ok, socket}
 
+  # Change your display name while in the lobby (#63). The raw value passes the same
+  # trim/profanity chokepoint as a join, and the Room applies the same collision
+  # disambiguation — then broadcasts the refreshed roster to everyone. The lobby-only
+  # gate lives in the Room (mid-round names are identity). A blank or failed rename
+  # keeps the current name; either way the reply carries the name now in force so the
+  # client can adopt the canonical form.
+  def handle_in("rename", %{"name" => raw}, socket) do
+    with new when not is_nil(new) <- normalize_name(raw),
+         {:ok, name} <- Room.rename(socket.assigns.room, socket.assigns.name, new) do
+      {:reply, {:ok, %{name: name}}, assign(socket, name: name)}
+    else
+      _ -> {:reply, {:ok, %{name: socket.assigns.name}}, socket}
+    end
+  end
+
   # Backing out of the lobby. The host tears the whole room down (everyone is sent
   # `closed`); a guest just frees their own slot and heads home on their own.
   def handle_in("leave", _payload, socket) do
@@ -240,15 +255,10 @@ defmodule DeadGiveawayWeb.RoomChannel do
   end
 
   # A chosen name from the client: trimmed, length-capped, then profanity-redacted (#13);
-  # blank → nil (the room then auto-names the player "Player N"). This is the single
-  # server-side chokepoint for the only free text players control, so a crafted payload
-  # can't bypass the filter.
-  defp normalize_name(name) do
-    case PlayerName.trim(name) do
-      "" -> nil
-      n -> Profanity.redact(n)
-    end
-  end
+  # blank → nil (the room then auto-names the player "Player N"). The rule itself lives
+  # in PlayerName.normalize/1 — the single chokepoint both join and rename flow through —
+  # so a crafted payload can't reach a path the filter doesn't cover.
+  defp normalize_name(name), do: PlayerName.normalize(name)
 
   defp to_verb("walk"), do: :walk
   defp to_verb("run"), do: :run
@@ -261,6 +271,8 @@ defmodule DeadGiveawayWeb.RoomChannel do
   defp encode_outcome({:winner, player}), do: %{winner: player}
   # A bot crossed first — the shared Bot opponent takes the round (no more "wash").
   defp encode_outcome(:wash), do: %{winner: Room.bot_name()}
+  # Every human is out (#55) — game over with nobody, not even the Bot, taking the round.
+  defp encode_outcome(:wipe), do: %{winner: nil}
 
   # The room keys crosshairs by name (it's the trusted authority); a browser must
   # never see that. Strip the recipient's own reticle — their client draws it live
