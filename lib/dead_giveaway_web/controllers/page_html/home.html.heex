@@ -4,7 +4,10 @@
       and grain; the neon reticle motif frames the play card so it reads as a lock
       acquired on *you*. Cosmetic only — the create/join forms keep their ids, names,
       actions and methods (router.mjs intercepts both on submit). --%>
-<div class="dg-scanlines relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat font-display text-slate-100">
+<%!-- image-rendering:pixelated keeps the 1280×720 pixel-art backdrop crisp when CSS
+      cover stretches it across larger/hi-dpi screens (#18) — scaled the way the game
+      scales its sprites, instead of bilinear mush. --%>
+<div class="dg-scanlines relative min-h-dvh overflow-hidden bg-[var(--dg-ink)] bg-[url(/themes/neon/menu_bg.png)] bg-cover bg-center bg-no-repeat font-display text-slate-100 [image-rendering:pixelated]">
   <%!-- Darken + vignette the crowd so the neon UI reads cleanly on top of it. Grain
         rides this overlay's ::before (its own free pseudo) rather than the root's —
         the root's ::before/::after are already the scanline texture + scan-sweep, and
@@ -45,6 +48,16 @@
       >
         Hide among the crowd. Cross the finish.
         <span class="text-[var(--dg-magenta)]">Don't get spotted.</span>
+      </p>
+      <%!-- One-breath pitch + call to action (#18): what the game is and how to start,
+            for someone landing here cold. --%>
+      <p
+        class="dg-rise mx-auto mt-2 max-w-xl text-xs leading-5 text-slate-400"
+        style="animation-delay:.24s"
+      >
+        A hidden-identity race: one runner in the crowd is you, the rest just act like you.
+        Blend in, spot your friends before they spot you, and spend your scarce bullets well —
+        first across the line wins. Pick a name below, then create a lobby or join one with a code.
       </p>
     </div>
 
