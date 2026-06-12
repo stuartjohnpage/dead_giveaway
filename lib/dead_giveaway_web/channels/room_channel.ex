@@ -12,7 +12,7 @@ defmodule DeadGiveawayWeb.RoomChannel do
 
   use Phoenix.Channel
 
-  alias DeadGiveaway.{PlayerName, Room, Rooms}
+  alias DeadGiveaway.{PlayerName, Room, Rooms, World}
 
   # Production room shape; overridable via `config :dead_giveaway, :room, ...`
   # (tests use a tiny tick and no bots for determinism). No :bots here — the Room
@@ -40,7 +40,10 @@ defmodule DeadGiveawayWeb.RoomChannel do
         # form. A blank name falls back to an auto-assigned "Player N". The room also
         # tells us whether we're the host — assigned server-side to the first joiner,
         # never taken from the client's `host` flag, so a crafted URL can't seize it.
-        {:ok, _slot, name, host?} = Room.join(room, normalize_name(payload["name"]))
+        # The sprite pick (#67) rides along the same way; a missing or malformed one
+        # means the player is dealt a random look each round.
+        {:ok, _slot, name, host?} =
+          Room.join(room, normalize_name(payload["name"]), parse_look(payload["look"]))
 
         # Track host status (only the host may reconfigure or close the lobby) and
         # hand it back in the join reply so the client's lobby controls are right from
@@ -259,6 +262,18 @@ defmodule DeadGiveawayWeb.RoomChannel do
   # in PlayerName.normalize/1 — the single chokepoint both join and rename flow through —
   # so a crafted payload can't reach a path the filter doesn't cover.
   defp normalize_name(name), do: PlayerName.normalize(name)
+
+  # The sprite pick from the join payload (#67): three layer indices, each validated
+  # against the catalogue size (one source of truth: World.layer_options/0). Anything
+  # off — missing keys, floats, out-of-range, no map at all — collapses to nil, which
+  # the World turns into a random look, so a crafted payload can't break a round.
+  defp parse_look(%{"hat" => h, "face" => f, "body" => b}) do
+    if Enum.all?([h, f, b], &(is_integer(&1) and &1 in 0..(World.layer_options() - 1))) do
+      %{hat: h, face: f, body: b}
+    end
+  end
+
+  defp parse_look(_look), do: nil
 
   defp to_verb("walk"), do: :walk
   defp to_verb("run"), do: :run

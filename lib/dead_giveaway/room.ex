@@ -57,8 +57,13 @@ defmodule DeadGiveaway.Room do
   two players must never collapse onto one body. The first player to join is the host
   (DESIGN §9): the privilege is assigned here, server-side, never claimed by the
   client, so a hand-crafted URL can't seize a lobby out from under its owner.
+
+  `look` is the player's sprite pick (#67) — `%{hat: h, face: f, body: b}` indices, or
+  `nil` to be dealt a random look at round start. It's remembered for as long as they're
+  seated and dressed onto their body each round; the World re-validates it, so a junk
+  pick degrades to random rather than breaking the round.
   """
-  def join(room, player \\ nil), do: GenServer.call(room, {:join, player})
+  def join(room, player \\ nil, look \\ nil), do: GenServer.call(room, {:join, player, look})
 
   @doc "Leave the room, freeing the player's slot so they stop counting toward rounds."
   def leave(room, player), do: GenServer.call(room, {:leave, player})
@@ -221,6 +226,9 @@ defmodule DeadGiveaway.Room do
       # taken from the client, so a crafted URL can't grant it.
       host: nil,
       world: nil,
+      # Each seated player's sprite pick (#67), by name — dressed onto their body at
+      # every round start. Players without an entry get a random look per round.
+      looks: %{},
       # Last-aimed crosshair point per player name, for the round in progress; the
       # snapshot carries the still-armed ones out. Cleared at every round boundary.
       crosshairs: %{}
@@ -235,15 +243,18 @@ defmodule DeadGiveaway.Room do
   end
 
   @impl true
-  def handle_call({:join, player}, _from, state) do
+  def handle_call({:join, player, look}, _from, state) do
     {slot, name, session} = Session.join(state.session, player)
     # The first player in owns the room; everyone after joins as a guest.
     host = state.host || name
+    # The look is keyed by the *canonical* name (a disambiguated joiner keeps their own
+    # pick); no pick means a random look each round, so leave no entry behind.
+    looks = if look, do: Map.put(state.looks, name, look), else: state.looks
 
     # Joining only places you in the lobby — a round starts when someone hits Go.
     # A join means the room is no longer empty, so cancel any pending expiry.
     state =
-      %{state | session: session, host: host}
+      %{state | session: session, host: host, looks: looks}
       |> cancel_expiry()
       |> broadcast_lobby()
 
@@ -253,13 +264,14 @@ defmodule DeadGiveaway.Room do
   def handle_call({:leave, player}, _from, state) do
     # Session.leave retires the slot and drops the departed player's win tally (names
     # are reused, so a lingering score would otherwise be inherited by whoever next
-    # takes that name; the shared Bot tally isn't a player, so it's left alone).
+    # takes that name; the shared Bot tally isn't a player, so it's left alone). Their
+    # sprite pick goes with them for the same reason (#67).
     session = Session.leave(state.session, player)
     # If the host left, hand the room to the earliest remaining joiner so the lobby
     # is never left without an owner. If that was the last player, start the
     # countdown to shut the room down.
     state =
-      %{state | session: session}
+      %{state | session: session, looks: Map.delete(state.looks, player)}
       |> reassign_host(player)
       |> maybe_schedule_expiry()
       |> broadcast_lobby()
@@ -271,8 +283,16 @@ defmodule DeadGiveaway.Room do
     case Session.rename(state.session, player, new_name) do
       {:ok, name, session} ->
         # The host privilege is tracked by name — it must follow a renaming host.
+        # So must the sprite pick (#67), keyed by name like everything else.
         host = if state.host == player, do: name, else: state.host
-        state = broadcast_lobby(%{state | session: session, host: host})
+
+        looks =
+          case Map.pop(state.looks, player) do
+            {nil, looks} -> looks
+            {look, looks} -> Map.put(looks, name, look)
+          end
+
+        state = broadcast_lobby(%{state | session: session, host: host, looks: looks})
         {:reply, {:ok, name}, state}
 
       :error ->
@@ -474,6 +494,7 @@ defmodule DeadGiveaway.Room do
       [
         seed: state.seed,
         humans: humans,
+        looks: state.looks,
         bots: state.bots || scaled_bots(length(humans)),
         max_ammo: state.max_ammo,
         max_chances: state.max_chances,

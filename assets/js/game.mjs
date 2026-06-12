@@ -31,14 +31,16 @@ const FLOOR_H = DESIGN_H - 2 * FLOOR_TOP;
 // Theme asset packs live one-folder-each under /themes/<key>/ (art + audio + bullet +
 // theme.json manifest); see priv/static/themes/README.md. The room's theme is host-set
 // in the lobby and broadcast, so the whole look/sound is swapped at runtime by
-// loadTheme() below — no hardcoded key. Cosmetic variants are NOT tied to the human/bot
-// mapping (DESIGN §4, §9).
+// loadTheme() below — no hardcoded key. Looks (each body's hat/face/body pick, #67)
+// are NOT tied to the human/bot mapping (DESIGN §4, §9).
 const DEFAULT_THEME = "neon";
 const themeBase = (key) => `/themes/${key}`;
 // The default theme's audio tracks (the fallback when a pack omits its own) live with the
 // rest of the audio in audio-shell.mjs; loadTheme imports them for that fallback.
-// Default cosmetic-variant count; a theme's manifest can override it.
-const VARIANTS = 12;
+// A body is three stacked sprite layers off the same atlas (#67), painted outfit-first
+// so the head sits on the torso and the headgear on the head.
+const LAYER_ORDER = ["body", "face", "hat"];
+const animKey = (layer, opt, state) => `${layer}${String(opt).padStart(2, "0")}_${state}`;
 const SPRITE_SCALE = 1.5; // 32px art → 48px on the field
 // Lanes are confined to the floor band, inset by the sprite's half-height so the
 // top/bottom runners sit inside the neon rails rather than straddling them.
@@ -65,6 +67,13 @@ export async function boot() {
   let isHost = false;
   // The name the player chose on the splash (empty → the room auto-names us).
   const playerName = mount.dataset.name || "";
+  // The sprite pick from the splash's picker (#67), carried in like the name (query →
+  // data attributes). All three layers or nothing — a partial/garbled pick joins as
+  // null and the server deals a random look instead.
+  const picked = LAYER_ORDER.map((layer) => Number(mount.dataset[layer]));
+  const playerLook = picked.every(Number.isInteger)
+    ? { body: picked[0], face: picked[1], hat: picked[2] }
+    : null;
 
   const app = new Application();
   // The canvas tracks the window; the world container (below) is letterbox-scaled to
@@ -82,12 +91,11 @@ export async function boot() {
   });
   mount.appendChild(app.canvas);
 
-  // The sprite atlas (cosmetic variants × idle/walk/run/dropped) and backdrop art are
-  // loaded by loadTheme() rather than once up front, so a lobby theme switch can swap
-  // them at runtime. `sheet` and `variants` are reassigned there; the scene objects
+  // The sprite atlas (hat/face/body layer options × idle/walk/run/dropped, #67) and
+  // backdrop art are loaded by loadTheme() rather than once up front, so a lobby theme
+  // switch can swap them at runtime. `sheet` is reassigned there; the scene objects
   // below are built once with empty textures and have their textures swapped in.
   let sheet = null;
-  let variants = VARIANTS;
 
   // World-space scene graph, all under one container we scale to fit the window.
   // Layers back→front: arena backdrop, tiled floor band, finish line, runners. The
@@ -179,13 +187,38 @@ export async function boot() {
     }
   };
 
-  // Cheap integer hash so id→variant looks scattered rather than a row-by-row cycle,
-  // while staying deterministic (same id → same look for every client) and
-  // independent of the human/bot mapping, so the sprite never hints at who is human.
-  const variantFor = (id) =>
-    String((Math.imul(id ^ 0x9e3779b9, 0x85ebca6b) >>> 0) % variants).padStart(2, "0");
+  // Every body's look ({hat, face, body} indices) rides the snapshot (#67) — picked by
+  // its player, or dealt by the server from the same pool for bots — so all clients
+  // render the same crowd and a look never hints at who is human.
+  const sprites = new Map(); // entity id -> { sprite, parts, tx, ty, state, look }
 
-  const sprites = new Map(); // entity id -> { sprite, tx, ty, state, variant }
+  // Build one body as a stack of per-layer AnimatedSprites in a Container. Assigning
+  // textures resets each part to frame 0, and the parts share a state (and so a speed),
+  // so the three layers stay frame-locked as one animating character.
+  const buildSprite = (look, state) => {
+    const sprite = new Container();
+    const parts = LAYER_ORDER.map((layer) => {
+      const part = new AnimatedSprite(sheet.animations[animKey(layer, look[layer], state)]);
+      part.anchor.set(0.5);
+      part.animationSpeed = ANIM_SPEED[state];
+      part.play();
+      sprite.addChild(part);
+      return part;
+    });
+    sprite.scale.set(SPRITE_SCALE);
+    return { sprite, parts };
+  };
+
+  // Point an existing body's parts at the frames for (look, state) — a verb/death
+  // change mid-round, or a fresh look when an entity id is reused next round.
+  const retexture = (s, look, state) => {
+    LAYER_ORDER.forEach((layer, i) => {
+      const part = s.parts[i];
+      part.textures = sheet.animations[animKey(layer, look[layer], state)];
+      part.animationSpeed = ANIM_SPEED[state];
+      part.play();
+    });
+  };
   // The view is the fixed design resolution; the letterbox scale maps it to the
   // window, so coords.mjs always works in 1280×720 regardless of canvas size.
   const view = { worldW: 1000, worldH: 50, screenW: DESIGN_W, screenH: DESIGN_H, padX: PAD, padY: LANE_PAD_Y };
@@ -619,13 +652,12 @@ export async function boot() {
     });
     finish.height = FLOOR_H;
     sheet = newSheet;
-    variants = manifest.variants || VARIANTS;
 
     // The old atlas's entity sprites are now stale — drop them so the next snapshot
     // rebuilds from the new atlas. (No round is live during a theme change.)
     for (const [id, s] of sprites) {
       entityLayer.removeChild(s.sprite);
-      s.sprite.destroy();
+      s.sprite.destroy({ children: true });
       sprites.delete(id);
     }
 
@@ -721,6 +753,7 @@ export async function boot() {
   const { channel, teardown: closeSocket } = openChannel("room:" + room, {
     host: wantsCreate,
     name: playerName,
+    look: playerLook,
   });
   channel
     .join()
@@ -861,27 +894,22 @@ export async function boot() {
       // key does (#41) — the same animations every body uses, just sourced locally.
       const mine = e.id === myBodyId;
       const state = mine && e.alive ? localState() : stateFor(e);
+      const look = { hat: e.hat, face: e.face, body: e.body };
       let s = sprites.get(e.id);
       if (!s) {
-        const variant = variantFor(e.id);
-        const sprite = new AnimatedSprite(sheet.animations[`v${variant}_${state}`]);
-        sprite.anchor.set(0.5);
-        sprite.scale.set(SPRITE_SCALE);
-        sprite.animationSpeed = ANIM_SPEED[state];
-        sprite.x = sx;
-        sprite.y = sy;
-        sprite.play();
-        entityLayer.addChild(sprite);
-        s = { sprite, tx: sx, ty: sy, state, variant };
+        s = { ...buildSprite(look, state), tx: sx, ty: sy, state, look };
+        s.sprite.x = sx;
+        s.sprite.y = sy;
+        entityLayer.addChild(s.sprite);
         sprites.set(e.id, s);
       }
-      // Swap the animation only when the state actually changes (verb or death), so
-      // we don't restart the loop every snapshot.
-      if (state !== s.state) {
+      // Swap the animation only when the state actually changes (verb or death) — or
+      // the look does: entity ids are reused round to round while this map persists,
+      // and the next round deals new looks (#67) — so we don't restart every snapshot.
+      if (state !== s.state || LAYER_ORDER.some((l) => look[l] !== s.look[l])) {
         s.state = state;
-        s.sprite.textures = sheet.animations[`v${s.variant}_${state}`];
-        s.sprite.animationSpeed = ANIM_SPEED[state];
-        s.sprite.play();
+        s.look = look;
+        retexture(s, look, state);
       }
       s.tx = sx;
       s.ty = sy;
@@ -907,7 +935,7 @@ export async function boot() {
     for (const [id, s] of sprites) {
       if (!seen.has(id)) {
         entityLayer.removeChild(s.sprite);
-        s.sprite.destroy();
+        s.sprite.destroy({ children: true });
         sprites.delete(id);
       }
     }

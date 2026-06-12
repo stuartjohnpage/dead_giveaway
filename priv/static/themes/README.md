@@ -23,8 +23,8 @@ themes/
   README.md              # this file
   SD_RECIPES.md          # prompts + setup for upgrading to Stable Diffusion art
   neon/
-    theme.json           # manifest: palette + assets/audio/ui paths, variant/animation counts
-    agents.png           # sprite atlas — 12 variants x {idle, walk, run, dropped}
+    theme.json           # manifest: palette + assets/audio/ui paths, layer/animation counts
+    agents.png           # sprite atlas — 3 layers (hat/face/body) x 6 options x states (#67)
     agents.json          # Pixi spritesheet atlas (frames + named animations)
     floor_tile.png       # seamless tileable arena floor
     finish_line.png      # vertical finish strip
@@ -52,46 +52,51 @@ never changes between themes.
 
 ## The sprite pool (read this)
 
-`agents.png` holds **12 cosmetic variants**. Each variant has four animation states:
-`idle` (4 frames), `walk` (4), `run` (6), `dropped` (1, the ghosted body after a kill).
-Frame size is **32×32**.
+`agents.png` holds **three composable layers** (#67) — `hat`, `face` (head + hair), and
+`body` (outfit) — with **6 options each**, every option drawn in all four animation
+states: `idle` (4 frames), `walk` (4), `run` (6), `dropped` (1, the ghosted body after a
+kill). Frame size is **32×32**; a character is the stack body → face → hat, all three
+playing the same state in lockstep. Hat option 0 is bare-headed in every theme.
 
-**Each character's variant is derived client-side from a deterministic hash of its entity
-id — never tied to identity.** Every client therefore shows a given character the same way
-with no variant data on the wire, and a variant is decoration only: the same look can be a
-human this round and a bot the next (identity is re-rolled per round). This is what makes
-the crowd feel like a crowd instead of a row of clones, without leaking who is who.
-(Running is still the only hard tell — a speed difference, not a visual one.)
+**Each character's look ({hat, face, body} indices) is assigned server-side and rides the
+snapshot — players pick theirs on the name screen; bots are dealt random picks from the
+same pool.** A look is decoration only and never correlates with the human/bot mapping:
+the indices say nothing about who is driving the body. (Running is still the only hard
+tell — a speed difference, not a visual one.) Option indices line up across themes, so a
+player's saved pick maps onto whichever pack the lobby is using.
 
 ## Loading in Pixi
 
-`agents.json` is a standard Pixi spritesheet with an `animations` block, so variants and
+`agents.json` is a standard Pixi spritesheet with an `animations` block, so layers and
 states load directly:
 
 ```js
-import { Assets, AnimatedSprite } from "pixi.js";
+import { Assets, AnimatedSprite, Container } from "pixi.js";
 
 const sheet = await Assets.load("/themes/neon/agents.json");
 
-// derive the variant from the entity id (deterministic, identity-independent)
-const v = String(variantIndex).padStart(2, "0");      // e.g. "07"
-const sprite = new AnimatedSprite(sheet.animations[`v${v}_walk`]);
-sprite.animationSpeed = 0.15;   // run uses ~0.28; idle ~0.05
-sprite.play();
+// stack one AnimatedSprite per layer from the entity's server-sent look
+const part = (layer, opt, state) =>
+  new AnimatedSprite(sheet.animations[`${layer}${String(opt).padStart(2, "0")}_${state}`]);
+const body = new Container();
+body.addChild(part("body", look.body, "walk"), part("face", look.face, "walk"),
+              part("hat", look.hat, "walk"));
 
-// switch state without reallocating:
-sprite.textures = sheet.animations[`v${v}_run`];
-sprite.play();
+// switch state without reallocating (per part):
+sprite.textures = sheet.animations[`body03_run`];
+sprite.gotoAndPlay(0); // restart all three together so the layers stay frame-locked
 ```
 
-Animation names: `v00_idle … v11_idle`, `…_walk`, `…_run`, `…_dropped`.
-All sprites face **right** (the only movement direction). Render with nearest-neighbor
-scaling (`texture.source.scaleMode = "nearest"`) to keep pixels crisp.
+Animation names: `hat00_idle … hat05_idle`, `face00… face05…`, `body00… body05…`, each
+with `…_walk`, `…_run`, `…_dropped`. All sprites face **right** (the only movement
+direction). Render with nearest-neighbor scaling (`texture.source.scaleMode = "nearest"`)
+to keep pixels crisp.
 
 ## Adding a new theme
 
 1. Open `tools/asset-gen/gen_pack.py`, copy the `"neon"` block in `THEMES`, rename the key,
    and change the colours (`floor`, `accent`, `shirts`, `hairs`, `skins`, `wall`, `finish`,
+   the 6 `hats` specs — shape + colours, shapes from `HAT_SHAPES`, entry 0 stays bare —
    and the `bullet`/`reticle` UI hints). Pick a `scene` — the composition archetype the
    backgrounds are drawn with (`concourse` = cyberpunk neon + black glass, `frontier` =
    desert badlands + dirt, `orbital` = viewports + deck plating); the palette does the

@@ -88,6 +88,7 @@ import { bindVolumeSliders, bindSoundToggle } from "./volume.mjs"
 import { initRouter } from "./router.mjs"
 import { mountOpenLobbies } from "./lobbies.mjs"
 import { mountIdentity } from "./identity.mjs"
+import { mountSpritePicker } from "./sprite-picker.mjs"
 
 // Mount the current page in place. Called once for the server-rendered page at load and
 // again by the router after each client-side content swap, so all per-page setup must be
@@ -146,6 +147,8 @@ function mountHome() {
   // Hydrate the name field from the remembered value and keep it in sync as the user types,
   // so the chosen name persists across visits and rides every join (#43 follow-up).
   mountIdentity()
+  // The sprite picker on the identity card (#67) — remembered and carried the same way.
+  mountSpritePicker()
   // Live "open lobbies" list (#43); returns a teardown that drops its socket on navigate.
   return mountOpenLobbies()
 }

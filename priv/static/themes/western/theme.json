@@ -6,7 +6,11 @@
     "w": 32,
     "h": 32
   },
-  "variants": 12,
+  "layers": {
+    "hat": 6,
+    "face": 6,
+    "body": 6
+  },
   "animations": {
     "idle": 4,
     "walk": 4,
@@ -64,7 +68,7 @@
       ]
     ]
   },
-  "note": "Cosmetic variants are NOT correlated with human/bot identity. Assign a random variant per character at spawn, server-side.",
+  "note": "Looks (hat/face/body picks, #67) are NOT correlated with human/bot identity. Players choose theirs; bots are assigned random picks from the same pool at spawn, server-side.",
   "audio": {
     "menuLoop": "menu_loop.mp3",
     "gameStages": [
@@ -74,7 +78,6 @@
       "game/stage4.mp3"
     ],
     "shot": "shot.mp3",
-    "shotGain": 2,
     "windup": "windup.mp3"
   }
 }
