@@ -191,6 +191,9 @@ export async function boot() {
   const view = { worldW: 1000, worldH: 50, screenW: DESIGN_W, screenH: DESIGN_H, padX: PAD, padY: LANE_PAD_Y };
 
   // Letterbox: scale the world to fit the window and centre it within the canvas.
+  // Hooked to the *renderer's* resize event, not the window's: Pixi's ResizePlugin
+  // defers the canvas resize to the next animation frame, so a window listener would
+  // read a stale app.screen and leave the world mis-scaled after the final event.
   const layout = () => {
     const s = Math.min(app.screen.width / DESIGN_W, app.screen.height / DESIGN_H);
     world.scale.set(s);
@@ -198,7 +201,7 @@ export async function boot() {
     world.y = (app.screen.height - DESIGN_H * s) / 2;
   };
   layout();
-  window.addEventListener("resize", layout);
+  app.renderer.on("resize", layout);
 
   // Crosshair lives in screen space so it tracks the raw mouse with no transform. Its
   // texture — the pack's crosshair sprite, or a drawn cross tinted to the theme's
@@ -1101,7 +1104,6 @@ export async function boot() {
   // Lobby/HUD DOM listeners aren't removed: those elements are replaced wholesale by the
   // router's content swap, so they're collected with the old DOM.
   return () => {
-    window.removeEventListener("resize", layout);
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     window.removeEventListener("focus", onWindowFocus);
