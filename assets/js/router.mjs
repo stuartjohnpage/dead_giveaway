@@ -8,7 +8,7 @@
 // in-game links keep their href, so with no JS (or if anything here throws) the app falls
 // back to ordinary full-page navigations — the only thing lost is audio seamlessness.
 
-import { currentName, withName } from "./identity.mjs";
+import { LOOK_LAYERS, currentLook, currentName, withIdentity } from "./identity.mjs";
 
 // The active page's teardown (returned by mount()), called before the next swap so the
 // outgoing page frees its socket / Pixi app / listeners. null between pages.
@@ -30,19 +30,24 @@ export async function initRouter(mount) {
   document.addEventListener("submit", (e) => {
     const form = e.target;
     if (form.id === "create-form") {
-      // GET: append the chosen name (from the identity card) as a query param into
-      // /play/new. The name lives outside this form now, so we add it rather than reading
-      // it off the form's own fields.
+      // GET: append the chosen identity (name + sprite pick, from the identity card) as
+      // query params into /play/new. It lives outside this form, so we add it rather
+      // than reading it off the form's own fields.
       e.preventDefault();
-      navigate(withName(form.action));
+      navigate(withIdentity(form.action));
     } else if (form.id === "join-form") {
-      // POST (carries Phoenix's CSRF token from the form's hidden field). The name lives in
-      // the identity card — mirror it into the join's hidden field here, so a guest joining
-      // by code carries their chosen name in too (this replaced an inline <script>, which
-      // wouldn't run after a content swap anyway).
+      // POST (carries Phoenix's CSRF token from the form's hidden field). The identity
+      // lives in its card — mirror the name and the sprite pick (#67) into the join's
+      // hidden fields here, so a guest joining by code carries both in too (this
+      // replaced an inline <script>, which wouldn't run after a content swap anyway).
       e.preventDefault();
       const joinName = document.getElementById("join-name");
       if (joinName) joinName.value = currentName();
+      const look = currentLook();
+      for (const layer of LOOK_LAYERS) {
+        const el = document.getElementById(`join-${layer}`);
+        if (el) el.value = look ? look[layer] : "";
+      }
       navigate(form.action, { method: "POST", body: new FormData(form) });
     }
   });

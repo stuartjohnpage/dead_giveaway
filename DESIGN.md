@@ -42,14 +42,14 @@ from the AI crowd — and use your single bullet wisely on whoever you think is 
 ## 4. The crowd (bots)
 
 - Headcount scales with players (~6 bots per human, cap ~100). MVP target ~30.
-- Characters are scattered at fixed vertical rows and draw from a **shared pool of ~12
-  cosmetic sprite variants** (each with idle / walk / run animations). Each character's
-  variant is derived **client-side from a deterministic hash of its entity id** — so every
-  client shows a given character the same way, the look is **NEVER correlated with who is
-  human**, and no variant data need ride the snapshot. It is pure decoration so the crowd
-  reads as a crowd, not a row of clones. Because identity is re-rolled each round (humans
-  take random bodies), the same variant can be a human in one round and a bot in the next;
-  cosmetics leak no identity. Per-theme art lives in `priv/static/themes/<theme>/`.
+- Characters are scattered at fixed vertical rows and wear a **look composed of three
+  sprite layers — hat / face / body — with 6 options each** (every option animated for
+  idle / walk / run / dropped). Players pick their look on the name screen (#67); **bots
+  are dealt random looks from the same pool, server-side**, and every body's look rides
+  the snapshot so all clients render the same crowd. A look is **NEVER correlated with
+  who is human** — the indices say nothing about who drives a body. It is pure decoration
+  so the crowd reads as a crowd, not a row of clones; cosmetics leak no identity beyond
+  what a player chooses to show off. Per-theme art lives in `priv/static/themes/<theme>/`.
 - Each bot independently **moves or stops in alternating phases**, the duration of each
   phase re-rolled per cycle on its own timing — so the crowd is desynced (no "waves") with
   no mid-phase jitter. A moving bot moves at **exactly the human walk speed**, so pace

@@ -13,6 +13,12 @@
 const KEY = "dg:name";
 const MAX = 16; // mirrors the field's maxlength and DeadGiveaway.PlayerName.max_length (server-enforced)
 
+// The sprite pick (#67) is the identity's other half: {hat, face, body} option indices,
+// chosen in the splash's picker (sprite-picker.mjs) and remembered right alongside the
+// name so the look follows the player into any lobby and survives reloads.
+const LOOK_KEY = "dg:look";
+export const LOOK_LAYERS = ["hat", "face", "body"];
+
 // The name to carry on the next join, or "" for none. Prefers the live field (so a name just
 // typed counts immediately) and falls back to the remembered value when the field isn't on
 // the page — e.g. a future caller outside the splash.
@@ -22,12 +28,39 @@ export function currentName() {
   return raw.trim().slice(0, MAX);
 }
 
-// Append the chosen name to a /play/CODE (or /play/new) path as a query param, or return the
-// path untouched when no name is set. The single place URLs get the name, so create, join and
-// public-join all build it identically (and the server trims/caps it again, authoritatively).
-export function withName(path) {
+// Append the chosen identity — name and sprite pick (#67) — to a /play/CODE (or /play/new)
+// path as query params, or return the path untouched when neither is set. The single place
+// URLs get the identity, so create, join and public-join all build it identically (and the
+// server validates both again, authoritatively).
+export function withIdentity(path) {
+  const params = new URLSearchParams();
   const name = currentName();
-  return name ? `${path}?name=${encodeURIComponent(name)}` : path;
+  if (name) params.set("name", name);
+  const look = currentLook();
+  if (look) for (const layer of LOOK_LAYERS) params.set(layer, look[layer]);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+// The remembered sprite pick, or null when none has been made (or storage is blocked).
+// Only shape and integer-ness are checked here — the picker clamps indices to the live
+// option pool on mount, and the server re-validates on join anyway.
+export function currentLook() {
+  try {
+    const look = JSON.parse(localStorage.getItem(LOOK_KEY));
+    return LOOK_LAYERS.every((l) => Number.isInteger(look?.[l]) && look[l] >= 0) ? look : null;
+  } catch {
+    return null;
+  }
+}
+
+// Adopt a pick made in the splash's picker as the remembered look.
+export function rememberLook(look) {
+  try {
+    localStorage.setItem(LOOK_KEY, JSON.stringify(look));
+  } catch {
+    /* storage unavailable — the pick still rides this session's joins */
+  }
 }
 
 // Hydrate the splash's name field from the remembered value and keep the two in sync as the

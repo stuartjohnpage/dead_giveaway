@@ -81,6 +81,31 @@ defmodule DeadGiveawayWeb.RoomChannelTest do
     assert "Player 1" in players
   end
 
+  test "a join's sprite pick is dressed onto the player's body each round (#67)" do
+    look = %{"hat" => 2, "face" => 0, "body" => 4}
+    {reply, socket} = join_room("chan-look", %{"host" => true, "look" => look})
+
+    go = push(socket, "go", %{})
+    assert_reply go, :ok
+    assert_push "snapshot", %{entities: [_ | _]}, 500
+
+    room = Rooms.whereis("chan-look")
+    row = :sys.get_state(room).world.slot_of[reply.name]
+    assert %{hat: 2, face: 0, body: 4} = :sys.get_state(room).world.entities[row]
+  end
+
+  test "a malformed sprite pick is ignored — the player is dealt an in-range look (#67)" do
+    bad = %{"hat" => "crown", "face" => 0, "body" => 99}
+    {_reply, socket} = join_room("chan-look-bad", %{"host" => true, "look" => bad})
+
+    go = push(socket, "go", %{})
+    assert_reply go, :ok
+
+    pool = 0..(DeadGiveaway.World.layer_options() - 1)
+    assert_push "snapshot", %{entities: [%{hat: h, face: f, body: b}]}, 500
+    assert h in pool and f in pool and b in pool
+  end
+
   test "world snapshots are pushed to clients once a round is running" do
     {_reply, host} = join_room("chan-b", %{"host" => true})
     join_room("chan-b")

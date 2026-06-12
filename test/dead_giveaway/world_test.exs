@@ -31,6 +31,47 @@ defmodule DeadGiveaway.WorldTest do
     end
   end
 
+  describe "looks (#67)" do
+    test "every body — human or bot — wears a complete in-range look, and the snapshot carries it" do
+      world = World.new(seed: 1, humans: ["alice"], bots: 5)
+      pool = 0..(World.layer_options() - 1)
+
+      for e <- World.snapshot(world).entities do
+        assert e.hat in pool
+        assert e.face in pool
+        assert e.body in pool
+      end
+    end
+
+    test "a player's pick is dressed onto their body" do
+      look = %{hat: 3, face: 1, body: 5}
+      world = World.new(seed: 1, humans: ["alice"], bots: 4, looks: %{"alice" => look})
+
+      row = world.slot_of["alice"]
+      assert %{hat: 3, face: 1, body: 5} = world.entities[row]
+    end
+
+    test "an invalid pick degrades to a random in-range look rather than breaking the round" do
+      bad = %{hat: 99, face: -1, body: "tophat"}
+      world = World.new(seed: 1, humans: ["alice"], bots: 0, looks: %{"alice" => bad})
+      pool = 0..(World.layer_options() - 1)
+
+      [e] = World.snapshot(world).entities
+      assert e.hat in pool and e.face in pool and e.body in pool
+    end
+
+    test "looks are deterministic per seed — the sim stays replayable" do
+      snap = fn -> World.new(seed: 42, humans: ["alice"], bots: 6) |> World.snapshot() end
+      assert snap.() == snap.()
+    end
+
+    test "bots draw from the whole pool — the crowd isn't a row of clones" do
+      world = World.new(seed: 5, humans: [], bots: 20)
+      looks = for e <- World.snapshot(world).entities, do: {e.hat, e.face, e.body}
+      assert looks |> Enum.uniq() |> length() > 1
+    end
+  end
+
   describe "movement" do
     test "a stopped character does not move" do
       world = World.new(seed: 1, humans: ["alice"], bots: 0)

@@ -3,7 +3,9 @@
 Dead Giveaway - procedural pixel-art theme-pack generator.
 
 Palette-driven. Produces, for one theme:
-  - agents.png + agents.json  (Pixi spritesheet atlas: 12 variants x {idle, walk(4), run(6), dropped})
+  - agents.png + agents.json  (Pixi spritesheet atlas: 3 layers (hat/face/body) x 6
+    options x {idle, walk(4), run(6), dropped} — a character composes one option per
+    layer at runtime, issue #67)
   - floor_tile.png            (seamless tileable arena floor)
   - finish_line.png           (vertical finish strip)
   - arena_bg.png              (full top-down room, 1280x720)
@@ -31,16 +33,23 @@ THEMES = {
         "wall": (12, 10, 22),
         "vignette": (4, 2, 10),
         "finish": [(245, 245, 255), (20, 18, 30)],   # checker colors
-        # cosmetic swatches the 12 variants draw from (shirt, hair)
+        # cosmetic swatches the layer options draw from (#67): "shirts" are the 6 body
+        # outfits, faces pair skins[i % 5] with hairs[i], and "hats" are 6 headgear
+        # specs — (shape, main, accent), shape keyed into HAT_SHAPES; entry 0 is bare.
         "shirts": [(0,230,230),(255,60,200),(160,255,60),(255,170,40),(255,235,60),
-                   (235,40,70),(60,120,255),(180,70,255),(0,200,160),(255,120,170),
-                   (235,235,245),(120,255,210)],
+                   (235,40,70)],
         "hairs":  [(30,28,40),(80,40,30),(20,20,25),(110,80,40),(200,180,120),
-                   (40,30,60),(150,30,40),(25,25,35),(90,60,30),(210,210,220),
-                   (60,40,30),(35,30,45)],
+                   (210,210,220)],
         "skins":  [(245,205,170),(225,175,135),(200,150,110),(165,115,80),(120,80,55)],
         "pants":  (35,33,48),
         "outline":(8,6,14),
+        # after-hours arcade headgear; bare-headed first, so neon's default look stays hatless
+        "hats":   [("none",),
+                   ("beanie", (45,45,75), (0,230,230)),
+                   ("cap", (255,60,200), (0,230,230)),
+                   ("headphones", (30,30,46), (160,255,60)),
+                   ("visor", (205,210,225), (0,230,230)),
+                   ("crown", (255,220,60), (255,120,170))],
         # ammo icon (in this folder) + reticle tint — emitted into theme.json's "ui".
         "bullet": "bullet.png",
         "reticle": "#ff5577",
@@ -56,17 +65,19 @@ THEMES = {
         "vignette": (14, 8, 4),
         "finish": [(235, 225, 200), (70, 44, 28)],   # cream / brown finish banner
         "shirts": [(70,96,150),(150,60,45),(170,140,80),(96,110,70),(196,160,70),
-                   (110,80,55),(205,195,170),(120,50,55),(120,120,128),(70,95,75),
-                   (180,120,60),(60,55,60)],
+                   (205,195,170)],
         "hairs":  [(40,28,18),(20,16,12),(90,60,35),(120,90,55),(150,150,155),
-                   (60,40,25),(30,25,22),(80,55,30),(110,75,45),(25,22,20),
-                   (95,65,38),(45,35,28)],
+                   (60,40,25)],
         "skins":  [(245,205,170),(225,175,135),(200,150,110),(165,115,80),(120,80,55)],
         "pants":  (60,48,36),
         "outline":(20,12,8),
-        # presence of "hats" switches the head to a cowboy hat
-        "hats":   [(92,62,36),(70,48,28),(120,92,58),(45,32,22),(140,110,72),(60,40,26),
-                   (30,24,18),(100,72,44),(150,120,80),(80,55,32),(55,42,30),(110,85,52)],
+        # frontier headgear: two cowboy hats, a bandana, a bowler, a flat straw brim
+        "hats":   [("none",),
+                   ("cowboy", (92,62,36), (214,180,96)),
+                   ("cowboy", (38,30,24), (196,72,48)),
+                   ("bandana", (150,60,45), (235,225,200)),
+                   ("bowler", (50,38,28), (110,80,50)),
+                   ("flat", (202,172,104), (150,108,60))],
         # ammo icon (in this folder) + reticle tint — emitted into theme.json's "ui".
         "bullet": "bullet_flat.png",
         "reticle": "#e0963c",
@@ -82,18 +93,19 @@ THEMES = {
         "vignette": (4, 6, 12),
         "finish": [(228, 234, 244), (30, 36, 48)],   # white / dark-steel airlock stripe
         "shirts": [(220,120,40),(70,110,150),(184,188,196),(80,160,150),(204,200,90),
-                   (160,64,58),(108,118,134),(60,92,134),(176,116,64),(96,172,184),
-                   (206,212,222),(126,96,156)],
+                   (160,64,58)],
         "hairs":  [(30,28,40),(80,40,30),(20,20,25),(110,80,40),(200,180,120),
-                   (40,30,60),(150,30,40),(25,25,35),(90,60,30),(210,210,220),
-                   (60,40,30),(35,30,45)],
+                   (40,30,60)],
         "skins":  [(245,205,170),(225,175,135),(200,150,110),(165,115,80),(120,80,55)],
         "pants":  (50,55,68),
         "outline":(10,12,20),
-        # presence of "helmets" switches the head to an EVA helmet (shell + accent visor)
-        "helmets":[(212,217,226),(190,196,206),(170,178,190),(202,207,216),(150,160,176),
-                   (206,211,221),(182,190,200),(162,170,184),(196,202,214),(176,184,196),
-                   (210,214,224),(166,174,188)],
+        # orbital headgear: two EVA helmets, a comms headset, a crew kepi, a visor
+        "hats":   [("none",),
+                   ("eva", (212,217,226), (255,150,50)),
+                   ("eva", (150,160,176), (96,190,220)),
+                   ("headset", (46,52,64), (232,72,58)),
+                   ("utility", (60,92,134), (228,234,244)),
+                   ("visor", (190,196,206), (255,150,50))],
         # ammo icon (in this folder) + reticle tint — emitted into theme.json's "ui".
         "bullet": "bullet.png",
         "reticle": "#5fc0e0",
@@ -101,13 +113,17 @@ THEMES = {
 }
 
 FW = FH = 32                      # frame size
-N_VARIANTS = 12
+# A character is composed of three independently-picked layers (#67); each layer
+# offers this many options per theme. The server validates picks against the same
+# count (DeadGiveaway.World.layer_options/0) — keep the two in sync.
+N_PER_LAYER = 6
+LAYERS = ("hat", "face", "body")
 SCALE_BG = 4                      # backgrounds rendered at 1/4 then nearest-upscaled
 
 # animation frame counts
 ANIM = {"idle": 4, "walk": 4, "run": 6, "dropped": 1}
-COLS = sum(ANIM.values())        # frames per variant row = 15
-ROWS = N_VARIANTS
+COLS = sum(ANIM.values())        # frames per option row = 15
+ROWS = len(LAYERS) * N_PER_LAYER
 
 # ----------------------------------------------------------------------------
 # low-level helpers
@@ -143,22 +159,19 @@ def vivify(c):
 
 # ----------------------------------------------------------------------------
 # character drawing  (3/4 side view, facing RIGHT)
+#
+# A character is three stacked 32x32 layers (#67) — body (legs/torso/arms), face
+# (head + hair), hat (headgear, or nothing) — each drawn against the same pose
+# skeleton so any hat/face/body combination composes into one animating figure.
+# Layers are outlined separately: the silhouette outline matches the old whole-
+# figure pass, and the extra 1px rim where a hat meets the head reads as pixel-art
+# definition. Hands and feet are gloves and boots (outfit tones, not skin) so the
+# body layer never has to know which face it's under.
 # ----------------------------------------------------------------------------
-def draw_agent(pal, variant, pose, t):
-    """Render one 32x32 RGBA frame."""
-    img = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
-    fig = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
-    d = ImageDraw.Draw(fig)
-
-    skin = pal["skins"][variant % len(pal["skins"])]
-    shirt = pal["shirts"][variant % len(pal["shirts"])]
-    hair = pal["hairs"][variant % len(pal["hairs"])]
-    pants = pal["pants"]
-
-    cx = 16
-    bob = 0
-    lean = 0
-    # phase math per pose
+def pose_anchor(pose, t):
+    """The shared skeleton: where the figure sits this frame. bx/top anchor the head
+    (head spans x bx-3..bx+4, y top..top+8); swing/aswing drive the limbs."""
+    bob, lean, swing, aswing = 0, 0, 0, 0
     if pose == "walk":
         ph = t / ANIM["walk"] * 2 * math.pi
         swing = int(round(3 * math.sin(ph)))
@@ -171,37 +184,42 @@ def draw_agent(pal, variant, pose, t):
         bob = -1 if (t % 3) else -2
         lean = 2
     elif pose == "idle":
-        ph = t / ANIM["idle"] * 2 * math.pi
-        swing = 0; aswing = 0
         bob = 0 if t in (0, 2) else -1
-    else:  # dropped
-        swing = 0; aswing = 0; bob = 0
+    return 16 + lean, 6 + bob, swing, aswing
+
+# The dropped figure slumps toward the right with its head at this anchor; every
+# layer draws against it so a corpse's hat stays on its head.
+DROP_BX, DROP_TOP = 23, 17
+DROP_FADE = 0.55
+
+def _finish_layer(fig, pal, faded):
+    """Outline a drawn layer and (for the dropped pose) apply the corpse fade."""
+    fig = add_outline(fig, pal["outline"])
+    if faded:
+        fig.putalpha(fig.split()[3].point(lambda v: int(v * DROP_FADE)))
+    return fig
+
+def draw_body(pal, opt, pose, t):
+    """The body layer: legs, torso, arms — and the ground shadow, the stack's base."""
+    img = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
+    fig = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
+    d = ImageDraw.Draw(fig)
+    shirt = pal["shirts"][opt % len(pal["shirts"])]
+    pants = pal["pants"]
+    boot = shade(pants, 1.6)
 
     if pose == "dropped":
-        # slumped, lying toward the right; drawn faded later
         d.ellipse([6, 18, 26, 27], fill=shade(shirt, .6))
-        d.ellipse([20, 17, 28, 25], fill=shade(skin, .7))   # head
-        d.ellipse([21, 19, 25, 23], fill=shade(hair, .7))
-        fig = add_outline(fig, pal["outline"])
-        # fade it
-        alpha = fig.split()[3].point(lambda v: int(v * 0.55))
-        fig.putalpha(alpha)
-        img = Image.alpha_composite(img, fig)
-        return img
+        return Image.alpha_composite(img, _finish_layer(fig, pal, True))
 
-    bx = cx + lean
-    top = 6 + bob
+    bx, top, swing, aswing = pose_anchor(pose, t)
 
-    # legs (behind torso)
-    lcol = pants
-    # back leg
-    d.line([(bx-1, top+15), (bx-1 - aswing, top+22)], fill=shade(lcol,.8), width=3)
-    d.rectangle([bx-3-aswing if aswing>0 else bx-3, top+21, bx-1-aswing+1, top+23], fill=shade(skin,.85))
-    # front leg
-    d.line([(bx+1, top+15), (bx+1 + swing, top+22)], fill=lcol, width=3)
-    # foot
+    # legs (behind torso), booted in an outfit tone so feet never read as skin
+    d.line([(bx-1, top+15), (bx-1 - aswing, top+22)], fill=shade(pants,.8), width=3)
+    d.rectangle([bx-3-aswing if aswing>0 else bx-3, top+21, bx-1-aswing+1, top+23], fill=shade(boot,.85))
+    d.line([(bx+1, top+15), (bx+1 + swing, top+22)], fill=pants, width=3)
     fx = bx + swing
-    d.rectangle([fx, top+21, fx+3, top+23], fill=shade(skin,.9))
+    d.rectangle([fx, top+21, fx+3, top+23], fill=boot)
 
     # torso
     d.rounded_rectangle([bx-4, top+8, bx+4, top+17], radius=2, fill=shirt)
@@ -209,73 +227,193 @@ def draw_agent(pal, variant, pose, t):
 
     # back arm
     d.line([(bx-2, top+9), (bx-2 - aswing, top+15)], fill=shade(shirt,.8), width=2)
-    # front arm + hand
+    # front arm + gloved hand
     hx, hy = bx+3 + swing, top+15
     d.line([(bx+3, top+9), (hx, hy)], fill=shirt, width=2)
-    d.ellipse([hx-1, hy-1, hx+1, hy+1], fill=skin)
+    d.ellipse([hx-1, hy-1, hx+1, hy+1], fill=shade(shirt, .65))
 
-    # head
-    d.ellipse([bx-3, top, bx+4, top+8], fill=skin)
-    # face hint (facing right): a touch of shadow on left, nose pixel on right
-    d.ellipse([bx-3, top, bx+0, top+8], fill=shade(skin,.9))
-    d.point((bx+4, top+4), fill=shade(skin,.85))
-    if pal.get("hats"):
-        # cowboy hat (3/4 side, facing right): crown + wide brim + accent band
-        hat = pal["hats"][variant % len(pal["hats"])]
-        band = pal["accent"][variant % len(pal["accent"])]
-        d.rectangle([bx-4, top+5, bx-2, top+7], fill=hair)              # sliver of hair at back
-        d.ellipse([bx-5, top+3, bx+7, top+6], fill=hat)                 # brim
-        d.rounded_rectangle([bx-2, top-2, bx+3, top+3], radius=1, fill=hat)  # crown
-        d.rectangle([bx-2, top+2, bx+3, top+3], fill=shade(band, .9))   # hat band
-        d.line([(bx-2, top-2), (bx+2, top-2)], fill=shade(hat, 1.2))    # crown highlight
-    elif pal.get("helmets"):
-        # EVA helmet (3/4 side, facing right): a rounded shell dome over the head with a
-        # glassy accent visor on the front, plus a bright crown sheen and a back rivet.
-        shell = pal["helmets"][variant % len(pal["helmets"])]
-        visor = pal["accent"][variant % len(pal["accent"])]
-        d.ellipse([bx-4, top-2, bx+5, top+8], fill=shell)                       # dome shell
-        d.rounded_rectangle([bx-1, top+1, bx+4, top+6], radius=2, fill=shade(visor, .85))  # visor glass
-        d.line([(bx+1, top+2), (bx+3, top+2)], fill=blend(visor, (255,255,255), 0.55))     # visor glare
-        d.line([(bx-2, top-2), (bx+1, top-2)], fill=shade(shell, 1.25))         # crown sheen
-        d.point((bx-3, top+3), fill=shade(shell, .8))                           # back rivet
-    else:
-        # hair cap
-        d.chord([bx-4, top-1, bx+5, top+6], 180, 360, fill=hair)
-        d.rectangle([bx-4, top+1, bx-2, top+4], fill=hair)  # back of hair
-
-    fig = add_outline(fig, pal["outline"])
-
-    # shadow under feet (not outlined)
+    # shadow under feet (not outlined, composited under the figure)
     sh = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
     ImageDraw.Draw(sh).ellipse([bx-6, top+24, bx+8, top+28], fill=(0, 0, 0, 70))
     img = Image.alpha_composite(img, sh)
-    img = Image.alpha_composite(img, fig)
+    return Image.alpha_composite(img, _finish_layer(fig, pal, False))
+
+def draw_face(pal, opt, pose, t):
+    """The face layer: head + hair. Hair is always drawn — an opaque hat covers it,
+    and the sliver that shows under a brim is the point."""
+    img = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
+    fig = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
+    d = ImageDraw.Draw(fig)
+    skin = pal["skins"][opt % len(pal["skins"])]
+    hair = pal["hairs"][opt % len(pal["hairs"])]
+
+    if pose == "dropped":
+        d.ellipse([20, 17, 28, 25], fill=shade(skin, .7))
+        d.ellipse([21, 19, 25, 23], fill=shade(hair, .7))
+        return Image.alpha_composite(img, _finish_layer(fig, pal, True))
+
+    bx, top, _swing, _aswing = pose_anchor(pose, t)
+
+    # head; face hint (facing right): a touch of shadow on left, nose pixel on right
+    d.ellipse([bx-3, top, bx+4, top+8], fill=skin)
+    d.ellipse([bx-3, top, bx+0, top+8], fill=shade(skin,.9))
+    d.point((bx+4, top+4), fill=shade(skin,.85))
+    # hair cap
+    d.chord([bx-4, top-1, bx+5, top+6], 180, 360, fill=hair)
+    d.rectangle([bx-4, top+1, bx-2, top+4], fill=hair)  # back of hair
+    return Image.alpha_composite(img, _finish_layer(fig, pal, False))
+
+# --- hat shapes (each drawn at the head anchor, facing right) -----------------
+def _hat_beanie(d, bx, top, main, accent):
+    # knit dome hugging the crown + a folded band with an accent stripe
+    d.chord([bx-4, top-2, bx+5, top+5], 180, 360, fill=main)
+    d.rectangle([bx-4, top+1, bx+4, top+3], fill=shade(main, .85))
+    d.line([(bx-4, top+2), (bx+4, top+2)], fill=accent)
+    d.point((bx, top-2), fill=shade(main, 1.3))
+
+def _hat_cap(d, bx, top, main, accent):
+    # ball cap: snug dome + a brim out front
+    d.chord([bx-4, top-2, bx+4, top+6], 180, 360, fill=main)
+    d.rectangle([bx-4, top+1, bx+3, top+2], fill=shade(main, .85))
+    d.rectangle([bx+2, top+2, bx+7, top+3], fill=shade(main, .9))
+    d.point((bx, top-1), fill=accent)  # logo dot
+
+def _hat_headphones(d, bx, top, main, accent):
+    # band over the crown, a cup each side, the front cup's LED lit
+    d.arc([bx-4, top-2, bx+5, top+6], 180, 360, fill=main, width=2)
+    d.rectangle([bx-5, top+2, bx-3, top+5], fill=shade(main, .9))
+    d.rectangle([bx+3, top+2, bx+5, top+5], fill=main)
+    d.point((bx+4, top+3), fill=accent)
+
+def _hat_visor(d, bx, top, main, accent):
+    # wraparound visor: a band across the brow with a glowing strip
+    d.rectangle([bx-3, top+2, bx+5, top+4], fill=main)
+    d.line([(bx-1, top+3), (bx+5, top+3)], fill=accent)
+    d.point((bx+5, top+3), fill=blend(accent, (255, 255, 255), .5))
+
+def _hat_crown(d, bx, top, main, accent):
+    # arcade-king crown: band + three points + a jewel
+    d.rectangle([bx-3, top, bx+3, top+2], fill=main)
+    for px_ in (bx-3, bx, bx+3):
+        d.line([(px_, top-2), (px_, top)], fill=main)
+    d.point((bx, top+1), fill=accent)
+
+def _hat_cowboy(d, bx, top, main, accent):
+    # crown + wide brim + accent band (the original western headgear)
+    d.ellipse([bx-5, top+3, bx+7, top+6], fill=main)
+    d.rounded_rectangle([bx-2, top-2, bx+3, top+3], radius=1, fill=main)
+    d.rectangle([bx-2, top+2, bx+3, top+3], fill=shade(accent, .9))
+    d.line([(bx-2, top-2), (bx+2, top-2)], fill=shade(main, 1.2))
+
+def _hat_bandana(d, bx, top, main, accent):
+    # head wrap: a low dome with knot tails at the back and a pattern dot
+    d.chord([bx-4, top-1, bx+5, top+5], 180, 360, fill=main)
+    d.line([(bx-4, top+3), (bx+4, top+3)], fill=shade(main, .8))
+    d.rectangle([bx-6, top+2, bx-4, top+5], fill=shade(main, .85))
+    d.point((bx+1, top+1), fill=accent)
+    d.point((bx-2, top+2), fill=accent)
+
+def _hat_bowler(d, bx, top, main, accent):
+    # rounded dome over a narrow curled brim, with a band
+    d.ellipse([bx-4, top+3, bx+6, top+5], fill=main)
+    d.chord([bx-3, top-2, bx+4, top+6], 180, 360, fill=main)
+    d.line([(bx-2, top+2), (bx+3, top+2)], fill=shade(accent, .9))
+    d.point((bx, top-2), fill=shade(main, 1.3))
+
+def _hat_flat(d, bx, top, main, accent):
+    # flat straw brim: a wide disc under a low crown
+    d.ellipse([bx-6, top+2, bx+7, top+5], fill=main)
+    d.rectangle([bx-2, top-1, bx+3, top+3], fill=shade(main, 1.05))
+    d.line([(bx-2, top+2), (bx+3, top+2)], fill=shade(accent, .9))
+
+def _hat_eva(d, bx, top, main, accent):
+    # EVA helmet: dome shell + glassy accent visor + crown sheen + back rivet
+    d.ellipse([bx-4, top-2, bx+5, top+8], fill=main)
+    d.rounded_rectangle([bx-1, top+1, bx+4, top+6], radius=2, fill=shade(accent, .85))
+    d.line([(bx+1, top+2), (bx+3, top+2)], fill=blend(accent, (255, 255, 255), 0.55))
+    d.line([(bx-2, top-2), (bx+1, top-2)], fill=shade(main, 1.25))
+    d.point((bx-3, top+3), fill=shade(main, .8))
+
+def _hat_headset(d, bx, top, main, accent):
+    # comms headset: thin band, a front cup, a mic boom curling to the mouth
+    d.arc([bx-4, top-1, bx+5, top+6], 200, 340, fill=main, width=2)
+    d.rectangle([bx+3, top+3, bx+5, top+5], fill=main)
+    d.line([(bx+4, top+5), (bx+5, top+7)], fill=main)
+    d.point((bx+5, top+7), fill=accent)
+
+def _hat_utility(d, bx, top, main, accent):
+    # crew kepi: flat-topped cap with a short brim and an insignia
+    d.rectangle([bx-3, top-1, bx+4, top+3], fill=main)
+    d.line([(bx-3, top-1), (bx+4, top-1)], fill=shade(main, 1.2))
+    d.rectangle([bx+3, top+3, bx+6, top+4], fill=shade(main, .85))
+    d.point((bx, top+1), fill=accent)
+
+HAT_SHAPES = {
+    "beanie": _hat_beanie, "cap": _hat_cap, "headphones": _hat_headphones,
+    "visor": _hat_visor, "crown": _hat_crown, "cowboy": _hat_cowboy,
+    "bandana": _hat_bandana, "bowler": _hat_bowler, "flat": _hat_flat,
+    "eva": _hat_eva, "headset": _hat_headset, "utility": _hat_utility,
+}
+
+def draw_hat(pal, opt, pose, t):
+    """The hat layer: the option's headgear at the head anchor — or, for the bare
+    option, a fully transparent frame (the picker's 'none')."""
+    img = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
+    spec = pal["hats"][opt % len(pal["hats"])]
+    if spec[0] == "none":
+        return img
+    fig = Image.new("RGBA", (FW, FH), (0, 0, 0, 0))
+    d = ImageDraw.Draw(fig)
+    shape, main, accent = HAT_SHAPES[spec[0]], spec[1], spec[2]
+    if pose == "dropped":
+        shape(d, DROP_BX, DROP_TOP, main, accent)
+        return Image.alpha_composite(img, _finish_layer(fig, pal, True))
+    bx, top, _swing, _aswing = pose_anchor(pose, t)
+    shape(d, bx, top, main, accent)
+    return Image.alpha_composite(img, _finish_layer(fig, pal, False))
+
+LAYER_DRAW = {"hat": draw_hat, "face": draw_face, "body": draw_body}
+
+def compose_agent(pal, look, pose, t):
+    """One fully-composed 32x32 frame from a (hat, face, body) pick — exactly the
+    stack the client renders. Preview-only; the shipped atlas stays layered."""
+    hat, face, body = look
+    img = draw_body(pal, body, pose, t)
+    img.alpha_composite(draw_face(pal, face, pose, t))
+    img.alpha_composite(draw_hat(pal, hat, pose, t))
     return img
 
 # ----------------------------------------------------------------------------
 # atlas builder
 # ----------------------------------------------------------------------------
 def build_atlas(pal, theme_key):
+    # One row per layer option (#67): hat00..hat05, face00..face05, body00..body05.
+    # Frames/animations are keyed "<layer><opt>_<pose>" so the client stacks one
+    # AnimatedSprite per layer off the same sheet.
     sheet = Image.new("RGBA", (COLS * FW, ROWS * FH), (0, 0, 0, 0))
     frames = {}
     animations = {}
-    for v in range(N_VARIANTS):
-        col = 0
-        for pose in ("idle", "walk", "run", "dropped"):
-            seq = []
-            for t in range(ANIM[pose]):
-                fr = draw_agent(pal, v, pose, t)
-                x, y = col * FW, v * FH
-                sheet.paste(fr, (x, y), fr)
-                name = f"v{v:02d}_{pose}{t}"
-                frames[name] = {
-                    "frame": {"x": x, "y": y, "w": FW, "h": FH},
-                    "sourceSize": {"w": FW, "h": FH},
-                    "spriteSourceSize": {"x": 0, "y": 0, "w": FW, "h": FH},
-                }
-                seq.append(name)
-                col += 1
-            animations[f"v{v:02d}_{pose}"] = seq
+    row = 0
+    for layer in LAYERS:
+        draw = LAYER_DRAW[layer]
+        for opt in range(N_PER_LAYER):
+            col = 0
+            for pose in ("idle", "walk", "run", "dropped"):
+                seq = []
+                for t in range(ANIM[pose]):
+                    fr = draw(pal, opt, pose, t)
+                    x, y = col * FW, row * FH
+                    sheet.paste(fr, (x, y), fr)
+                    name = f"{layer}{opt:02d}_{pose}{t}"
+                    frames[name] = {
+                        "frame": {"x": x, "y": y, "w": FW, "h": FH},
+                        "sourceSize": {"w": FW, "h": FH},
+                        "spriteSourceSize": {"x": 0, "y": 0, "w": FW, "h": FH},
+                    }
+                    seq.append(name)
+                    col += 1
+                animations[f"{layer}{opt:02d}_{pose}"] = seq
+            row += 1
     atlas = {
         "frames": frames,
         "animations": animations,
@@ -286,7 +424,7 @@ def build_atlas(pal, theme_key):
             "size": {"w": COLS * FW, "h": ROWS * FH},
             "scale": "1",
             "theme": theme_key,
-            "variants": N_VARIANTS,
+            "layers": {layer: N_PER_LAYER for layer in LAYERS},
             "frameSize": {"w": FW, "h": FH},
         },
     }
@@ -1013,10 +1151,10 @@ def contact_sheet(pal):
     img.paste(big, (pad, pad), big)
     return img
 
-def make_gif(pal, variant, pose, path):
+def make_gif(pal, look, pose, path):
     frames = []
     for t in range(ANIM[pose]):
-        fr = draw_agent(pal, variant, pose, t).resize((FW*6, FH*6), Image.NEAREST)
+        fr = compose_agent(pal, look, pose, t).resize((FW*6, FH*6), Image.NEAREST)
         bg = Image.new("RGBA", fr.size, (24,20,40,255))
         bg.alpha_composite(fr)
         frames.append(bg.convert("P", palette=Image.ADAPTIVE))
@@ -1050,7 +1188,9 @@ def main():
         "display": pal["display"],
         "blurb": pal["blurb"],
         "frameSize": {"w": FW, "h": FH},
-        "variants": N_VARIANTS,
+        # Layered sprites (#67): one option count per composable layer. The client
+        # builds a character from one hat + one face + one body off the same atlas.
+        "layers": {layer: N_PER_LAYER for layer in LAYERS},
         "animations": {k: v for k, v in ANIM.items()},
         "assets": {
             "agentsAtlas": "agents.json",
@@ -1071,8 +1211,9 @@ def main():
         "palette": {
             "wall": pal["wall"], "floor": pal["floor"], "accent": pal["accent"],
         },
-        "note": "Cosmetic variants are NOT correlated with human/bot identity. "
-                "Assign a random variant per character at spawn, server-side.",
+        "note": "Looks (hat/face/body picks, #67) are NOT correlated with human/bot "
+                "identity. Players choose theirs; bots are assigned random picks from "
+                "the same pool at spawn, server-side.",
     }
 
     # The themed crosshair (#48) is generated separately (gen_crosshair.py); only
@@ -1111,8 +1252,8 @@ def main():
     contact_sheet(pal).save(os.path.join(outdir, "preview_agents.png"))
     arena_bg(pal).save(os.path.join(outdir, "preview_arena.png"))
     menu_bg(pal).save(os.path.join(outdir, "preview_menu.png"))
-    make_gif(pal, 0, "walk", os.path.join(outdir, "preview_walk.gif"))
-    make_gif(pal, 3, "run", os.path.join(outdir, "preview_run.gif"))
+    make_gif(pal, (1, 0, 0), "walk", os.path.join(outdir, "preview_walk.gif"))
+    make_gif(pal, (3, 2, 4), "run", os.path.join(outdir, "preview_run.gif"))
 
     print("OK theme=", theme_key)
     print("atlas size:", sheet.size, "frames:", len(atlas["frames"]))

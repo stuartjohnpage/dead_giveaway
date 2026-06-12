@@ -44,6 +44,36 @@ defmodule DeadGiveawayWeb.GameControllerTest do
     assert redirected_to(conn) =~ ~r"^/play/[A-Z0-9]{4}\?name=Ada$"
   end
 
+  test "GET /play/new carries a valid sprite pick through to the lobby (#67)", %{conn: conn} do
+    conn = get(conn, ~p"/play/new?#{[name: "Ada", hat: 2, face: 0, body: 5]}")
+    to = redirected_to(conn)
+
+    assert to =~ ~r"^/play/[A-Z0-9]{4}\?"
+    for param <- ["name=Ada", "hat=2", "face=0", "body=5"], do: assert(to =~ param)
+  end
+
+  test "GET /play/new drops out-of-range or junk sprite picks (#67)", %{conn: conn} do
+    conn = get(conn, ~p"/play/new?hat=99&face=-1&body=crown")
+    assert redirected_to(conn) =~ ~r"^/play/[A-Z0-9]{4}$"
+  end
+
+  test "GET /play/:room exposes the sprite pick to the client as data attributes (#67)",
+       %{conn: conn} do
+    body = conn |> get(~p"/play/lobby?hat=1&face=3&body=0") |> html_response(200)
+
+    assert body =~ ~s(data-hat="1")
+    assert body =~ ~s(data-face="3")
+    assert body =~ ~s(data-body="0")
+  end
+
+  test "GET /play/:room without a pick omits the look attributes (#67)", %{conn: conn} do
+    body = conn |> get(~p"/play/lobby") |> html_response(200)
+
+    refute body =~ "data-hat"
+    refute body =~ "data-face"
+    refute body =~ "data-body"
+  end
+
   test "GET /play/:room marks us as host when the session names that room", %{conn: conn} do
     conn =
       conn

@@ -25,12 +25,16 @@ sheet = Image.open(os.path.join(theme, "agents.png")).convert("RGBA")
 atlas = json.load(open(os.path.join(theme, "agents.json")))
 rnd = random.Random(5)
 lanes = 14
+layers = atlas["meta"]["layers"]
 for lane in range(lanes):
-    v = rnd.randrange(atlas["meta"]["variants"])
     pose = rnd.choice(["idle0", "walk1", "run2", "idle2"])
-    fr = atlas["frames"][f"v{v:02d}_{pose}"]["frame"]
-    spr = sheet.crop((fr["x"], fr["y"], fr["x"] + fr["w"], fr["y"] + fr["h"]))
-    spr = spr.resize((int(fr["w"] * SPRITE_SCALE), int(fr["h"] * SPRITE_SCALE)), Image.NEAREST)
+    # Compose a random look the way the client does (#67): body, then face, then hat.
+    spr = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+    for layer in ("body", "face", "hat"):
+        opt = rnd.randrange(layers[layer])
+        fr = atlas["frames"][f"{layer}{opt:02d}_{pose}"]["frame"]
+        spr.alpha_composite(sheet.crop((fr["x"], fr["y"], fr["x"] + fr["w"], fr["y"] + fr["h"])))
+    spr = spr.resize((int(32 * SPRITE_SCALE), int(32 * SPRITE_SCALE)), Image.NEAREST)
     sy = LANE_PAD_Y + lane * (H - 2 * LANE_PAD_Y) // (lanes - 1)
     sx = PAD + rnd.randrange(0, W - 2 * PAD - 120)
     img.alpha_composite(spr, (sx - 24, sy - 24))

@@ -72,16 +72,51 @@
         <span>// Identify yourself</span>
         <span class="text-slate-500">16 max</span>
       </label>
-      <input
-        type="text"
-        id="player-name"
-        name="name"
-        form="create-form"
-        placeholder="Your name"
-        autocomplete="off"
-        maxlength="16"
-        class="w-full border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-2.5 text-center text-lg font-semibold text-white transition placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
-      />
+      <div class="flex items-center gap-4">
+        <input
+          type="text"
+          id="player-name"
+          name="name"
+          form="create-form"
+          placeholder="Your name"
+          autocomplete="off"
+          maxlength="16"
+          class="min-w-0 flex-1 border border-white/10 bg-[var(--dg-ink)]/80 px-4 py-2.5 text-center text-lg font-semibold text-white transition placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-600 focus:border-cyan-400/60 focus:outline-none focus:ring-1 focus:ring-cyan-400/40"
+        />
+        <%!-- Sprite picker (#67): your sprite as three stacked boxes — hat / face / body —
+              with arrows cycling each layer's options independently. sprite-picker.mjs
+              fills the boxes from the default theme's atlas, remembers the pick alongside
+              the name, and every join path carries it. With no JS the boxes stay empty
+              and the server deals a random look — create/join are unaffected. --%>
+        <div id="sprite-picker" class="shrink-0 space-y-1">
+          <div :for={layer <- ~w(hat face body)} class="flex items-center gap-1">
+            <button
+              type="button"
+              data-layer={layer}
+              data-dir="-1"
+              aria-label={"previous #{layer}"}
+              class="text-cyan-300/60 transition hover:text-cyan-200"
+            >
+              <.icon name="hero-chevron-left" class="size-4" />
+            </button>
+            <div
+              data-box={layer}
+              title={layer}
+              class="h-12 w-[72px] border border-white/10 bg-[var(--dg-ink)]/80 bg-no-repeat [image-rendering:pixelated]"
+            >
+            </div>
+            <button
+              type="button"
+              data-layer={layer}
+              data-dir="1"
+              aria-label={"next #{layer}"}
+              class="text-cyan-300/60 transition hover:text-cyan-200"
+            >
+              <.icon name="hero-chevron-right" class="size-4" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <%!-- Play card: create a fresh lobby or join one by code. Both pull the name from the
@@ -108,11 +143,14 @@
         or join one <span class="h-px flex-1 bg-cyan-400/15"></span>
       </div>
 
-      <%!-- Join: type a code a host shared with you. `join-name` is a hidden mirror of
-            the name field above, filled by router.mjs right before submit so a guest
-            carries their chosen name in too. --%>
+      <%!-- Join: type a code a host shared with you. `join-name` (and the look fields,
+            #67) are hidden mirrors of the identity card above, filled by router.mjs right
+            before submit so a guest carries their chosen name and sprite in too. --%>
       <.form for={to_form(%{})} id="join-form" action={~p"/join"} method="post" class="flex gap-2">
         <input type="hidden" id="join-name" name="name" />
+        <input type="hidden" id="join-hat" name="hat" />
+        <input type="hidden" id="join-face" name="face" />
+        <input type="hidden" id="join-body" name="body" />
         <input
           type="text"
           id="code"

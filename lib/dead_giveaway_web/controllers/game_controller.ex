@@ -1,7 +1,7 @@
 defmodule DeadGiveawayWeb.GameController do
   use DeadGiveawayWeb, :controller
 
-  alias DeadGiveaway.{PlayerName, Rooms}
+  alias DeadGiveaway.{PlayerName, Rooms, World}
 
   # Code alphabet excludes easily-confused glyphs (0/O, 1/I/L) so a code read off
   # one screen and typed into another doesn't get garbled.
@@ -18,7 +18,7 @@ defmodule DeadGiveawayWeb.GameController do
 
     conn
     |> put_session(:host_code, code)
-    |> redirect(to: play_path(code, name_query(params)))
+    |> redirect(to: play_path(code, name_query(params) ++ look_query(params)))
   end
 
   # Join a lobby by typed code. We normalise to the code alphabet so "abcd ",
@@ -26,7 +26,7 @@ defmodule DeadGiveawayWeb.GameController do
   def join(conn, params) do
     case normalize_code(params["code"]) do
       "" -> conn |> put_flash(:error, "Enter a lobby code to join.") |> redirect(to: ~p"/")
-      code -> redirect(conn, to: play_path(code, name_query(params)))
+      code -> redirect(conn, to: play_path(code, name_query(params) ++ look_query(params)))
     end
   end
 
@@ -43,6 +43,7 @@ defmodule DeadGiveawayWeb.GameController do
       room: room,
       host: get_session(conn, :host_code) == room,
       name: params["name"] || "",
+      look: Map.new(look_query(params)),
       themes: DeadGiveaway.Themes.all()
     )
   end
@@ -55,6 +56,23 @@ defmodule DeadGiveawayWeb.GameController do
       name -> [name: name]
     end
   end
+
+  # The sprite pick rides the same query the name does (#67); only in-range integer
+  # indices survive the round-trip (the channel re-validates them on join anyway).
+  defp look_query(params) do
+    for layer <- [:hat, :face, :body],
+        value = parse_layer(params[Atom.to_string(layer)]),
+        do: {layer, value}
+  end
+
+  defp parse_layer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} when n >= 0 -> if n < World.layer_options(), do: n
+      _ -> nil
+    end
+  end
+
+  defp parse_layer(_value), do: nil
 
   # Verified routes append a stray "?" for an empty query, so branch on it.
   defp play_path(code, []), do: ~p"/play/#{code}"

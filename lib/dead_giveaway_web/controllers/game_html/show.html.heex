@@ -2,11 +2,17 @@
       the whole viewport — no page chrome during play. `data-host` (set server-side
       from the creator's session, not the URL) tells the client whether to start this
       lobby (the host) or require it to already exist. --%>
+<%!-- data-hat/face/body are the sprite pick (#67), carried from the splash's picker via
+      the same query params as the name; absent (attribute omitted) when no pick rode in,
+      and the player is dealt a random look each round instead. --%>
 <div
   id="game"
   data-room={@room}
   data-host={to_string(@host)}
   data-name={@name}
+  data-hat={@look[:hat]}
+  data-face={@look[:face]}
+  data-body={@look[:body]}
   class="fixed inset-0 overflow-hidden bg-[#0b1020]"
 >
 </div>

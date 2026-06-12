@@ -70,6 +70,12 @@ defmodule DeadGiveaway.World do
   @grace_ticks 15
   @bot_stop_delay 3..10
 
+  # Options per sprite layer (#67): every body wears a {hat, face, body} look whose
+  # indices land in 0..@layer_options-1. Mirrors N_PER_LAYER in the theme generator
+  # (tools/asset-gen/gen_pack.py) — keep the two in sync.
+  @layer_options 6
+  @look_layers [:hat, :face, :body]
+
   # Vertical distance between adjacent rows, so the crosshair (a continuous x/y
   # point) can pick the nearest body across rows.
   @row_spacing 10.0
@@ -88,6 +94,9 @@ defmodule DeadGiveaway.World do
   # The fastest a bot ever moves (it walks or stands still — never runs).
   def bot_max_speed, do: @bot_speed
   def row_spacing, do: @row_spacing
+
+  @doc "Options per sprite layer (#67), so callers validate picks against one source of truth."
+  def layer_options, do: @layer_options
 
   @doc "The valid pace keys (#17), so callers validate against one source of truth."
   def paces, do: Map.keys(@pace_ticks)
@@ -118,10 +127,14 @@ defmodule DeadGiveaway.World do
       ratio (default `:fast`, the original tempo; an unknown value falls back to it)
     * `:mode` — `:classic | :red_light` (#53). Red Light overlays the classic race
       with the watcher's light cycle; anything else (including the default) is classic.
+    * `:looks` — map of player name → `%{hat: h, face: f, body: b}` sprite picks (#67).
+      A player with no (or an invalid) entry — and every bot — is dealt a random look
+      from the same pool, so appearance never correlates with the human/bot mapping.
   """
   def new(opts) do
     seed = Keyword.fetch!(opts, :seed)
     humans = Keyword.get(opts, :humans, [])
+    looks = Keyword.get(opts, :looks, %{})
     bot_count = Keyword.get(opts, :bots, 0)
     finish_x = Keyword.get(opts, :finish_x, 1000.0)
     max_ammo = Keyword.get(opts, :max_ammo, 1)
@@ -153,6 +166,10 @@ defmodule DeadGiveaway.World do
     # Give each bot a random starting phase so the crowd is already desynced on
     # tick 1 rather than all flipping move/stop together.
     {entities, rng} = seed_bot_phases(entities, pace_ticks, rng)
+
+    # Dress every body (#67): humans wear their picks, bots (and pickless humans)
+    # are dealt random looks from the same pool.
+    {entities, rng} = assign_looks(entities, looks, rng)
 
     # Every human starts the round with `max_chances` lives (DESIGN §7).
     chances = for p <- humans, into: %{}, do: {p, max_chances}
@@ -297,11 +314,24 @@ defmodule DeadGiveaway.World do
   the key entirely, so the classic wire format is unchanged.
   """
   def snapshot(%__MODULE__{} = world) do
+    # The look indices (#67) are public by design — every client must render the same
+    # crowd — and say nothing about who drives a body (bots draw from the same pool).
     entities =
       world.entities
       |> Map.values()
       |> Enum.sort_by(& &1.id)
-      |> Enum.map(&%{id: &1.id, row: &1.row, x: &1.x, verb: &1.verb, alive: &1.alive})
+      |> Enum.map(
+        &%{
+          id: &1.id,
+          row: &1.row,
+          x: &1.x,
+          verb: &1.verb,
+          alive: &1.alive,
+          hat: &1.hat,
+          face: &1.face,
+          body: &1.body
+        }
+      )
 
     snapshot = %{entities: entities, finish_x: world.finish_x}
 
@@ -321,6 +351,10 @@ defmodule DeadGiveaway.World do
       speed: 0.0,
       verb: :stop,
       alive: true,
+      # The sprite look (#67), assigned for every body by assign_looks in new/1.
+      hat: 0,
+      face: 0,
+      body: 0,
       human?: player != nil,
       player: player,
       # Bot move/stop cycle state (unused for humans, who move by their verb).
@@ -648,6 +682,32 @@ defmodule DeadGiveaway.World do
         phase = if roll < 0.5, do: :moving, else: :stopped
         {phase_left, rng} = roll_phase_ticks(phase, ticks, rng)
         {Map.put(acc, row, set_phase(e, phase, phase_left)), rng}
+    end)
+  end
+
+  # Dress every body (#67): a human with a valid pick wears it; everyone else — every
+  # bot, and a human who sent none (or junk) — is dealt each layer from the same pool,
+  # so a look never says who (or what) drives the body.
+  defp assign_looks(entities, looks, rng) do
+    Enum.reduce(entities, {%{}, rng}, fn {row, e}, {acc, rng} ->
+      pick = e.player && Map.get(looks, e.player)
+
+      {look, rng} =
+        if valid_look?(pick), do: {Map.take(pick, @look_layers), rng}, else: roll_look(rng)
+
+      {Map.put(acc, row, Map.merge(e, look)), rng}
+    end)
+  end
+
+  defp valid_look?(%{hat: h, face: f, body: b}),
+    do: Enum.all?([h, f, b], &(is_integer(&1) and &1 in 0..(@layer_options - 1)))
+
+  defp valid_look?(_pick), do: false
+
+  defp roll_look(rng) do
+    Enum.reduce(@look_layers, {%{}, rng}, fn layer, {look, rng} ->
+      {i, rng} = :rand.uniform_s(@layer_options, rng)
+      {Map.put(look, layer, i - 1), rng}
     end)
   end
 
