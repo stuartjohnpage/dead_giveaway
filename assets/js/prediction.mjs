@@ -16,20 +16,26 @@ export function advance(x, verb, dtMs) {
   return x + ((SPEEDS[verb] || 0) / TICK_MS) * dtMs;
 }
 
-// While we're moving, the snapshot is *expected* to trail the prediction by about
-// speed × round-trip: our verb reaches the server late, and its snapshot reaches us
-// late. That gap is in-flight latency, not error — so within this allowance a moving
-// body's prediction is left alone rather than dragged back toward a stale position
-// (which would quietly reintroduce the input lag prediction exists to remove).
-// Beyond it something genuinely desynced (a lost input, a rejected verb): adopt the
-// server's word outright. 15 world units ≈ a 300ms round trip at a full run.
+// While the *server's* body is still moving, its word is stale by definition: our
+// latest verb and its snapshot are both in transit, so whatever gap we see is
+// round-trip latency, not error — and it closes by itself within one round trip,
+// because the server integrates the same inputs for the same duration we did.
+// Correcting against it drags the body backwards after every stop, chasing
+// positions the server has already abandoned. So a moving server body leaves the
+// prediction entirely alone; corrections engage only once its word is at rest.
+//
+// While only *we* are moving (the first round-trip of a fresh keypress, before the
+// server's body visibly starts), the same in-flight argument holds — up to an
+// allowance. Beyond it something genuinely desynced (a lost or rejected verb that
+// will never start the server's body): adopt the server's word outright.
+// 15 world units ≈ a 300ms round trip at a full run.
 const ALLOWANCE = 15;
-// At rest there is no in-flight motion: the server catches up within a round-trip and
-// whatever error remains is real drift, bled away a fraction per snapshot so the
-// correction glides rather than pops.
+// At mutual rest whatever error remains is real drift, bled away a fraction per
+// snapshot so the correction glides rather than pops.
 const BLEED = 0.1;
 
-export function reconcile(predictedX, serverX, moving) {
+export function reconcile(predictedX, serverX, moving, serverMoving) {
+  if (serverMoving) return predictedX;
   const err = serverX - predictedX;
   if (Math.abs(err) > ALLOWANCE) return serverX;
   return moving ? predictedX : predictedX + err * BLEED;
