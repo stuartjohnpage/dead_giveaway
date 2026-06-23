@@ -1,0 +1,80 @@
+# Tick demonstration
+
+## Section
+
+```elixir
+defmodule Ticker do
+  use GenServer
+
+  # Tick modes: 
+  # - interval: wait tick-ms from *after* the work finishes
+  #             (work is updating the game world, calculating stuff, etc)
+  # - deadline: aim at an absolute deadline, so lateness cancels instead of piling up
+  
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts)
+
+  @impl true
+  def init(opts) do
+    state = %{
+      mode:        Keyword.get(opts, :mode),
+      tick_ms:     Keyword.get(opts, :tick_ms),
+      sleep_ms:    Keyword.get(opts, :sleep_ms),   # stands in for the real work a tick does
+      tick_number: 0,
+      start:       System.monotonic_time(:millisecond)
+    }
+
+    schedule(state)
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_info(:tick, state) do
+    if state.sleep_ms > 0, do: Process.sleep(state.sleep_ms) #there's work to do: do the work
+
+    next_tick_number = state.tick_number + 1
+    elapsed     = System.monotonic_time(:millisecond) - state.start
+    expected    = next_tick_number * state.tick_ms
+    drift       = elapsed - expected
+
+    if rem(next_tick_number, 20) == 0 do
+      rate = Float.round(next_tick_number * 1000 / elapsed, 1)
+      IO.puts(
+        "#{state.mode}  tick #{pad(next_tick_number, 3)}   expected #{pad(expected, 5)} ms   " <>
+        "actual #{pad(elapsed, 5)} ms   drift #{pad(drift, 5)} ms   #{rate} ticks/sec"
+      )
+    end
+
+    state = %{state | tick_number: next_tick_number}
+    schedule(state)
+    {:noreply, state}
+  end
+
+  # THE OLD WAY:
+  defp schedule(%{mode: :interval} = state),
+    do: Process.send_after(self(), :tick, state.tick_ms)
+
+  # THE FIX: 
+  defp schedule(%{mode: :deadline} = state) do
+    
+    next  = state.start + (state.tick_number + 1) * state.tick_ms
+    delay = max(next - System.monotonic_time(:millisecond), 0)
+    Process.send_after(self(), :tick, delay)
+  end
+
+  defp pad(value, width), do: String.pad_leading("#{value}", width)
+end
+```
+
+```elixir
+{:ok, p} = Ticker.start_link(mode: :interval, tick_ms: 50, sleep_ms: 5)
+Process.sleep(5_000)
+GenServer.stop(p)
+
+```
+
+```elixir
+
+{:ok, p} = Ticker.start_link(mode: :deadline, tick_ms: 50, sleep_ms: 5)
+Process.sleep(5_000)
+GenServer.stop(p)
+```
