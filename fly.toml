@@ -20,7 +20,13 @@ primary_region = "iad"
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  # Single machine only. Rooms live in per-node GenServers and the app is not
+  # clustered (no distributed registry / distribution isn't even enabled), so a
+  # second machine means split-brain games: two players on different machines get
+  # separate worlds for the same room code (#72). Keep exactly one machine always
+  # up so in-memory room state survives and there's nothing to split across. Do
+  # NOT scale count > 1 without a distributed process registry.
+  min_machines_running = 1
   processes = ["app"]
 
 [[vm]]
