@@ -216,8 +216,16 @@ defmodule DeadGiveawayWeb.RoomChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:round_over, outcome, scores}, socket) do
-    push(socket, "round_over", Map.put(encode_outcome(outcome), :scores, scores))
+  # `crossed` tells the client whether the round ended at the finish line (someone
+  # crossed) or elsewhere (a walkover / wipe) — it stages the line flash and winner
+  # callout only for a real crossing (#71).
+  def handle_info({:round_over, outcome, scores, crossed?}, socket) do
+    push(
+      socket,
+      "round_over",
+      Map.merge(encode_outcome(outcome), %{scores: scores, crossed: crossed?})
+    )
+
     {:noreply, socket}
   end
 
