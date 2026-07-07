@@ -653,12 +653,16 @@ defmodule DeadGiveaway.Room do
     %{snapshot | entities: Enum.map(entities, &%{&1 | x: round(&1.x)})}
   end
 
-  defp finish_round(state), do: finish_round(state, state.world_mod.outcome(state.world))
+  # The /1 form is the crossing finish — someone reached the line — and says so in the
+  # broadcast: clients stage the win at the painted line (flash + callout, #71) only
+  # when the round actually ended there. A walkover or wipe (#55, #59) ends elsewhere,
+  # so those paths pass crossed?: false and go straight to the card.
+  defp finish_round(state), do: finish_round(state, state.world_mod.outcome(state.world), true)
 
-  defp finish_round(state, outcome) do
+  defp finish_round(state, outcome, crossed? \\ false) do
     # Award first so the broadcast carries the up-to-date session scoreboard.
     state = award(state, outcome)
-    broadcast(state.id, {:round_over, outcome, Session.scoreboard(state.session)})
+    broadcast(state.id, {:round_over, outcome, Session.scoreboard(state.session), crossed?})
     reset_round(state)
   end
 

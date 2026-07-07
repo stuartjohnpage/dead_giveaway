@@ -113,8 +113,31 @@ export async function boot() {
   finish.y = FLOOR_TOP;
   world.addChild(finish);
 
+  // The ruling edge (#71): the exact screen x where the server judges a crossing —
+  // the win threshold (world.ex @leading_edge) maps here, which is also the left edge
+  // of the pack's painted line (#56). The pack art is thematic but can run low-contrast,
+  // so a bright band over it makes the edge unmistakable on any theme, full track
+  // height. It sits under the runners, so a crossing body visibly covers the line.
+  const FINISH_EDGE_X = DESIGN_W - PAD;
+  const finishEdge = new Graphics()
+    .rect(FINISH_EDGE_X - 4, FLOOR_TOP, 8, FLOOR_H)
+    .fill({ color: 0xffffff, alpha: 0.16 })
+    .rect(FINISH_EDGE_X - 1, FLOOR_TOP, 2, FLOOR_H)
+    .fill({ color: 0xffffff, alpha: 0.9 });
+  world.addChild(finishEdge);
+
   const entityLayer = new Container();
   world.addChild(entityLayer);
+
+  // The crossing flash (#71): the instant the server rules a crossing, the ruling edge
+  // blazes and fades (ticker-driven below), pinning the win to the moment and the spot
+  // it happened. Over the runners — the flash washes across the crossing body.
+  const FLASH_MS = 700;
+  let flashAt = -Infinity; // dormant until a crossed round_over arms it
+  const finishFlash = new Graphics().rect(-4, 0, 8, FLOOR_H).fill(0xffffff);
+  finishFlash.position.set(FINISH_EDGE_X, FLOOR_TOP);
+  finishFlash.visible = false;
+  world.addChild(finishFlash);
 
   // The wind-up telegraph (#60): the watcher's spin alone wasn't reading — players'
   // eyes are on their own runner, not the line — so the whole arena carries the
@@ -251,6 +274,10 @@ export async function boot() {
   // once and trust they're present rather than nil-guarding every use.
   const lobby = document.getElementById("lobby");
   const lobbyScrim = document.getElementById("lobby-scrim");
+  // The winner callout (#71): a big "<name> wins!" over the frozen field the instant
+  // the server rules a crossing, shown for the beat before the lobby card takes over.
+  const winCallout = document.getElementById("win-callout");
+  const winCalloutText = document.getElementById("win-callout-text");
   const lobbyBanner = document.getElementById("lobby-banner");
   const lobbyCode = document.getElementById("lobby-code");
   const lobbyList = document.getElementById("lobby-list");
@@ -782,6 +809,9 @@ export async function boot() {
   channel.on("round_start", () => {
     music.toRound(); // open on stage 1 and climb the ladder through the round
     hideCard();
+    // A pending finish-moment card (#71) must not pop mid-round — cancel it with its callout.
+    clearTimeout(cardTimer);
+    winCallout.hidden = true;
     scores = null;
     dead = false; // fresh round → back in play (a previous round's death is cleared)
     myBodyId = null; // the room re-sends our body id ("you") right after round_start
@@ -818,6 +848,10 @@ export async function boot() {
   channel.on("chances", (p) => {
     if (typeof p.chances === "number") setChances(p.chances);
   });
+  // While a crossing finish plays out (#71), the lobby card is held back by this timer;
+  // round_start (and teardown) cancel it so a stale card can't pop mid-round.
+  const CALLOUT_MS = 2000;
+  let cardTimer = null;
   channel.on("round_over", (p) => {
     // A player name, "Bot" when a bot crossed first, or null when every human was
     // knocked out and the round ended with no winner at all (#55).
@@ -833,7 +867,21 @@ export async function boot() {
     // Stay in the game: float the card over the frozen final frame, and duck the music to
     // its chill stage-1 limbo bed (held, not climbing) until the next round ramps anew.
     music.toCard();
-    showCard(true);
+    // A win at the line gets its moment (#71): flash the ruling edge, call the winner out
+    // over the frozen field, and hold the card back a beat so the crossing is readable
+    // before UI covers it. Rounds that end elsewhere (a walkover, a wipe — `crossed`
+    // false) go straight to the card as before.
+    if (p.crossed && p.winner) {
+      flashAt = performance.now();
+      winCalloutText.textContent = `🏁 ${p.winner} wins!`;
+      winCallout.hidden = false;
+      cardTimer = setTimeout(() => {
+        winCallout.hidden = true;
+        showCard(true);
+      }, CALLOUT_MS);
+    } else {
+      showCard(true);
+    }
   });
 
   // Start out in the pre-game lobby (full backdrop), waiting to hit Go. If the menu loop
@@ -1083,6 +1131,15 @@ export async function boot() {
     // Throb the wind-up rim (#60) off the clock, not frames, so the pulse reads the
     // same at any refresh rate.
     if (light === "windup") lightRim.alpha = 0.4 + 0.6 * Math.abs(Math.sin(performance.now() / 130));
+    // The crossing flash (#71): swell the ruling edge sideways and fade it out.
+    const flashT = (performance.now() - flashAt) / FLASH_MS;
+    if (flashT < 1) {
+      finishFlash.visible = true;
+      finishFlash.alpha = 1 - flashT;
+      finishFlash.scale.x = 1 + 9 * flashT; // the 8px core swells to ~80px as it dies
+    } else {
+      finishFlash.visible = false;
+    }
     for (const s of sprites.values()) {
       s.sprite.x += (s.tx - s.sprite.x) * 0.25;
       s.sprite.y += (s.ty - s.sprite.y) * 0.25;
@@ -1127,6 +1184,7 @@ export async function boot() {
     window.removeEventListener("keydown", onKeyDown);
     window.removeEventListener("keyup", onKeyUp);
     window.removeEventListener("focus", onWindowFocus);
+    clearTimeout(cardTimer); // a finish-moment card (#71) must not fire into the swapped DOM
     // Destroy the Pixi app first: its render loop pushes "aim" over the channel, so stop
     // the ticker before we leave the room. `removeView` drops the canvas (the router's
     // content swap would discard it anyway, but don't rely on that here).

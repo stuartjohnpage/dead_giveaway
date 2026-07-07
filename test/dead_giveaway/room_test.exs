@@ -270,7 +270,8 @@ defmodule DeadGiveaway.RoomTest do
       Room.tick(room)
       Room.tick(room)
 
-      assert_receive {:round_over, {:winner, "alice"}, scores}, 500
+      # crossed: alice won at the line, so clients stage the finish there (#71).
+      assert_receive {:round_over, {:winner, "alice"}, scores, true}, 500
       assert scores["alice"] == 1
       # The scoreboard lists every player (0 if they've not finished first) plus
       # the shared Bot tally — it reads like the lobby roster, not just winners.
@@ -292,7 +293,7 @@ defmodule DeadGiveaway.RoomTest do
       # alice never moves, so the only thing that can cross is the lone bot.
       Enum.each(1..200, fn _ -> Room.tick(room) end)
 
-      assert_receive {:round_over, :wash, scores}, 500
+      assert_receive {:round_over, :wash, scores, true}, 500
       assert scores["Bot"] == 1
       assert scores["alice"] == 0
       assert Room.score(room, "Bot") == 1
@@ -311,7 +312,8 @@ defmodule DeadGiveaway.RoomTest do
       assert Room.fire(room, "alice", {0.0, alice_row * World.row_spacing()}) == :fired
       Room.tick(room)
 
-      assert_receive {:round_over, :wipe, scores}, 500
+      # not crossed: nobody reached the line — the round ended on the wipe (#71).
+      assert_receive {:round_over, :wipe, scores, false}, 500
       # Nobody takes the round — not even the shared Bot tally.
       assert scores["Bot"] == 0
       assert scores["alice"] == 0
@@ -333,7 +335,8 @@ defmodule DeadGiveaway.RoomTest do
       assert Room.fire(room, "alice", {0.0, bob_row * World.row_spacing()}) == :fired
       Room.tick(room)
 
-      assert_receive {:round_over, {:winner, "alice"}, scores}, 500
+      # not crossed: a walkover win happens wherever alice is standing, not at the line.
+      assert_receive {:round_over, {:winner, "alice"}, scores, false}, 500
       assert scores["alice"] == 1
     end
 
@@ -346,7 +349,7 @@ defmodule DeadGiveaway.RoomTest do
       Room.tick(room)
 
       # alice is the sole human and alive — but she started alone, so the round runs.
-      refute_receive {:round_over, _, _}, 100
+      refute_receive {:round_over, _, _, _}, 100
       assert Room.status(room) == :running
     end
   end

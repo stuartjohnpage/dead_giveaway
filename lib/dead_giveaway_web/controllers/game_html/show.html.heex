@@ -69,6 +69,21 @@
   </button>
 </div>
 
+<%!-- Winner callout (#71): game.mjs reveals this over the frozen field the instant the
+      server rules a crossing — naming the winner at the moment it happened — then swaps
+      it for the lobby card a beat later. --%>
+<div
+  id="win-callout"
+  hidden
+  class="pointer-events-none fixed inset-0 z-10 flex items-center justify-center"
+>
+  <p
+    id="win-callout-text"
+    class="px-4 text-center font-display text-5xl font-bold uppercase tracking-[0.04em] text-white [text-shadow:0_0_28px_rgba(0,0,0,0.95),0_2px_10px_rgba(0,0,0,0.9)] sm:text-6xl"
+  >
+  </p>
+</div>
+
 <%!-- Lobby / between-rounds screen. Shown by default and on round_over; game.mjs
       hides it once a round is live. Lists who has joined (or the standings after
       a round); the Go button starts the round. --%>
