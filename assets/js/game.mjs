@@ -772,8 +772,13 @@ export async function boot() {
     hideCard();
     updateWorld(snap);
   });
-  // Any player's shot — including your own — arrives here, so everyone hears it (§5).
-  channel.on("shot", () => playShot());
+  // Any player's shot arrives here, so everyone hears it (§5). Our own crack already
+  // played at the click (#70) — eat one broadcast per pending local play so the
+  // shooter doesn't hear a round-trip-delayed echo of their own shot.
+  channel.on("shot", () => {
+    if (pendingShotCracks > 0) pendingShotCracks--;
+    else playShot();
+  });
   channel.on("round_start", () => {
     music.toRound(); // open on stage 1 and climb the ladder through the round
     hideCard();
@@ -1038,24 +1043,39 @@ export async function boot() {
   let refocusedAt = -Infinity;
   const onWindowFocus = () => (refocusedAt = performance.now());
   window.addEventListener("focus", onWindowFocus);
+  // Local cracks whose server broadcast hasn't come back yet — the "shot" handler
+  // (above) eats that many broadcasts instead of replaying them (#70).
+  let pendingShotCracks = 0;
   app.canvas.addEventListener("click", () => {
     if (dead || !myCross.visible || ammo <= 0) return; // out of bullets or out of the round
     if (performance.now() - refocusedAt < REFOCUS_GRACE_MS) return; // refocus click (#65)
     const { wx, wy } = mouseToWorld();
-    // Firing reveals nothing about what you hit — only that you've spent a bullet (§5).
-    // The SFX plays when the server broadcasts the shot back (the "shot" handler
-    // above), so you hear the same crack as everyone else rather than a local one.
+    // The crack plays on the click (#70): waiting for the server's broadcast made every
+    // shot feel a full round-trip laggier than movement. Peers still hear the anonymous
+    // broadcast crack, so firing reveals nothing beyond "a bullet was spent" (§5). A
+    // shot the server ends up rejecting still cracked here — rare (the guards above
+    // catch the usual cases) and harmless, so no reconciliation.
+    playShot();
+    pendingShotCracks++;
     // Spend the round off the *server's* reply, not optimistically: a shot the server
     // rejects (already dead, or a race against the ammo cap) replies `fired: false`, and
-    // counting that locally would desync the HUD from real ammo (#11).
-    channel.push("fire", { x: wx, y: wy }).receive("ok", (resp) => {
-      if (!resp || !resp.fired) return;
-      ammo = Math.max(0, ammo - 1);
-      setAmmo(ammo);
-      // Only your *last* shot disarms you: the crosshair (and the OS cursor's absence)
-      // lingers while you still have bullets, and vanishes once you're empty (§5).
-      if (ammo <= 0) setCrosshairVisible(false);
-    });
+    // counting that locally would desync the HUD from real ammo (#11). A rejected (or
+    // lost) shot gets no broadcast, so hand its pending crack back rather than eating
+    // some later peer's.
+    channel
+      .push("fire", { x: wx, y: wy })
+      .receive("ok", (resp) => {
+        if (!resp || !resp.fired) {
+          pendingShotCracks = Math.max(0, pendingShotCracks - 1);
+          return;
+        }
+        ammo = Math.max(0, ammo - 1);
+        setAmmo(ammo);
+        // Only your *last* shot disarms you: the crosshair (and the OS cursor's absence)
+        // lingers while you still have bullets, and vanishes once you're empty (§5).
+        if (ammo <= 0) setCrosshairVisible(false);
+      })
+      .receive("timeout", () => (pendingShotCracks = Math.max(0, pendingShotCracks - 1)));
   });
 
   // --- Render loop: interpolate other entities toward the latest snapshot ---
